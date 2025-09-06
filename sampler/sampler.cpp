@@ -19,19 +19,30 @@ int runSampler(Logger& logger) {
     std::string sampleDir = R"(c:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)";
     sampler.loadSamples(sampleDir, logger);  // Delegace načítání (obsahuje logování a exit při chybě)
     
-    // REF: Příklad vyhledání (MIDI 108, velocity 7) – použití nového jména a getterů
+    // REF: Příklad vyhledávání (MIDI 108, velocity 7) – použití nového jména a getterů
     int index = sampler.findSampleInSampleList(108, 7);
     if (index != -1) {
         // Použití getterů pro přístup k metadatům (předá logger pro kontrolu)
         std::string filename = sampler.getFilename(index, logger);
-        int frequency = sampler.getSampleFrequency(index, logger);
+        int frequency = sampler.getFrequency(index, logger);
         uint8_t midiNote = sampler.getMidiNote(index, logger);
         uint8_t velocity = sampler.getMidiNoteVelocity(index, logger);
         
+        // Nové metadata
+        sf_count_t sampleCount = sampler.getSampleCount(index, logger);
+        double duration = sampler.getDurationSeconds(index, logger);
+        int channels = sampler.getChannelCount(index, logger);
+        bool isStereo = sampler.getIsStereo(index, logger);
+        
+        // Sestavení detailní zprávy s všemi metadaty
+        std::string stereoInfo = isStereo ? "stereo" : "mono";
         std::string msg = "Found sample: " + std::string(filename) + 
                           ", MIDI: " + std::to_string(midiNote) + 
                           ", Vel: " + std::to_string(velocity) + 
-                          ", frequency: " + std::to_string(frequency) + " Hz";
+                          ", Frequency: " + std::to_string(frequency) + " Hz" +
+                          ", Duration: " + std::to_string(duration) + "s" +
+                          ", Frames: " + std::to_string(sampleCount) +
+                          ", Channels: " + std::to_string(channels) + " (" + stereoInfo + ")";
         logger.log("runSampler/findSampleInSampleList", "info", msg);
         return 0;  // Úspěch
     } else {

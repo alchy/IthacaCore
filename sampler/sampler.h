@@ -5,16 +5,21 @@
 #include <cstddef>      // Pro size_t (pokud není v cstdint)
 #include <string>       // Pro std::string
 #include <vector>       // Pro std::vector
+#include <sndfile.h>    // Pro sf_count_t typ
 
 #include "core_logger.h"  // Pro Logger (pro předání reference)
 
 // Struktura pro metadata o samplu (načtená z WAV souboru a názvu)
 // Uchovává základní informace pro vyhledávání a správu sample
 struct SampleInfo {
-    char filename[256];             // Celoé jméno souboru (včetně cesty, max 256 znaků)
+    char filename[256];             // Celé jméno souboru (včetně cesty, max 256 znaků)
     uint8_t midi_note;              // MIDI nota (z názvu, rozsah 0-127, ale podporuje až 999)
     uint8_t midi_note_velocity;     // Velocity (z názvu, rozsah 0-7)
-    int sample_frequency;           // Frekvence samplu (načtená z WAV souboru)
+    int frequency;                  // Frekvence samplu (načtená z WAV souboru, musí odpovídat názvu)
+    sf_count_t sample_count;        // Celkový počet vzorků (frames)
+    double duration_seconds;        // Délka v sekundách
+    int channels;                   // Počet kanálů (1=mono, 2=stereo, atd.)
+    bool is_stereo;                 // True pokud stereo (channels >= 2)
 };
 
 // Hlavní třída pro IO operace se WAV samplami
@@ -28,7 +33,8 @@ public:
     // Vstup: Cesta k adresáři (string), reference na Logger pro logování
     // Chování: Prochází adresář, parsuje názvy podle patternu mXXX-velY-ZZ.wav,
     // načte freq z WAV headeru pomocí libsndfile; loguje info/warn/error
-    // Při chybě (např. neexistující adresář): Zaloguje error a volá std::exit(1)
+    // Validace konzistence: Kontroluje, zda frekvence v názvu odpovídá frekvenci v souboru
+    // Při chybě (např. neexistující adresář, nekonzistentní frekvence): Zaloguje error a volá std::exit(1)
     void loadSamples(const std::string& directoryPath, Logger& logger);
 
     // REF: Metoda pro vyhledání indexu sample v interním seznamu podle MIDI noty a velocity
@@ -41,7 +47,7 @@ public:
     // Vrátí konstantní referenci na vektor SampleInfo pro čtení dat
     const std::vector<SampleInfo>& getLoadedSampleList() const;
 
-    // REF: Nové gettery pro přístup k metadatům na základě indexu
+    // REF: Gettery pro přístup k metadatům na základě indexu
     // Tyto metody kontrolují platnost indexu; při neplatném: logují error a exit(1)
     // Vstup: int index (musí být >=0 a < velikost seznamu)
     // Výstup: Hodnota z SampleInfo na daném indexu
@@ -56,7 +62,21 @@ public:
     uint8_t getMidiNoteVelocity(int index, Logger& logger) const;
 
     // Getter pro frekvenci samplu (Hz)
-    int getSampleFrequency(int index, Logger& logger) const;
+    int getFrequency(int index, Logger& logger) const;
+
+    // Nové gettery pro rozšířená metadata
+    
+    // Getter pro počet vzorků (frames)
+    sf_count_t getSampleCount(int index, Logger& logger) const;
+
+    // Getter pro délku v sekundách
+    double getDurationSeconds(int index, Logger& logger) const;
+
+    // Getter pro počet kanálů
+    int getChannelCount(int index, Logger& logger) const;
+
+    // Getter pro stereo flag (true pokud channels >= 2)
+    bool getIsStereo(int index, Logger& logger) const;
 
 private:
     std::vector<SampleInfo> sampleList;  // Interní seznam načtených sample
