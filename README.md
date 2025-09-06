@@ -1,116 +1,132 @@
-# IthacaCore Audio Sampler
+# IthacaCore: C++ Sampler s Loggerem
 
 ## Popis projektu
-IthacaCore je profesionální audio sampler engine napsaný v C++17. Systém je modulární, s podporou logování (Logger), načítání WAV sample souborů (SamplerIO) a koordinací celého workflow (Sampler). Navržen pro snadnou integraci do větších projektů, jako je audio plugin nebo standalone aplikace. Používá libsndfile pro práci s WAV soubory a podporuje parsování nástupů souborů ve formátu `mXXX-velY-ZZ.wav` (kde XXX je MIDI nota 0-127, Y je velocity 0-7).
+IthacaCore je profesionální audio sampler engine napsaný v C++17. Systém je modulární, s podporou logování (Logger), načítání WAV sample souborů (SamplerIO) a koordinací celého workflow (runSampler). Navržen pro snadnou integraci do větších projektů, jako je audio plugin nebo standalone aplikace. Používá libsndfile pro práci s WAV soubory a podporuje parsování názvů souborů ve formátu `mXXX-velY-ZZ.wav` (kde XXX je MIDI nota 0-127, Y je velocity 0-7).
 
 Klíčové vlastnosti:
 - Thread-safe logování do souboru.
 - Načítání metadat (frekvence, MIDI nota, velocity) z WAV souborů.
 - Vyhledávání sample podle MIDI noty a velocity.
+- Přístup k metadatům přes bezpečné gettery (s kontrolou indexu).
 - Žádné konzolové výstupy v modulech – vše logováno.
 
 ## Požadavky
 - Visual Studio Code
-- Visual Studio 2022 Community Edition (s C++ komponentami)
+- Visual Studio 2022 Build Tools (s C++ komponentami) nebo Community Edition
 - CMake (verze 3.10+, přidejte do PATH)
 - Rozšíření VS Code: CMake Tools a C/C++ od Microsoftu
-- libsndfile (stáhnete v CMakeLists.txt přes add_subdirectory, nebo nainstalujte externě)
+- libsndfile (stáhne se automaticky přes `add_subdirectory` v CMakeLists.txt)
 - C++17 kompatibilní kompilátor (MSVC/GCC/Clang)
 
 ## Postup nastavení
-1. Naklonujte nebo vytvořte složku projektu `IthacaCore`.
-2. Uložte soubory (CMakeLists.txt, main.cpp, sampler/ moduly) do kořenové složky.
-3. Vytvořte složku `.vscode` a přidejte tasks.json, launch.json, settings.json.
+1. Uložte všechny soubory do kořenové složky projektu (např. `IthacaCore`).
+2. Vytvořte složku `.vscode` a uložte do ní `tasks.json`, `launch.json` a `settings.json`.
+3. Vytvořte složku `libsndfile` a stáhněte do ní zdrojový kód libsndfile (nebo použijte externí build).
 4. Otevřete projekt v VS Code (File → Open Folder).
-5. Spusťte CMake: Configure (Ctrl+Shift+P → CMake: Configure).
-6. Sestavte: Ctrl+Shift+P → Tasks: Run Task → build.
+5. Spusťte CMake: Configure (Ctrl+Shift+P → CMake: Configure). To vygeneruje build soubory v `build` složce.
 
 ## Sestavení a spuštění
-- **Sestavení**: Spusťte úlohu "build" (Ctrl+Shift+P → Tasks: Run Task → build). Vytvoří `Debug/IthacaCore.exe`.
-- **Spuštění**: Klikněte na tlačítko "Spustit" (F5) nebo spusťte `.\Debug\IthacaCore.exe` v terminálu.
-- **Výstup**: Program vypíše banner na konzoli, inicializuje logger a spustí sampler. Logy v `core_logger/core_logger.log`.
-- **Čištění**: Smažte složku `build` pro rebuild. Použijte target `clean-logs` pro čištění logů.
+- **Sestavení**: Spusťte úlohu "build" (Ctrl+Shift+P → Tasks: Run Task → build). To nastaví prostředí MSVC přes `vcvars64.bat` a spustí `cmake --build .`. Vytvoří `Debug/IthacaCore.exe`.
+- **Spuštění**: Klikněte na tlačítko spustit (|> ) nebo stiskněte F5. Program se sestaví a spustí.
+- **Výstup**:
+  - Na konzoli: Úvodní zpráva "[i] Starting IthacaCore" a případně parametry.
+  - V logu (`core_logger/core_logger.log`): Záznamy o inicializaci loggeru, načítání sample, vyhledávání (např. "Loaded: m108-vel7-01.wav (MIDI: 108, Vel: 7, Freq: 44100 Hz)").
+- **Čištění**: Smažte složku `build` a `core_logger` pro reset.
 
-**Poznámka**: Cesta k `vcvars64.bat` v tasks.json je pro VS 2022 Community. Pokud se liší (např. BuildTools), upravte ji. Pro PowerShell execution policy: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`.
+**Poznámka**: Cesta k `vcvars64.bat` v tasks.json je pro VS 2022 Build Tools. Pokud máte Community, upravte na `C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat`. Pro PowerShell execution policy: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`.
 
 ## Použití v vlastním projektu
 Pro integraci do vašeho C++ projektu zahrňte hlavičky a linkujte libsndfile. Příklad minimálního použití (v main.cpp):
-
 ```cpp
 #include "core_logger.h"
 #include "sampler.h"
-
 int main() {
-    Logger logger("./");  // Cesta k logům
-    int result = runSampler(logger);  // Spustí celý workflow
+    Logger logger("./"); // Cesta k logům
+    int result = runSampler(logger); // Spustí celý workflow
     return result;
 }
 ```
+Pro vlastní logiku použijte třídu `SamplerIO` (pro IO operace). Vždy inicializujte `Logger` pro logování.
 
-Pro vlastní logiku použijte třídy `Sampler` (koordinátor) nebo `SamplerIO` (pouze IO). Vždy inicializujte `Logger` pro logování.
+### Použití třídy SamplerIO
+`SamplerIO` pro čisté IO operace (načítání, vyhledávání, přístup k metadatům). Vytvořte instanci a předejte logger.
 
-### Použití třídy Sampler
-`Sampler` řídí celý systém (načítání, vyhledávání). Vytvořte instanci s loggerem.
-
-| Metoda | Parametry | Příklad | Komentář |
-|--------|-----------|---------|----------|
-| `Sampler(Logger& logger)` | `logger` – reference na Logger | `Sampler sampler(logger);` | Konstruktor: Inicializuje SamplerIO. Loguje start. |
-| `~Sampler()` | - | Automatický | Destruktor: Loguje ukončení a cleanup modulů. |
-| `loadSamples(const std::string& directoryPath)` | `directoryPath` – cesta k adresáři se WAV soubory (např. `"./samples"`) | `sampler.loadSamples(R"(c:\samples)");` | Načte samples z adresáře. Deleguje do SamplerIO. Chyby končí exit(1). |
-| `findSample(uint8_t midi_note, uint8_t velocity)` | `midi_note` (0-127), `velocity` (0-7) | `int idx = sampler.findSample(60, 5);` | Vyhledá index sample v seznamu. Vrátí -1, pokud nenalezeno. Loguje výsledek. |
-| `getSampleList()` | - | `const auto& list = sampler.getSampleList();` | Vrátí konstantní referenci na vektor `SampleInfo`. Pro přístup k metadatům (filename, freq atd.). |
+| Metoda | Parametry | Příklad | Komentář | Návratový typ | Příklad návratu / Chyba |
+|--------|-----------|---------|----------|---------------|-------------------------|
+| `SamplerIO()` | - | `SamplerIO io;` | Konstruktor: Inicializuje prázdný seznam `sampleList`. Žádné logování v konstruktoru. | `void` (konstruktor) | - (žádný návratový kód, úspěšná inicializace) |
+| `~SamplerIO()` | - | Automatický | Destruktor: Žádné speciální akce (seznam se uvolní automaticky). | `void` (destruktor) | - (automatické uvolnění) |
+| `loadSamples(const std::string& directoryPath, Logger& logger)` | `directoryPath` – cesta k adresáři se WAV soubory (např. `"./samples"`), `logger` – reference na Logger | `io.loadSamples(R"(c:\samples)", logger);` | Načte samples z adresáře. Deleguje parsování názvů (regex), načte metadata (libsndfile). Loguje info/warn/error. Chyby (neexistující adresář): zaloguje a `std::exit(1)`. | `void` | - (úspěch: načte data; chyba: exit(1) po logu) |
+| `findSampleInSampleList(uint8_t midi_note, uint8_t velocity) const` | `midi_note` (0-127), `velocity` (0-7) | `int idx = io.findSampleInSampleList(60, 5);` | Vyhledá index sample v interním seznamu. Vrátí -1, pokud nenalezeno. Lineární prohledávání, žádné logování. | `int` | `0` (index první shody); `-1` (nenalezeno, není chyba) |
+| `getLoadedSampleList() const` | - | `const auto& list = io.getLoadedSampleList();` | Vrátí konstantní referenci na vektor `SampleInfo` pro čtení metadat. Žádné logování. | `const std::vector<SampleInfo>&` | Reference na vektor (prázdný, pokud není načteno) |
+| `getFilename(int index, Logger& logger) const` | `index` – index v seznamu, `logger` – reference na Logger | `const char* fn = io.getFilename(idx, logger);` | Vrátí cestu k souboru. Kontroluje platnost indexu (>=0 a < velikost); při chybě: zaloguje error a `std::exit(1)`. | `const char*` | Cesta k souboru (např. `"C:\\samples\\m60-vel5-01.wav"`); chyba: exit(1) po logu |
+| `getMidiNote(int index, Logger& logger) const` | `index` – index v seznamu, `logger` – reference na Logger | `uint8_t note = io.getMidiNote(idx, logger);` | Vrátí MIDI notu. Stejná kontrola indexu jako výše. | `uint8_t` | MIDI nota (např. `60` pro C4); chyba: exit(1) po logu |
+| `getMidiNoteVelocity(int index, Logger& logger) const` | `index` – index v seznamu, `logger` – reference na Logger | `uint8_t vel = io.getMidiNoteVelocity(idx, logger);` | Vrátí velocity. Stejná kontrola indexu jako výše. | `uint8_t` | Velocity (např. `5`); chyba: exit(1) po logu |
+| `getSampleFrequency(int index, Logger& logger) const` | `index` – index v seznamu, `logger` – reference na Logger | `int freq = io.getSampleFrequency(idx, logger);` | Vrátí frekvenci (Hz). Stejná kontrola indexu jako výše. | `int` | Frekvence (např. `44100`); chyba: exit(1) po logu |
 
 **Příklad plného použití**:
 ```cpp
 Logger logger("./");
-Sampler sampler(logger);
-sampler.loadSamples("./samples");
-int idx = sampler.findSample(60, 0);  // Middle C, min velocity
+SamplerIO io;  // Prázdný sampler
+std::string dir = R"(c:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)";
+io.loadSamples(dir, logger);  // Načte a zaloguje
+int idx = io.findSampleInSampleList(108, 7);  // Vyhledá index
 if (idx != -1) {
-    const auto& sample = sampler.getSampleList()[idx];
-    // Použijte sample.filename atd.
-}
-```
-
-### Použití třídy SamplerIO
-`SamplerIO` pro čisté IO operace (bez koordinátoru). Používejte, pokud nepotřebujete další moduly.
-
-| Metoda | Parametry | Příklad | Komentář |
-|--------|-----------|---------|----------|
-| `SamplerIO(Logger& logger)` | `logger` – reference na Logger | `SamplerIO io(logger);` | Konstruktor: Vytvoří prázdný seznam. Loguje start. |
-| `~SamplerIO()` | - | Automatický | Destruktor: Loguje finální počet samples. |
-| `loadSamples(const std::string& directoryPath)` | `directoryPath` – cesta k WAV souborům | `io.loadSamples("./samples");` | Prochází adresář, parsuje názvy, načte metadata (libsndfile). Loguje statistiky. Chyby: exit(1). |
-| `findSample(uint8_t midi_note, uint8_t velocity)` | `midi_note` (0-127), `velocity` (0-7) | `int idx = io.findSample(60, 5);` | Lineární vyhledávání. Vrátí -1 při chybě. Loguje hledání. |
-| `getSampleList()` | - | `const auto& list = io.getSampleList();` | Vrátí vektor `SampleInfo`. Loguje velikost. |
-
-**Příklad použití**:
-```cpp
-Logger logger("./");
-SamplerIO io(logger);
-io.loadSamples(R"(c:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)");
-int idx = io.findSample(108, 7);
-if (idx != -1) {
-    printf("Sample: %s\n", io.getSampleList()[idx].filename);
+    const char* filename = io.getFilename(idx, logger);  // Přístup k filename
+    int freq = io.getSampleFrequency(idx, logger);  // Přístup k frekvenci
+    uint8_t note = io.getMidiNote(idx, logger);
+    uint8_t vel = io.getMidiNoteVelocity(idx, logger);
+    // Použij data: filename, freq, note, vel atd.
 }
 ```
 
 ### Funkce runSampler
 - **Signatura**: `int runSampler(Logger& logger)`
 - **Příklad**: `runSampler(logger);`
-- **Komentář**: Spustí kompletní workflow (načtení, test vyhledávání). Použijte pro standalone test. Vrátí 0 při úspěchu.
+- **Komentář**: Spustí kompletní workflow (deleguje načítání do SamplerIO, vyhledá příklad MIDI 108/vel 7, použije gettery pro metadata). Loguje všechny kroky. Vrátí 0 při úspěchu (chyby končí `std::exit(1)`). Použijte pro standalone test.
 
-## Struktura souborů
-- `main.cpp`: Hlavní vstup, inicializuje logger a sampler.
-- `sampler/`: Moduly (core_logger.h/cpp, sampler_io.h/cpp, sampler.h/cpp).
-- `CMakeLists.txt`: Konfigurace build (linkuje libsndfile).
-- `.vscode/`: VS Code konfigurace (tasks, launch, settings).
+## Struktura projektu
+### Klíčové soubory
+- **CMakeLists.txt**: Definuje projekt, přidává libsndfile, linkuje soubory (`main.cpp`, `sampler/*.cpp`) a include cesty.
+- **main.cpp**: Hlavní vstup – inicializuje logger, zpracuje argumenty a volá `runSampler`.
+- **sampler/core_logger.h/cpp**: Implementace třídy `Logger`.
+- **sampler/sampler.h/cpp**: Deklarace a implementace funkce `runSampler` a třídy `SamplerIO` (po refaktoru sloučeno pro jednoduchost).
+- **.vscode/**: Konfigurace pro VS Code (build tasky, launch, settings pro terminal a file associations).
+- **README.md**: Tento soubor.
+
+### Struktury a třídy
+#### Struktura `SampleInfo` (v `sampler.h`)
+Uchovává metadata o WAV samplu:
+```cpp
+struct SampleInfo {
+    char filename[256];             // Cesta k souboru (max 256 znaků)
+    uint8_t midi_note;              // MIDI nota (0-127)
+    uint8_t midi_note_velocity;     // Velocity (0-7)
+    int sample_frequency;           // Frekvence vzorkování (Hz, z WAV headeru)
+};
+```
+- Používá se pro ukládání dat v `std::vector<SampleInfo>` v `SamplerIO`.
+
+#### Třída `Logger` (v `core_logger.h/cpp`)
+- **Konstruktor**: `Logger(const std::string& path)` – Vytvoří složku `core_logger`, smaže starý log, otevře nový soubor. Selhání vede k `std::exit(1)`.
+- **Metoda `log`**: `void log(const std::string& component, const std::string& severity, const std::string& message)` – Zaloguje zprávu ve formátu `[timestamp] [component] [severity]: message`. Thread-safe díky `std::mutex`.
+- **Destruktor**: `~Logger()` – Uzavře soubor.
+- **Příklad instancování a volání** (z `main.cpp`):
+  ```cpp
+  Logger logger("./");  // Cesta k aktuálnímu adresáři
+  logger.log("SamplerIO/loadSamples", "info", "Loading samples from: /path/to/dir");
+  ```
 
 ## Řešení problémů
 - **Execution Policy**: Spusťte `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` v PowerShell.
 - **libsndfile chybí**: Stáhněte z [libsndfile GitHub](https://github.com/libsndfile/libsndfile) a upravte CMakeLists.txt.
 - **Logy**: Sledujte `core_logger/core_logger.log`. Pro real-time: `Get-Content -Path "core_logger/core_logger.log" -Tail 10 -Wait`.
-- **Rozšíření**: Přidejte efekty/sequencer do Sampler (komentáře v sampler.h).
+- **Rozšíření**: Upravte cestu v `sampler.cpp` pro jiné samples. Pro plné načítání audio dat rozšiřte `SamplerIO` o `sf_readf_float` z libsndfile.
 
+## Poznámky
+- **Názvosloví souborů**: Samples musí mít formát `mXXX-velY-ZZ.wav` (XXX = MIDI nota 0-127, Y = velocity 0-7, ZZ = libovolný index). Jinak se ignorují s warningem.
+- **Chyby**: Selhání inicializace (adresář, přístup, neplatný index v getterech) vede k logu a `std::exit(1)`.
+- **Thread-safety**: Pouze logování je chráněno mutexem; sampler není navržen pro multi-threading.
+- Projekt je přenositelný; pro složitější aplikace přidejte JUCE nebo další knihovny.
 
 ## Grab-Files
 ```
