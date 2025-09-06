@@ -12,13 +12,13 @@ int main(int argc, char *argv[]) {
     
     // Zpracování parametrů, pokud existují
     if (argc > 1) {
-        printf("Poskytnuté parametry: ");
+        printf("Parameters: ");
         for (int i = 1; i < argc; i++) {
             printf("%s ", argv[i]);
         }
         printf("\n");
     } else {
-        printf("Žádné parametry nebyly poskytnuty.\n");
+        printf("No perameters provides.\n");
     }
     
     return 0;

@@ -1,6 +1,5 @@
 Inicializace C++ projektu v VS Code
-Tento projekt slouží jako základní inicializace pro C++ vývoj v Visual Studio Code s použitím CMake a Visual Studio 2022 Community Edition. Obsahuje jednoduchý Hello World program, který vypíše "hello world!" na standardní výstup a hlásí absenci parametrů.
-Struktura projektu
+Základní inicializace pro C++ vývoj v Visual Studio Code s použitím CMake a Visual Studio 2022 Community Edition. Obsahuje jednoduchý Hello World program.
 
 CMakeLists.txt: Konfigurační soubor pro CMake, který definuje projekt.
 main.cpp: Hlavní program v C++.
