@@ -1,5 +1,3 @@
-#define _CRT_SECURE_NO_WARNINGS  // Ignorování warningu pro localtime v MSVC
-
 #include "core_logger.h"
 #include <fstream>      // Pro std::ofstream a zápis do souboru
 #include <filesystem>   // Pro kontrolu adresáře, vytvoření složky a smazání souboru (C++17)
@@ -13,10 +11,10 @@
 
 /**
  * @brief Konstruktor loggeru.
- * Kontroluje existenci a přístup k adresáří, vytváří složku core_logger,
+ * Kontroluje existenci a přístup k adresáři, vytváří složku core_logger,
  * smaže existující log soubor a otevře nový v append módu.
  * VÝSTUP: Vypisuje inicializační zprávy na konzoli pomocí printf.
- * @param path Cesta k adresáří.
+ * @param path Cesta k adresáři.
  * Při selhání: Tiskne chybu do std::cerr a volá std::exit(1).
  */
 Logger::Logger(const std::string& path) {
@@ -130,10 +128,18 @@ std::string Logger::getTimestamp() const {
 }
 
 /**
- * @brief Destruktor: Uzavře souborový stream.
+ * @brief Destruktor: Zaloguje ukončení a uzavře souborový stream.
  */
 Logger::~Logger() {
     if (logFile_.is_open()) {
+        // Finální záznam před uzavřením
+        std::string finalLog = getTimestamp() + " [Logger/destructor] [info]: Logger shutting down, closing log file";
+        logFile_ << finalLog << std::endl;
+        logFile_.flush();
+        
         logFile_.close();
+        
+        // Konzolová zpráva o ukončení
+        printf("[Logger] Logger destructor called - log file closed\n");
     }
 }

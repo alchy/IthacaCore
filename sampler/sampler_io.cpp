@@ -1,11 +1,48 @@
-#define _CRT_SECURE_NO_WARNINGS  // Ignorování warningu pro strncpy v MSVC
-
 #include "sampler.h"  // Include hlavičky pro definice SampleInfo a SamplerIO (nyní v sampler.h)
 #include <filesystem>   // Pro procházení adresáře
 #include <regex>        // Pro parsování názvů souborů
 #include <sndfile.h>    // Pro práci s WAV soubory
 #include <iostream>     // Pro std::cerr při chybách (jen pro libsndfile error, ale teď přes logger)
 #include <cstdlib>      // Pro std::exit
+
+/**
+ * @brief Normalizuje zkrácenou frekvenci z názvu souboru na standardní hodnoty
+ * @param freq Frekvence z názvu (zkrácená: 8, 11, 16, 22, 44, 48, 88, 96, 176, 192)
+ * @return Normalizovaná frekvence nebo -1 při nerozpoznání
+ */
+int normalizeFrequency(int freq) {
+    switch (freq) {
+        case 8:   return 8000;
+        case 11:  return 11025;
+        case 16:  return 16000;
+        case 22:  return 22050;
+        case 44:  return 44100;
+        case 48:  return 48000;
+        case 88:  return 88200;
+        case 96:  return 96000;
+        case 176: return 176400;
+        case 192: return 192000;
+        default:  return -1;  // Nerozpoznaná frekvence
+    }
+}
+
+/**
+ * @brief Pomocná funkce pro extrakci frekvence z názvu souboru
+ * Očekává pattern: mXXX-velY-fZZ.wav kde ZZ je zkrácená frekvence (44, 48, atd.)
+ * @param filename Název souboru
+ * @return Frekvence z názvu nebo -1 pokud není nalezena
+ */
+int parseFrequencyFromFilename(const std::string& filename) {
+    // Regex pro pattern s frekvencí: mXXX-velY-fZZ.wav (nový formát s 'f' prefixem)
+    std::regex freqPattern(R"(^m(\d+)-vel(\d+)-f(\d+)\.wav$)", std::regex_constants::icase);
+    std::smatch matches;
+    
+    if (std::regex_match(filename, matches, freqPattern)) {
+        return std::stoi(matches[3].str());  // Extrakce FREQ z třetí skupiny (po 'f')
+    }
+    
+    return -1; // Frekvence není v názvu (nebo špatný formát)
+}
 
 /**
  * @brief Konstruktor SamplerIO - inicializuje prázdný seznam samples
@@ -15,21 +52,13 @@ SamplerIO::SamplerIO() {
 }
 
 /**
- * @brief Pomocná funkce pro extrakci frekvence z názvu souboru
- * Očekává pattern: mXXX-velY-ZZ-FREQ.wav nebo mXXX-velY-ZZ.wav (bez frekvence)
- * @param filename Název souboru
- * @return Frekvence z názvu nebo -1 pokud není nalezena
+ * @brief Destruktor SamplerIO - loguje ukončení instance
  */
-int parseFrequencyFromFilename(const std::string& filename) {
-    // Regex pro pattern s frekvencí: mXXX-velY-ZZ-FREQ.wav
-    std::regex freqPattern(R"(^m(\d+)-vel(\d+)-\d+-(\d+)\.wav$)", std::regex_constants::icase);
-    std::smatch matches;
-    
-    if (std::regex_match(filename, matches, freqPattern)) {
-        return std::stoi(matches[3].str());
-    }
-    
-    return -1; // Frekvence není v názvu
+SamplerIO::~SamplerIO() {
+    // Pokud máme přístup k loggeru, zalogujeme ukončení
+    // Poznámka: V tomto designu nemáme přímý přístup k loggeru v destruktoru,
+    // takže použijeme printf pro konzistenci s Logger destruktorem
+    printf("[SamplerIO] SamplerIO destructor called - releasing %zu samples\n", sampleList.size());
 }
 
 /**
@@ -51,8 +80,8 @@ void SamplerIO::loadSamples(const std::string& directoryPath, Logger& logger) {
         std::exit(1);
     }
     
-    // Regex pattern pro parsování názvů souborů: mXXX-velY-ZZ.wav nebo mXXX-velY-ZZ-FREQ.wav
-    std::regex filenamePattern(R"(^m(\d+)-vel(\d+)-\d+(-\d+)?\.wav$)", std::regex_constants::icase);
+    // Regex pattern pro parsování názvů souborů: mXXX-velY-fZZ.wav (nový formát s 'f' pro FREQ)
+    std::regex filenamePattern(R"(^m(\d+)-vel(\d+)-f(\d+)\.wav$)", std::regex_constants::icase);
     std::smatch matches;
     
     int loadedCount = 0;
@@ -86,7 +115,7 @@ void SamplerIO::loadSamples(const std::string& directoryPath, Logger& logger) {
                     continue;
                 }
                 
-                // Extrakce frekvence z názvu (pokud je přítomná)
+                // Extrakce frekvence z názvu (nový formát s 'fZZ')
                 int filenameFreq = parseFrequencyFromFilename(filename);
                 
                 // Načtení metadata z WAV souboru pomocí libsndfile
@@ -101,13 +130,30 @@ void SamplerIO::loadSamples(const std::string& directoryPath, Logger& logger) {
                 }
                 
                 // Kontrola konzistence frekvence (pokud je v názvu)
-                if (filenameFreq != -1 && filenameFreq != sfInfo.samplerate) {
-                    logger.log("SamplerIO/loadSamples", "error", 
-                              "Frequency mismatch in file: " + filename + 
-                              " (filename: " + std::to_string(filenameFreq) + 
-                              " Hz, file: " + std::to_string(sfInfo.samplerate) + " Hz)");
-                    sf_close(sndFile);
-                    std::exit(1);
+                if (filenameFreq != -1) {
+                    int normalizedFreq = normalizeFrequency(filenameFreq);
+                    if (normalizedFreq == -1) {
+                        logger.log("SamplerIO/loadSamples", "error", 
+                                  "Unsupported frequency format in filename: " + filename + 
+                                  " (frequency: " + std::to_string(filenameFreq) + 
+                                  "). Supported: 8, 11, 16, 22, 44, 48, 88, 96, 176, 192");
+                        sf_close(sndFile);
+                        std::exit(1);
+                    } else if (normalizedFreq != sfInfo.samplerate) {
+                        logger.log("SamplerIO/loadSamples", "error", 
+                                  "Frequency mismatch in file: " + filename + 
+                                  " (filename: " + std::to_string(filenameFreq) + 
+                                  " -> " + std::to_string(normalizedFreq) + 
+                                  " Hz, actual file: " + std::to_string(sfInfo.samplerate) + " Hz)");
+                        sf_close(sndFile);
+                        std::exit(1);
+                    }
+                    
+                    // Logování úspěšné validace
+                    logger.log("SamplerIO/loadSamples", "info", 
+                              "Frequency validation passed: " + filename + 
+                              " (" + std::to_string(filenameFreq) + " -> " + 
+                              std::to_string(normalizedFreq) + " Hz)");
                 }
                 
                 // Výpočet délky v sekundách
@@ -142,7 +188,7 @@ void SamplerIO::loadSamples(const std::string& directoryPath, Logger& logger) {
                 sf_close(sndFile);
             } else {
                 logger.log("SamplerIO/loadSamples", "warn", 
-                          "Filename doesn't match pattern mXXX-velY-ZZ.wav or mXXX-velY-ZZ-FREQ.wav: " + filename);
+                          "Filename doesn't match pattern mXXX-velY-fZZ.wav: " + filename);
             }
         }
     } catch (const std::filesystem::filesystem_error& e) {

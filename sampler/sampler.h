@@ -29,6 +29,9 @@ public:
     // Konstruktor: Inicializuje prázdný seznam sample
     SamplerIO();
 
+    // Destruktor: Loguje ukončení instance
+    ~SamplerIO();
+
     // REF: Metoda pro načtení seznamu WAV souborů z adresáře a naplnění seznamu
     // Vstup: Cesta k adresáři (string), reference na Logger pro logování
     // Chování: Prochází adresář, parsuje názvy podle patternu mXXX-velY-ZZ.wav,

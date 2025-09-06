@@ -153,3 +153,9 @@ struct SampleInfo {
 ```
 PowerShell.exe -ExecutionPolicy Bypass -File .\Grab-Files.ps1
 ```
+
+## Watch log
+
+```
+Get-Content -Path "./core_logger/core_logger.log" -Tail 10 -Wait
+```
