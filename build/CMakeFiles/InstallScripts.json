@@ -1,7 +1,8 @@
 {
 	"InstallScripts" : 
 	[
-		"C:/Users/jindr/IthacaCore/build/cmake_install.cmake"
+		"C:/Users/jindr/IthacaCore/build/cmake_install.cmake",
+		"C:/Users/jindr/IthacaCore/build/libsndfile/cmake_install.cmake"
 	],
 	"Parallel" : false
 }

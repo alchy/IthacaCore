@@ -2,10 +2,10 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Spustit HelloWorld",
+            "name": "Spustit IthacaCore",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/Debug/HelloWorld.exe",
+            "program": "${workspaceFolder}/Debug/IthacaCore.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
