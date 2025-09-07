@@ -1,8 +1,3 @@
-/*
-THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
-EXCEPT FOR REQUIRED UPDATES LIKE SAMPLE RATE PROPAGATION
-*/
-
 #include "voice.h"
 #include <algorithm>  // Pro std::min a případné clamp (gain)
 #include <cmath>      // Pro float výpočty, pokud potřeba (např. gain)

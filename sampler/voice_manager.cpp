@@ -1,8 +1,3 @@
-/*
-THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
-EXCEPT FOR REQUIRED UPDATES LIKE SAMPLEDIR PROPAGATION
-*/
-
 #include "voice_manager.h"
 #include <algorithm>  // Pro případné výpočty (např. clamp gainu v mixu, ale zde ne)
 
