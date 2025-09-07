@@ -146,7 +146,7 @@ public:
      * @param logger Reference na Logger pro zaznamenávání
      * 
      * Inicializuje pole instruments[128] na nullptr/false.
-     * Uloží reference pro pozdější použití v loadAllInstruments().
+     * Uloží reference pro pozdější použití v loadInstrument().
      * Zaloguje inicializační zprávu s targetSampleRate.
      */
     InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger);
@@ -179,7 +179,7 @@ public:
      * 
      * Loguje progress info a summary na konci.
      */
-    void loadAllInstruments();
+    void loadInstrument();
 
     /**
      * @brief Getter pro přístup k Instrument struktuře podle MIDI noty

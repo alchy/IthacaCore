@@ -37,7 +37,7 @@ int runSampler(Logger& logger) {
 
     // Krok 2: Načtení do paměti jako stereo buffery
     InstrumentLoader loader(sampler, targetSampleRate, logger);
-    loader.loadAllInstruments();
+    loader.loadInstrument();
 
     /* ======= TESTY: Přístup k instrumentu a export (v try-catch na konci) ====== */
     try {

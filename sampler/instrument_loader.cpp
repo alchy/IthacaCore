@@ -68,8 +68,8 @@ InstrumentLoader::~InstrumentLoader() {
  * @brief Hlavní metoda pro načtení všech instrumentů
  * Prochází všechny MIDI noty a velocity, vyhledává samples a načítá je do bufferů.
  */
-void InstrumentLoader::loadAllInstruments() {
-    logger_.log("InstrumentLoader/loadAllInstruments", "info", 
+void InstrumentLoader::loadInstrument() {
+    logger_.log("InstrumentLoader/loadInstrument", "info", 
                 "Starting loading of all instruments for targetSampleRate " + 
                 std::to_string(targetSampleRate_) + " Hz");
     
@@ -90,7 +90,7 @@ void InstrumentLoader::loadAllInstruments() {
             
             if (index != -1) {
                 // Sample nalezen - načtení do bufferu
-                logger_.log("InstrumentLoader/loadAllInstruments", "info", 
+                logger_.log("InstrumentLoader/loadInstrument", "info", 
                            "Sample found for MIDI " + std::to_string(midi) + 
                            " velocity " + std::to_string(vel) + " at index " + std::to_string(index));
                 
@@ -109,7 +109,7 @@ void InstrumentLoader::loadAllInstruments() {
                 instruments_[midi].total_samples_stereo[vel] = 0;
                 instruments_[midi].was_originally_mono[vel] = false;
                 
-                logger_.log("InstrumentLoader/loadAllInstruments", "warn", 
+                logger_.log("InstrumentLoader/loadInstrument", "warn", 
                            "Sample for MIDI " + std::to_string(midi) + 
                            " velocity " + std::to_string(vel) + 
                            " not found at frequency " + std::to_string(targetSampleRate_) + " Hz");
