@@ -35,6 +35,10 @@ add_executable(IthacaCore
     # Sampler coordinator module
     sampler/sampler.cpp
     sampler/sampler.h
+    
+    # InstrumentLoader module
+    sampler/instrument_loader.cpp
+    sampler/instrument_loader.h
 )
 
 # Include directories pro kompilaci a IntelliSense

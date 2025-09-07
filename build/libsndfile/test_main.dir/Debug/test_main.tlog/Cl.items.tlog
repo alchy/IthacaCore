@@ -1,0 +1,13 @@
+C:\Users\jindr\IthacaCore\libsndfile\src\test_main.c;C:\Users\jindr\IthacaCore\build\libsndfile\test_main.dir\Debug\test_main.obj
+C:\Users\jindr\IthacaCore\libsndfile\src\test_conversions.c;C:\Users\jindr\IthacaCore\build\libsndfile\test_main.dir\Debug\test_conversions.obj
+C:\Users\jindr\IthacaCore\libsndfile\src\test_float.c;C:\Users\jindr\IthacaCore\build\libsndfile\test_main.dir\Debug\test_float.obj
+C:\Users\jindr\IthacaCore\build\libsndfile\src\test_endswap.c;C:\Users\jindr\IthacaCore\build\libsndfile\test_main.dir\Debug\test_endswap.obj
+C:\Users\jindr\IthacaCore\libsndfile\src\test_audio_detect.c;C:\Users\jindr\IthacaCore\build\libsndfile\test_main.dir\Debug\test_audio_detect.obj
+C:\Users\jindr\IthacaCore\libsndfile\src\test_log_printf.c;C:\Users\jindr\IthacaCore\build\libsndfile\test_main.dir\Debug\test_log_printf.obj
+C:\Users\jindr\IthacaCore\libsndfile\src\test_file_io.c;C:\Users\jindr\IthacaCore\build\libsndfile\test_main.dir\Debug\test_file_io.obj
+C:\Users\jindr\IthacaCore\libsndfile\src\test_ima_oki_adpcm.c;C:\Users\jindr\IthacaCore\build\libsndfile\test_main.dir\Debug\test_ima_oki_adpcm.obj
+C:\Users\jindr\IthacaCore\libsndfile\src\test_strncpy_crlf.c;C:\Users\jindr\IthacaCore\build\libsndfile\test_main.dir\Debug\test_strncpy_crlf.obj
+C:\Users\jindr\IthacaCore\libsndfile\src\test_broadcast_var.c;C:\Users\jindr\IthacaCore\build\libsndfile\test_main.dir\Debug\test_broadcast_var.obj
+C:\Users\jindr\IthacaCore\libsndfile\src\test_cart_var.c;C:\Users\jindr\IthacaCore\build\libsndfile\test_main.dir\Debug\test_cart_var.obj
+C:\Users\jindr\IthacaCore\libsndfile\src\test_binheader_writef.c;C:\Users\jindr\IthacaCore\build\libsndfile\test_main.dir\Debug\test_binheader_writef.obj
+C:\Users\jindr\IthacaCore\libsndfile\src\test_nms_adpcm.c;C:\Users\jindr\IthacaCore\build\libsndfile\test_main.dir\Debug\test_nms_adpcm.obj

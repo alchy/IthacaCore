@@ -1,0 +1,1453 @@
+﻿===== File: launch.json =====
+Path: C:\Users\jindr\IthacaCore\.vscode\launch.json
+=====
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Spustit IthacaCore",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/Debug/IthacaCore.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "preLaunchTask": "build"
+        }
+    ]
+}
+
+
+===== File: settings.json =====
+Path: C:\Users\jindr\IthacaCore\.vscode\settings.json
+=====
+{
+    "terminal.integrated.defaultProfile.windows": "Command Prompt",
+    "files.associations": {
+        "xstring": "cpp",
+        "vector": "cpp",
+        "algorithm": "cpp",
+        "atomic": "cpp",
+        "bit": "cpp",
+        "cctype": "cpp",
+        "charconv": "cpp",
+        "chrono": "cpp",
+        "clocale": "cpp",
+        "cmath": "cpp",
+        "compare": "cpp",
+        "concepts": "cpp",
+        "cstddef": "cpp",
+        "cstdint": "cpp",
+        "cstdio": "cpp",
+        "cstdlib": "cpp",
+        "cstring": "cpp",
+        "ctime": "cpp",
+        "cwchar": "cpp",
+        "exception": "cpp",
+        "filesystem": "cpp",
+        "format": "cpp",
+        "forward_list": "cpp",
+        "fstream": "cpp",
+        "initializer_list": "cpp",
+        "iomanip": "cpp",
+        "ios": "cpp",
+        "iosfwd": "cpp",
+        "iostream": "cpp",
+        "istream": "cpp",
+        "iterator": "cpp",
+        "limits": "cpp",
+        "locale": "cpp",
+        "memory": "cpp",
+        "mutex": "cpp",
+        "new": "cpp",
+        "optional": "cpp",
+        "ostream": "cpp",
+        "ratio": "cpp",
+        "regex": "cpp",
+        "sstream": "cpp",
+        "stdexcept": "cpp",
+        "stop_token": "cpp",
+        "streambuf": "cpp",
+        "string": "cpp",
+        "system_error": "cpp",
+        "thread": "cpp",
+        "tuple": "cpp",
+        "type_traits": "cpp",
+        "typeinfo": "cpp",
+        "utility": "cpp",
+        "xfacet": "cpp",
+        "xiosbase": "cpp",
+        "xlocale": "cpp",
+        "xlocbuf": "cpp",
+        "xlocinfo": "cpp",
+        "xlocmes": "cpp",
+        "xlocmon": "cpp",
+        "xlocnum": "cpp",
+        "xloctime": "cpp",
+        "xmemory": "cpp",
+        "xtr1common": "cpp",
+        "xutility": "cpp"
+    }
+}
+
+
+===== File: tasks.json =====
+Path: C:\Users\jindr\IthacaCore\.vscode\tasks.json
+=====
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "cmd.exe",
+            "args": [
+                "/C",
+                "\"\"C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Auxiliary\\Build\\vcvars64.bat\" && cmake --build . --parallel 1\""
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$msCompile"],
+            "detail": "Kompilace projektu pomocÃ­ CMake a MSVC."
+        }
+    ]
+}
+
+
+===== File: core_logger.cpp =====
+Path: C:\Users\jindr\IthacaCore\sampler\core_logger.cpp
+=====
+#include "core_logger.h"
+#include <fstream>      // Pro std::ofstream a zÃ¡pis do souboru
+#include <filesystem>   // Pro kontrolu adresÃ¡Å™e, vytvoÅ™enÃ­ sloÅ¾ky a smazÃ¡nÃ­ souboru (C++17)
+#include <chrono>       // Pro zÃ­skÃ¡nÃ­ aktuÃ¡lnÃ­ho Äasu
+#include <iomanip>      // Pro formÃ¡tovÃ¡nÃ­ Äasu
+#include <sstream>      // Pro sestavenÃ­ stringu
+#include <iostream>     // Pro std::cerr pÅ™i chybÄ› inicializace
+#include <cstdlib>      // Pro std::exit
+#include <string>       // Pro std::string
+#include <cstdio>       // Pro printf
+
+/**
+ * @brief Konstruktor loggeru.
+ * Kontroluje existenci a pÅ™Ã­stup k adresÃ¡Å™i, vytvÃ¡Å™Ã­ sloÅ¾ku core_logger,
+ * smaÅ¾e existujÃ­cÃ­ log soubor a otevÅ™e novÃ½ v append mÃ³du.
+ * VÃSTUP: Vypisuje inicializaÄnÃ­ zprÃ¡vy na konzoli pomocÃ­ printf.
+ * @param path Cesta k adresÃ¡Å™i.
+ * PÅ™i selhÃ¡nÃ­: Tiskne chybu do std::cerr a volÃ¡ std::exit(1).
+ */
+Logger::Logger(const std::string& path) {
+    printf("[Logger] Initializing logger subsystem...\n");
+    printf("[Logger] Target directory: %s\n", path.c_str());
+    
+    std::filesystem::path dirPath(path);
+    if (!std::filesystem::exists(dirPath)) {
+        printf("[Logger] ERROR: Directory '%s' does not exist.\n", path.c_str());
+        std::cerr << "Logger error: Directory '" << path << "' does not exist." << std::endl;
+        std::exit(1);
+    }
+    if (!std::filesystem::is_directory(dirPath)) {
+        printf("[Logger] ERROR: '%s' is not a valid directory.\n", path.c_str());
+        std::cerr << "Logger error: '" << path << "' is not a valid directory." << std::endl;
+        std::exit(1);
+    }
+
+    printf("[Logger] Directory validation: OK\n");
+
+    // Kontrola pÅ™Ã­stupu k zÃ¡pisu (pokus o vytvoÅ™enÃ­ test souboru)
+    printf("[Logger] Testing write access...\n");
+    std::filesystem::path testFile = dirPath / "test_write.tmp";
+    std::ofstream testStream(testFile);
+    if (!testStream.is_open()) {
+        printf("[Logger] ERROR: No write access to directory '%s'.\n", path.c_str());
+        std::cerr << "Logger error: No write access to directory '" << path << "'." << std::endl;
+        std::exit(1);
+    }
+    testStream.close();
+    std::filesystem::remove(testFile);  // VyÄiÅ¡tÄ›nÃ­ test souboru
+    printf("[Logger] Write access: OK\n");
+
+    // VytvoÅ™enÃ­ sloÅ¾ky core_logger
+    std::filesystem::path loggerDir = dirPath / "core_logger";
+    printf("[Logger] Creating/verifying core_logger directory...\n");
+    try {
+        bool created = std::filesystem::create_directory(loggerDir);
+        if (created) {
+            printf("[Logger] Created new directory: %s\n", loggerDir.string().c_str());
+        } else {
+            printf("[Logger] Using existing directory: %s\n", loggerDir.string().c_str());
+        }
+    } catch (const std::filesystem::filesystem_error& e) {
+        printf("[Logger] ERROR: Failed to create core_logger directory.\n");
+        std::cerr << "Logger error creating core_logger directory: " << e.what() << std::endl;
+        std::exit(1);
+    }
+
+    // Cesta k log souboru
+    logFilePath_ = (loggerDir / "core_logger.log").string();
+    printf("[Logger] Log file path: %s\n", logFilePath_.c_str());
+
+    // SmazÃ¡nÃ­ existujÃ­cÃ­ho log souboru, pokud existuje
+    if (std::filesystem::exists(logFilePath_)) {
+        std::filesystem::remove(logFilePath_);
+        printf("[Logger] Removed existing log file for clean start\n");
+    }
+
+    // OtevÅ™enÃ­ novÃ©ho souboru v append mÃ³du
+    printf("[Logger] Opening log file for writing...\n");
+    logFile_.open(logFilePath_, std::ios::app);
+    if (!logFile_.is_open()) {
+        printf("[Logger] ERROR: Cannot open log file '%s'.\n", logFilePath_.c_str());
+        std::cerr << "Logger error: Cannot open log file '" << logFilePath_ << "'." << std::endl;
+        std::exit(1);
+    }
+
+    // PoÄÃ¡teÄnÃ­ zÃ¡znam v angliÄtinÄ›
+    std::string initialLog = getTimestamp() + " [Logger/constructor] [info]: Logger initialized successfully at " + logFilePath_;
+    logFile_ << initialLog << std::endl;
+    logFile_.flush();  // OkamÅ¾itÃ½ zÃ¡pis
+
+    printf("[Logger] SUCCESS: Logger fully operational\n");
+    std::string absolutePath = std::filesystem::absolute(logFilePath_).string();
+    printf("[Logger] Log file can be found at: %s\n", absolutePath.c_str());
+    printf("[Logger] To monitor logs in real-time, use: Get-Content -Path \"%s\" -Tail 10 -Wait\n", absolutePath.c_str());
+}
+
+/**
+ * @brief Loguje zprÃ¡vu do souboru s timestampem.
+ * Thread-safe: PouÅ¾Ã­vÃ¡ mutex pro zÃ¡pis.
+ * @param component NÃ¡zev komponenty.
+ * @param severity ZÃ¡vaÅ¾nost.
+ * @param message ZprÃ¡va.
+ */
+void Logger::log(const std::string& component, const std::string& severity, const std::string& message) {
+    std::lock_guard<std::mutex> lock(logMutex_);  // Thread-safety
+
+    if (!logFile_.is_open()) {
+        return;  // Ignorovat, pokud soubor nenÃ­ otevÅ™enÃ½
+    }
+
+    std::string logEntry = "[" + getTimestamp() + "] [" + component + "] [" + severity + "]: " + message + "\n";
+    logFile_ << logEntry;
+    logFile_.flush();  // OkamÅ¾itÃ½ zÃ¡pis pro debugging
+}
+
+/**
+ * @brief ZÃ­skÃ¡vÃ¡ aktuÃ¡lnÃ­ timestamp ve formÃ¡tu YYYY-MM-DD HH:MM:SS.
+ * @return FormÃ¡tovanÃ½ timestamp jako std::string.
+ */
+std::string Logger::getTimestamp() const {
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+    std::tm timeStruct;
+    localtime_s(&timeStruct, &time_t);  // BezpeÄnÃ© pro MSVC
+    std::stringstream ss;
+    ss << std::put_time(&timeStruct, "%Y-%m-%d %H:%M:%S");
+    return ss.str();
+}
+
+/**
+ * @brief Destruktor: Zaloguje ukonÄenÃ­ a uzavÅ™e souborovÃ½ stream.
+ */
+Logger::~Logger() {
+    if (logFile_.is_open()) {
+        // FinÃ¡lnÃ­ zÃ¡znam pÅ™ed uzavÅ™enÃ­m
+        std::string finalLog = getTimestamp() + " [Logger/destructor] [info]: Logger shutting down, closing log file";
+        logFile_ << finalLog << std::endl;
+        logFile_.flush();
+        
+        logFile_.close();
+        
+        // KonzolovÃ¡ zprÃ¡va o ukonÄenÃ­
+        printf("[Logger] Logger destructor called - log file closed\n");
+    }
+}
+
+
+===== File: core_logger.h =====
+Path: C:\Users\jindr\IthacaCore\sampler\core_logger.h
+=====
+#ifndef CORE_LOGGER_H  // Include guard pro prevenci duplikÃ¡tnÃ­ho includu
+#define CORE_LOGGER_H
+
+#include <string>       // Pro std::string
+#include <mutex>        // Pro thread-safety pÅ™i zÃ¡pisu
+#include <fstream>      // Pro std::ofstream (definice logFile_)
+#include <stdexcept>    // Pro vÃ½jimky pÅ™i chybÃ¡ch (pouze internÄ›)
+
+/**
+ * @class Logger
+ * @brief JednoduchÃ½ souborovÃ½ logger bez JUCE zÃ¡vislostÃ­.
+ * 
+ * Loguje zprÃ¡vy s timestampem, komponentou a zÃ¡vaÅ¾nostÃ­ do souboru core_logger.log.
+ * Konstruktor bere cestu k adresÃ¡Å™i, kde vytvoÅ™Ã­ sloÅ¾ku core_logger a log soubor.
+ * PÅ™i startu smaÅ¾e existujÃ­cÃ­ core_logger.log pro ÄistÃ½ restart.
+ * Thread-safe dÃ­ky mutexu. SelhÃ¡nÃ­ inicializace vede k tisku do std::cerr a ukonÄenÃ­ programu.
+ * 
+ * DÅ®LEÅ½ITÃ‰: Logger vypisuje inicializaÄnÃ­ zprÃ¡vy na konzoli (printf).
+ * Pokud inicializace selÅ¾e, program se ukonÄÃ­ s exit(1).
+ */
+class Logger {
+public:
+    /**
+     * @brief Konstruktor loggeru.
+     * @param path Cesta k adresÃ¡Å™Ã­ (absolutnÃ­ nebo relativnÃ­, napÅ™. "./").
+     * Kontroluje existenci adresÃ¡Å™e a pÅ™Ã­stup; vytvÃ¡Å™Ã­ sloÅ¾ku core_logger a log soubor.
+     * SmaÅ¾e existujÃ­cÃ­ core_logger.log, pokud existuje.
+     * VÃSTUP: Vypisuje inicializaÄnÃ­ zprÃ¡vy na konzoli pomocÃ­ printf.
+     * PÅ™i selhÃ¡nÃ­: Tiskne chybu do std::cerr a volÃ¡ std::exit(1).
+     */
+    explicit Logger(const std::string& path);
+
+    /**
+     * @brief Loguje zprÃ¡vu do souboru.
+     * FormÃ¡t: [YYYY-MM-DD HH:MM:SS] [component] [severity]: message
+     * @param component NÃ¡zev tÅ™Ã­dy/metody (napÅ™. "SamplerIO/loadSamples").
+     * @param severity ZÃ¡vaÅ¾nost (napÅ™. "info", "error", "warn").
+     * @param message ZprÃ¡va k logovÃ¡nÃ­.
+     */
+    void log(const std::string& component, const std::string& severity, const std::string& message);
+
+    /**
+     * @brief Destruktor: UzavÅ™e souborovÃ½ stream.
+     */
+    ~Logger();
+
+private:
+    std::string logFilePath_;  // Cesta k log souboru
+    std::ofstream logFile_;    // SouborovÃ½ stream pro zÃ¡pis
+    mutable std::mutex logMutex_;  // Mutex pro thread-safety
+
+    // PomocnÃ¡ metoda pro zÃ­skÃ¡nÃ­ timestampu
+    std::string getTimestamp() const;
+};
+
+#endif  // CORE_LOGGER_H    
+
+
+===== File: sampler.cpp =====
+Path: C:\Users\jindr\IthacaCore\sampler\sampler.cpp
+=====
+#include "sampler.h"  // Include hlaviÄky pro definice SampleInfo a SamplerIO
+
+/**
+ * @brief Funkce pro Å™Ã­zenÃ­ sampleru â€“ prohledÃ¡ adresÃ¡Å™ s WAV soubory, vyhledÃ¡ pÅ™Ã­klad a loguje vÃ½sledky.
+ * Tato funkce je volÃ¡na z main.cpp a obsahuje celou logiku sampleru.
+ * Cesta k adresÃ¡Å™i je pevnÄ› zakÃ³dovÃ¡na (lze upravit).
+ * PouÅ¾Ã­vÃ¡ logger pro vÅ¡echny vÃ½stupy (info, warn).
+ * Deleguje prohledÃ¡vÃ¡nÃ­ do SamplerIO::scanSampleDirectory.
+ * Zobrazuje informace o interleaved formÃ¡tu a potÅ™ebÄ› konverze.
+ * @param logger Reference na Logger pro logovÃ¡nÃ­.
+ * @return 0 pÅ™i ÃºspÄ›chu, 1 pÅ™i chybÄ› (ale chyby jsou Å™eÅ¡eny ukonÄenÃ­m programu).
+ */
+int runSampler(Logger& logger) {
+    logger.log("runSampler", "info", "Starting sampler.");
+
+    // REF: ProhledÃ¡nÃ­ a test sampleru â€“ delegace do SamplerIO
+    SamplerIO sampler;
+    std::string sampleDir = R"(c:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)";
+    sampler.scanSampleDirectory(sampleDir, logger);  // Delegace prohledÃ¡vÃ¡nÃ­ (obsahuje logovÃ¡nÃ­ a exit pÅ™i chybÄ›)
+    
+    // REF: PÅ™Ã­klad vyhledÃ¡vÃ¡nÃ­ (MIDI 108, velocity 7, sample rate 44100 Hz) â€“ pouÅ¾itÃ­ rozÅ¡Ã­Å™enÃ©ho vyhledÃ¡vÃ¡nÃ­
+    int index = sampler.findSampleInSampleList(108, 7, 44100);
+    if (index != -1) {
+        // PouÅ¾itÃ­ getterÅ¯ pro pÅ™Ã­stup k metadatÅ¯m (pÅ™edÃ¡ logger pro kontrolu)
+        std::string filename = sampler.getFilename(index, logger);
+        int frequency = sampler.getFrequency(index, logger);
+        uint8_t midiNote = sampler.getMidiNote(index, logger);
+        uint8_t velocity = sampler.getMidiNoteVelocity(index, logger);
+        
+        // PÅ¯vodnÃ­ metadata
+        sf_count_t sampleCount = sampler.getSampleCount(index, logger);
+        double duration = sampler.getDurationInSeconds(index, logger);
+        int channels = sampler.getChannelCount(index, logger);
+        bool isStereo = sampler.getIsStereo(index, logger);
+        
+        // Metadata - rozÅ¡Ã­Å™enÃ© atributy
+        bool isInterleaved = sampler.getIsInterleavedFormat(index, logger);
+        bool needsConversion = sampler.getNeedsConversion(index, logger);
+        
+        // SestavenÃ­ detailnÃ­ zprÃ¡vy se vÅ¡emi metadaty
+        std::string stereoInfo = isStereo ? "stereo" : "mono";
+        std::string interleavedInfo = isInterleaved ? "interleaved" : "non-interleaved";
+        std::string conversionInfo = needsConversion ? "needs float conversion" : "no conversion needed";
+        
+        std::string msg = "Found sample: " + std::string(filename) + 
+                          ", MIDI: " + std::to_string(midiNote) + 
+                          ", Vel: " + std::to_string(velocity) + 
+                          ", Frequency: " + std::to_string(frequency) + " Hz" +
+                          ", Duration: " + std::to_string(duration) + "s" +
+                          ", Frames: " + std::to_string(sampleCount) +
+                          ", Channels: " + std::to_string(channels) + " (" + stereoInfo + ")" +
+                          ", Format: " + interleavedInfo + 
+                          ", Conversion: " + conversionInfo;
+        
+        logger.log("runSampler/findSampleInSampleList", "info", msg);
+        
+        // DodateÄnÃ© logovÃ¡nÃ­ pro detailnÃ­ analÃ½zu formÃ¡tu
+        if (needsConversion) {
+            logger.log("runSampler/analysis", "info", 
+                      "Sample requires format conversion from PCM to 32-bit float for audio processing");
+        } else {
+            logger.log("runSampler/analysis", "info", 
+                      "Sample is already in optimal float format, ready for direct processing");
+        }
+        
+        if (!isInterleaved) {
+            logger.log("runSampler/analysis", "warn", 
+                      "Non-interleaved format detected - may require special handling");
+        } else {
+            logger.log("runSampler/analysis", "info", 
+                      "Standard interleaved format confirmed - compatible with standard audio processing");
+        }
+        
+        return 0;  // ÃšspÄ›ch
+    } else {
+        logger.log("runSampler/findSampleInSampleList", "warn", "Sample for MIDI 108 vel 7 at 44100 Hz not found.");
+        return 0;  // Å½Ã¡dnÃ¡ chyba, jen nenalezeno
+    }
+}
+
+
+===== File: sampler.h =====
+Path: C:\Users\jindr\IthacaCore\sampler\sampler.h
+=====
+#ifndef SAMPLER_H       // Include guard pro prevenci duplicitnÃ­ho includu
+#define SAMPLER_H
+
+#include <cstdint>      // Pro uint8_t a size_t
+#include <cstddef>      // Pro size_t (pokud nenÃ­ v cstdint)
+#include <string>       // Pro std::string
+#include <vector>       // Pro std::vector
+#include <sndfile.h>    // Pro sf_count_t typ
+
+#include "core_logger.h"  // Pro Logger (pro pÅ™edÃ¡nÃ­ reference)
+
+// Struktura pro metadata o samplu (naÄtenÃ¡ z WAV souboru a nÃ¡zvu)
+// UchovÃ¡vÃ¡ zÃ¡kladnÃ­ informace pro vyhledÃ¡vÃ¡nÃ­ a sprÃ¡vu sample
+struct SampleInfo {
+    char filename[256];             // CelÃ© jmÃ©no souboru (vÄetnÄ› cesty, max 256 znakÅ¯)
+    uint8_t midi_note;              // MIDI nota (z nÃ¡zvu, rozsah 0-127, ale podporuje aÅ¾ 999)
+    uint8_t midi_note_velocity;     // Velocity (z nÃ¡zvu, rozsah 0-7)
+    int frequency;                  // Frekvence samplu (naÄtenÃ¡ z WAV souboru, musÃ­ odpovÃ­dat nÃ¡zvu)
+    sf_count_t sample_count;        // CelkovÃ½ poÄet vzorkÅ¯ (frames)
+    double duration_seconds;        // DÃ©lka v sekundÃ¡ch
+    int channels;                   // PoÄet kanÃ¡lÅ¯ (1=mono, 2=stereo, atd.)
+    bool is_stereo;                 // True pokud stereo (channels >= 2)
+    bool interleaved_format;        // True pokud je WAV v interleaved formÃ¡tu (standard)
+    bool needs_conversion;          // True pokud potÅ™ebuje konverzi do float (16-bit PCM -> float)
+};
+
+// HlavnÃ­ tÅ™Ã­da pro IO operace se WAV samplami
+// Centralizuje naÄÃ­tÃ¡nÃ­ metadat z adresÃ¡Å™e pomocÃ­ libsndfile a vyhledÃ¡vÃ¡nÃ­
+class SamplerIO {
+public:
+    // Konstruktor: Inicializuje prÃ¡zdnÃ½ seznam sample
+    SamplerIO();
+
+    // Destruktor: Loguje ukonÄenÃ­ instance
+    ~SamplerIO();
+
+    // Metoda pro prohledÃ¡nÃ­ adresÃ¡Å™e s WAV soubory a naplnÄ›nÃ­ seznamu metadat
+    // Vstup: Cesta k adresÃ¡Å™i (string), reference na Logger pro logovÃ¡nÃ­
+    // ChovÃ¡nÃ­: ProchÃ¡zÃ­ adresÃ¡Å™, parsuje nÃ¡zvy podle patternu mXXX-velY-fZZ.wav,
+    // naÄte freq z WAV headeru pomocÃ­ libsndfile; loguje info/warn/error
+    // Detekuje interleaved formÃ¡t a potÅ™ebu konverze do float
+    // Validace konzistence: Kontroluje, zda frekvence v nÃ¡zvu odpovÃ­dÃ¡ frekvenci v souboru
+    // PÅ™i chybÄ› (napÅ™. neexistujÃ­cÃ­ adresÃ¡Å™, nekonzistentnÃ­ frekvence): Zaloguje error a volÃ¡ std::exit(1)
+    void scanSampleDirectory(const std::string& directoryPath, Logger& logger);
+
+    // Metoda pro vyhledÃ¡nÃ­ indexu sample v internÃ­m seznamu podle MIDI noty, velocity a poÅ¾adovanÃ© frekvence vzorkovÃ¡nÃ­
+    // Vstup: uint8_t midi_note, uint8_t velocity, int sampleRate (frekvence v Hz, napÅ™. 44100)
+    // VÃ½stup: Index v seznamu (int, -1 pokud nenalezeno)
+    // ChovÃ¡nÃ­: LineÃ¡rnÃ­ prohledÃ¡vÃ¡nÃ­, vracÃ­ prvnÃ­ shodu kde odpovÃ­dajÃ­ vÅ¡echny tÅ™i kritÃ©ria (MIDI + velocity + frequency == sampleRate)
+    int findSampleInSampleList(uint8_t midi_note, uint8_t velocity, int sampleRate) const;
+
+    // Getter pro pÅ™Ã­stup k naÄtenÃ©mu seznamu (volitelnÃ½)
+    // VrÃ¡tÃ­ konstantnÃ­ referenci na vektor SampleInfo pro ÄtenÃ­ dat
+    const std::vector<SampleInfo>& getLoadedSampleList() const;
+
+    // Gettery pro pÅ™Ã­stup k metadatÅ¯m na zÃ¡kladÄ› indexu
+    // Tyto metody kontrolujÃ­ platnost indexu; pÅ™i neplatnÃ©m: logujÃ­ error a exit(1)
+    // Vstup: int index (musÃ­ bÃ½t >=0 a < velikost seznamu)
+    // VÃ½stup: Hodnota z SampleInfo na danÃ©m indexu
+
+    // Getter pro nÃ¡zev souboru (cesta vÄetnÄ›)
+    const char* getFilename(int index, Logger& logger) const;
+
+    // Getter pro MIDI notu
+    uint8_t getMidiNote(int index, Logger& logger) const;
+
+    // Getter pro velocity MIDI noty
+    uint8_t getMidiNoteVelocity(int index, Logger& logger) const;
+
+    // Getter pro frekvenci samplu (Hz)
+    int getFrequency(int index, Logger& logger) const;
+
+    // RozÅ¡Ã­Å™enÃ© gettery pro metadata
+    
+    // Getter pro poÄet vzorkÅ¯ (frames)
+    sf_count_t getSampleCount(int index, Logger& logger) const;
+
+    // Getter pro dÃ©lku v sekundÃ¡ch
+    double getDurationInSeconds(int index, Logger& logger) const;
+
+    // Getter pro poÄet kanÃ¡lÅ¯
+    int getChannelCount(int index, Logger& logger) const;
+
+    // Getter pro stereo flag (true pokud channels >= 2)
+    bool getIsStereo(int index, Logger& logger) const;
+
+    // Getter pro interleaved formÃ¡t flag
+    bool getIsInterleavedFormat(int index, Logger& logger) const;
+
+    // Getter pro potÅ™ebu konverze do float
+    bool getNeedsConversion(int index, Logger& logger) const;
+
+private:
+    std::vector<SampleInfo> sampleList;  // InternÃ­ seznam naÄtenÃ½ch sample
+
+    // PomocnÃ© metody pro detekci formÃ¡tu
+    
+    // Detekce, zda je WAV v interleaved formÃ¡tu (pro standardnÃ­ WAV vÅ¾dy true)
+    // Parametry: cesta k souboru, reference na logger
+    // VrÃ¡cÃ­: true pokud interleaved, false jinak (vzÃ¡cnÃ© pÅ™Ã­pady)
+    // PÅ™i chybÄ›: loguje error a volÃ¡ std::exit(1)
+    bool detectInterleavedFormat(const char* filename, Logger& logger) const;
+
+    // Detekce subformÃ¡tu a potÅ™eby konverze do float
+    // Parametry: cesta k souboru, reference na logger  
+    // VrÃ¡cÃ­: true pokud 16-bit PCM (potÅ™ebuje konverzi), false pokud jiÅ¾ float
+    // PÅ™i chybÄ› nebo nepodporovanÃ©m formÃ¡tu: loguje error a volÃ¡ std::exit(1)
+    bool detectFloatConversionNeed(const char* filename, Logger& logger) const;
+};
+
+// Deklarace funkce pro Å™Ã­zenÃ­ sampleru
+// VolÃ¡na z main.cpp; obsahuje logiku naÄÃ­tÃ¡nÃ­ a vyhledÃ¡vÃ¡nÃ­ s loggerem
+// @param logger Reference na Logger pro logovÃ¡nÃ­
+// @return 0 pÅ™i ÃºspÄ›chu, 1 pÅ™i chybÄ› (chyby jsou Å™eÅ¡eny ukonÄenÃ­m programu)
+int runSampler(Logger& logger);
+
+#endif  // SAMPLER_H
+
+
+===== File: sampler_io.cpp =====
+Path: C:\Users\jindr\IthacaCore\sampler\sampler_io.cpp
+=====
+#include "sampler.h"  // Include hlaviÄky pro definice SampleInfo a SamplerIO (nynÃ­ v sampler.h)
+#include <filesystem>   // Pro prochÃ¡zenÃ­ adresÃ¡Å™e
+#include <regex>        // Pro parsovÃ¡nÃ­ nÃ¡zvÅ¯ souborÅ¯
+#include <sndfile.h>    // Pro prÃ¡ci s WAV soubory
+#include <iostream>     // Pro std::cerr pÅ™i chybÃ¡ch (jen pro libsndfile error, ale teÄ pÅ™es logger)
+#include <cstdlib>      // Pro std::exit
+
+/**
+ * @brief Normalizuje zkrÃ¡cenou frekvenci z nÃ¡zvu souboru na standardnÃ­ hodnoty
+ * @param freq Frekvence z nÃ¡zvu (zkrÃ¡cenÃ¡: 8, 11, 16, 22, 44, 48, 88, 96, 176, 192)
+ * @return NormalizovanÃ¡ frekvence nebo -1 pÅ™i nerozpoznÃ¡nÃ­
+ */
+int normalizeFrequency(int freq) {
+    switch (freq) {
+        case 8:   return 8000;
+        case 11:  return 11025;
+        case 16:  return 16000;
+        case 22:  return 22050;
+        case 44:  return 44100;
+        case 48:  return 48000;
+        case 88:  return 88200;
+        case 96:  return 96000;
+        case 176: return 176400;
+        case 192: return 192000;
+        default:  return -1;  // NerozpoznanÃ¡ frekvence
+    }
+}
+
+/**
+ * @brief PomocnÃ¡ funkce pro extrakci frekvence z nÃ¡zvu souboru
+ * OÄekÃ¡vÃ¡ pattern: mXXX-velY-fZZ.wav kde ZZ je zkrÃ¡cenÃ¡ frekvence (44, 48, atd.)
+ * @param filename NÃ¡zev souboru
+ * @return Frekvence z nÃ¡zvu nebo -1 pokud nenÃ­ nalezena
+ */
+int parseFrequencyFromFilename(const std::string& filename) {
+    // Regex pro pattern s frekvencÃ­: mXXX-velY-fZZ.wav (novÃ½ formÃ¡t s 'f' prefixem)
+    std::regex freqPattern(R"(^m(\d+)-vel(\d+)-f(\d+)\.wav$)", std::regex_constants::icase);
+    std::smatch matches;
+    
+    if (std::regex_match(filename, matches, freqPattern)) {
+        return std::stoi(matches[3].str());  // Extrakce FREQ z tÅ™etÃ­ skupiny (po 'f')
+    }
+    
+    return -1; // Frekvence nenÃ­ v nÃ¡zvu (nebo Å¡patnÃ½ formÃ¡t)
+}
+
+/**
+ * @brief Konstruktor SamplerIO - inicializuje prÃ¡zdnÃ½ seznam samples
+ */
+SamplerIO::SamplerIO() {
+    // PrÃ¡zdnÃ½ konstruktor, sampleList se inicializuje automaticky
+}
+
+/**
+ * @brief Destruktor SamplerIO - loguje ukonÄenÃ­ instance
+ */
+SamplerIO::~SamplerIO() {
+    // Pokud mÃ¡me pÅ™Ã­stup k loggeru, zalogujeme ukonÄenÃ­
+    // PoznÃ¡mka: V tomto designu nemÃ¡me pÅ™Ã­mÃ½ pÅ™Ã­stup k loggeru v destruktoru,
+    // takÅ¾e pouÅ¾ijeme printf pro konzistenci s Logger destruktorem
+    printf("[SamplerIO] SamplerIO destructor called - releasing %zu samples\n", sampleList.size());
+}
+
+/**
+ * @brief NOVÃ POMOCNÃ METODA: Detekce, zda je WAV v interleaved formÃ¡tu
+ * Pro standardnÃ­ WAV soubory je vÅ¾dy true, ale kontrolujeme pro bezpeÄnost
+ * @param filename Cesta k souboru
+ * @param logger Reference na logger pro zaznamenÃ¡vÃ¡nÃ­
+ * @return true pokud interleaved (standard), false u vzÃ¡cnÃ½ch pÅ™Ã­padÅ¯
+ * PÅ™i chybÄ›: loguje error a volÃ¡ std::exit(1)
+ */
+bool SamplerIO::detectInterleavedFormat(const char* filename, Logger& logger) const {
+    SF_INFO sfInfo;
+    memset(&sfInfo, 0, sizeof(sfInfo));
+    
+    SNDFILE* sndFile = sf_open(filename, SFM_READ, &sfInfo);
+    if (!sndFile) {
+        logger.log("SamplerIO/detectInterleavedFormat", "error", 
+                  "Cannot open WAV file for interleaved detection: " + std::string(filename) + 
+                  " - " + sf_strerror(nullptr));
+        std::exit(1);
+    }
+    
+    // Kontrola major formÃ¡tu (SF_FORMAT_WAV)
+    int majorFormat = sfInfo.format & SF_FORMAT_TYPEMASK;
+    if (majorFormat != SF_FORMAT_WAV) {
+        logger.log("SamplerIO/detectInterleavedFormat", "error", 
+                  "File is not a WAV format: " + std::string(filename) + 
+                  " (format: 0x" + std::to_string(majorFormat) + ")");
+        sf_close(sndFile);
+        std::exit(1);
+    }
+    
+    // Pro WAV: StandardnÄ› vÅ¾dy interleaved
+    // Pouze vzÃ¡cnÃ© pÅ™Ã­pady speciÃ¡lnÃ­ch WAV variant by mohly bÃ½t non-interleaved
+    // V praxi: VÅ¾dy true pro bÄ›Å¾nÃ© WAV soubory
+    sf_close(sndFile);
+    
+    logger.log("SamplerIO/detectInterleavedFormat", "info", 
+              "WAV format confirmed as interleaved: " + std::string(filename));
+    
+    return true;  // StandardnÃ­ WAV je vÅ¾dy interleaved
+}
+
+/**
+ * @brief NOVÃ POMOCNÃ METODA: Detekce subformÃ¡tu a potÅ™eby konverze do float
+ * @param filename Cesta k souboru
+ * @param logger Reference na logger pro zaznamenÃ¡vÃ¡nÃ­
+ * @return true pokud 16-bit PCM (potÅ™ebuje konverzi), false pokud jiÅ¾ float
+ * PÅ™i chybÄ› nebo nepodporovanÃ©m formÃ¡tu: loguje error a volÃ¡ std::exit(1)
+ */
+bool SamplerIO::detectFloatConversionNeed(const char* filename, Logger& logger) const {
+    SF_INFO sfInfo;
+    memset(&sfInfo, 0, sizeof(sfInfo));
+    
+    SNDFILE* sndFile = sf_open(filename, SFM_READ, &sfInfo);
+    if (!sndFile) {
+        logger.log("SamplerIO/detectFloatConversionNeed", "error", 
+                  "Cannot open WAV file for conversion detection: " + std::string(filename) + 
+                  " - " + sf_strerror(nullptr));
+        std::exit(1);
+    }
+    
+    // Kontrola subformÃ¡tu (SF_FORMAT_SUBMASK)
+    int subformat = sfInfo.format & SF_FORMAT_SUBMASK;
+    sf_close(sndFile);
+    
+    switch (subformat) {
+        case SF_FORMAT_PCM_16:
+            // 16-bit PCM: PotÅ™ebuje konverzi do float (normalizace z int16 na [-1.0, 1.0])
+            logger.log("SamplerIO/detectFloatConversionNeed", "info", 
+                      "16-bit PCM detected, conversion to float needed: " + std::string(filename));
+            return true;
+            
+        case SF_FORMAT_FLOAT:
+            // JiÅ¾ 32-bit float: Å½Ã¡dnÃ¡ konverze potÅ™ebnÃ¡
+            logger.log("SamplerIO/detectFloatConversionNeed", "info", 
+                      "32-bit float detected, no conversion needed: " + std::string(filename));
+            return false;
+            
+        case SF_FORMAT_PCM_24:
+            // 24-bit PCM: TakÃ© potÅ™ebuje konverzi do float
+            logger.log("SamplerIO/detectFloatConversionNeed", "info", 
+                      "24-bit PCM detected, conversion to float needed: " + std::string(filename));
+            return true;
+            
+        case SF_FORMAT_PCM_32:
+            // 32-bit PCM: PotÅ™ebuje konverzi do float
+            logger.log("SamplerIO/detectFloatConversionNeed", "info", 
+                      "32-bit PCM detected, conversion to float needed: " + std::string(filename));
+            return true;
+            
+        case SF_FORMAT_DOUBLE:
+            // 64-bit double: PotÅ™ebuje konverzi do 32-bit float
+            logger.log("SamplerIO/detectFloatConversionNeed", "info", 
+                      "64-bit double detected, conversion to 32-bit float needed: " + std::string(filename));
+            return true;
+            
+        default:
+            // NepodporovanÃ½ formÃ¡t
+            logger.log("SamplerIO/detectFloatConversionNeed", "error", 
+                      "Unsupported subformat detected in file: " + std::string(filename) + 
+                      " (subformat: 0x" + std::to_string(subformat) + 
+                      "). Supported: 16-bit PCM, 24-bit PCM, 32-bit PCM, 32-bit float, 64-bit double");
+            std::exit(1);
+    }
+}
+
+/**
+ * @brief ProhledÃ¡ adresÃ¡Å™ s WAV soubory a naplnÃ­ seznam metadat (pÅ™ejmenovÃ¡no z loadSamples)
+ * ROZÅ ÃÅ˜ENO: NynÃ­ takÃ© detekuje interleaved formÃ¡t a potÅ™ebu konverze
+ * @param directoryPath Cesta k adresÃ¡Å™i se samples
+ * @param logger Reference na logger pro zaznamenÃ¡vÃ¡nÃ­
+ */
+void SamplerIO::scanSampleDirectory(const std::string& directoryPath, Logger& logger) {
+    logger.log("SamplerIO/scanSampleDirectory", "info", "Scanning sample directory: " + directoryPath);
+    
+    // Kontrola existence adresÃ¡Å™e
+    if (!std::filesystem::exists(directoryPath)) {
+        logger.log("SamplerIO/scanSampleDirectory", "error", "Directory does not exist: " + directoryPath);
+        std::exit(1);
+    }
+    
+    if (!std::filesystem::is_directory(directoryPath)) {
+        logger.log("SamplerIO/scanSampleDirectory", "error", "Path is not a directory: " + directoryPath);
+        std::exit(1);
+    }
+    
+    // Regex pattern pro parsovÃ¡nÃ­ nÃ¡zvÅ¯ souborÅ¯: mXXX-velY-fZZ.wav (novÃ½ formÃ¡t s 'f' pro FREQ)
+    std::regex filenamePattern(R"(^m(\d+)-vel(\d+)-f(\d+)\.wav$)", std::regex_constants::icase);
+    std::smatch matches;
+    
+    int loadedCount = 0;
+    
+    try {
+        // ProchÃ¡zenÃ­ vÅ¡ech souborÅ¯ v adresÃ¡Å™i
+        for (const auto& entry : std::filesystem::directory_iterator(directoryPath)) {
+            if (!entry.is_regular_file()) {
+                continue;
+            }
+            
+            std::string filename = entry.path().filename().string();
+            std::string fullPath = entry.path().string();
+            
+            // Pokus o parsovÃ¡nÃ­ nÃ¡zvu souboru
+            if (std::regex_match(filename, matches, filenamePattern)) {
+                // Extrakce MIDI noty a velocity z nÃ¡zvu
+                int midiNote = std::stoi(matches[1].str());
+                int velocity = std::stoi(matches[2].str());
+                
+                // Validace rozsahÅ¯
+                if (midiNote < 0 || midiNote > 127) {
+                    logger.log("SamplerIO/scanSampleDirectory", "warn", 
+                              "Invalid MIDI note " + std::to_string(midiNote) + " in file: " + filename);
+                    continue;
+                }
+                
+                if (velocity < 0 || velocity > 7) {
+                    logger.log("SamplerIO/scanSampleDirectory", "warn", 
+                              "Invalid velocity " + std::to_string(velocity) + " in file: " + filename);
+                    continue;
+                }
+                
+                // Extrakce frekvence z nÃ¡zvu (novÃ½ formÃ¡t s 'fZZ')
+                int filenameFreq = parseFrequencyFromFilename(filename);
+                
+                // NaÄtenÃ­ metadata z WAV souboru pomocÃ­ libsndfile
+                SF_INFO sfInfo;
+                memset(&sfInfo, 0, sizeof(sfInfo));
+                
+                SNDFILE* sndFile = sf_open(fullPath.c_str(), SFM_READ, &sfInfo);
+                if (!sndFile) {
+                    logger.log("SamplerIO/scanSampleDirectory", "error", 
+                              "Cannot open WAV file: " + fullPath + " - " + sf_strerror(nullptr));
+                    std::exit(1);
+                }
+                
+                // Kontrola konzistence frekvence (pokud je v nÃ¡zvu)
+                if (filenameFreq != -1) {
+                    int normalizedFreq = normalizeFrequency(filenameFreq);
+                    if (normalizedFreq == -1) {
+                        logger.log("SamplerIO/scanSampleDirectory", "error", 
+                                  "Unsupported frequency format in filename: " + filename + 
+                                  " (frequency: " + std::to_string(filenameFreq) + 
+                                  "). Supported: 8, 11, 16, 22, 44, 48, 88, 96, 176, 192");
+                        sf_close(sndFile);
+                        std::exit(1);
+                    } else if (normalizedFreq != sfInfo.samplerate) {
+                        logger.log("SamplerIO/scanSampleDirectory", "error", 
+                                  "Frequency mismatch in file: " + filename + 
+                                  " (filename: " + std::to_string(filenameFreq) + 
+                                  " -> " + std::to_string(normalizedFreq) + 
+                                  " Hz, actual file: " + std::to_string(sfInfo.samplerate) + " Hz)");
+                        sf_close(sndFile);
+                        std::exit(1);
+                    }
+                    
+                    // LogovÃ¡nÃ­ ÃºspÄ›Å¡nÃ© validace
+                    logger.log("SamplerIO/scanSampleDirectory", "info", 
+                              "Frequency validation passed: " + filename + 
+                              " (" + std::to_string(filenameFreq) + " -> " + 
+                              std::to_string(normalizedFreq) + " Hz)");
+                }
+                
+                // UzavÅ™enÃ­ souboru pÅ™ed dalÅ¡Ã­mi detekcemi
+                sf_close(sndFile);
+                
+                // NOVÃ‰: Detekce interleaved formÃ¡tu a potÅ™eby konverze
+                bool isInterleaved = detectInterleavedFormat(fullPath.c_str(), logger);
+                bool needsConversion = detectFloatConversionNeed(fullPath.c_str(), logger);
+                
+                // VÃ½poÄet dÃ©lky v sekundÃ¡ch
+                double duration = static_cast<double>(sfInfo.frames) / static_cast<double>(sfInfo.samplerate);
+                
+                // VytvoÅ™enÃ­ SampleInfo struktury s novÃ½mi atributy
+                SampleInfo sample;
+                strncpy(sample.filename, fullPath.c_str(), sizeof(sample.filename) - 1);
+                sample.filename[sizeof(sample.filename) - 1] = '\0';  // ZajiÅ¡tÄ›nÃ­ null-termination
+                sample.midi_note = static_cast<uint8_t>(midiNote);
+                sample.midi_note_velocity = static_cast<uint8_t>(velocity);
+                sample.frequency = sfInfo.samplerate;
+                sample.sample_count = sfInfo.frames;
+                sample.duration_seconds = duration;
+                sample.channels = sfInfo.channels;
+                sample.is_stereo = (sfInfo.channels >= 2);
+                sample.interleaved_format = isInterleaved;      // NOVÃ‰
+                sample.needs_conversion = needsConversion;      // NOVÃ‰
+                
+                // PÅ™idÃ¡nÃ­ do seznamu
+                sampleList.push_back(sample);
+                loadedCount++;
+                
+                // LogovÃ¡nÃ­ informacÃ­ o naÄtenÃ©m sample s novÃ½mi atributy
+                std::string channelInfo = sample.is_stereo ? "stereo" : "mono";
+                std::string interleavedInfo = sample.interleaved_format ? "interleaved" : "non-interleaved";
+                std::string conversionInfo = sample.needs_conversion ? "needs float conversion" : "no conversion needed";
+                
+                logger.log("SamplerIO/scanSampleDirectory", "info", 
+                          "Loaded: " + filename + " (MIDI: " + std::to_string(midiNote) + 
+                          ", Vel: " + std::to_string(velocity) + 
+                          ", Freq: " + std::to_string(sfInfo.samplerate) + " Hz" +
+                          ", Duration: " + std::to_string(duration) + "s" +
+                          ", Channels: " + std::to_string(sfInfo.channels) + " (" + channelInfo + ")" +
+                          ", Frames: " + std::to_string(sfInfo.frames) +
+                          ", Format: " + interleavedInfo + ", " + conversionInfo + ")");
+                
+            } else {
+                logger.log("SamplerIO/scanSampleDirectory", "warn", 
+                          "Filename doesn't match pattern mXXX-velY-fZZ.wav: " + filename);
+            }
+        }
+    } catch (const std::filesystem::filesystem_error& e) {
+        logger.log("SamplerIO/scanSampleDirectory", "error", "Filesystem error: " + std::string(e.what()));
+        std::exit(1);
+    }
+    
+    logger.log("SamplerIO/scanSampleDirectory", "info", 
+              "Scanning complete. Total samples indexed: " + std::to_string(loadedCount));
+}
+
+/**
+ * @brief VyhledÃ¡ index sample v internÃ­m seznamu podle MIDI noty, velocity a poÅ¾adovanÃ© frekvence vzorkovÃ¡nÃ­
+ * @param midi_note MIDI nota (0-127)
+ * @param velocity Velocity (0-7)
+ * @param sampleRate PoÅ¾adovanÃ¡ frekvence vzorkovÃ¡nÃ­ v Hz (napÅ™. 44100)
+ * @return Index v seznamu nebo -1 pokud nenalezeno
+ * ChovÃ¡nÃ­: LineÃ¡rnÃ­ prohledÃ¡vÃ¡nÃ­, vracÃ­ prvnÃ­ shodu kde odpovÃ­dajÃ­ vÅ¡echny tÅ™i kritÃ©ria.
+ * Pokud sampleRate je 0 nebo -1, ignoruje se (pro zpÄ›tnou kompatibilitu, ale nedoporuÄeno).
+ */
+int SamplerIO::findSampleInSampleList(uint8_t midi_note, uint8_t velocity, int sampleRate) const {
+    for (size_t i = 0; i < sampleList.size(); ++i) {
+        bool frequencyMatch = (sampleRate <= 0) ? true : (sampleList[i].frequency == sampleRate);  // Ignoruj frekvenci pÅ™i neplatnÃ© hodnotÄ›
+        if (sampleList[i].midi_note == midi_note && 
+            sampleList[i].midi_note_velocity == velocity &&
+            frequencyMatch) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;  // Nenalezeno
+}
+
+/**
+ * @brief Getter pro pÅ™Ã­stup k naÄtenÃ©mu seznamu samples
+ * @return KonstantnÃ­ reference na vektor SampleInfo
+ */
+const std::vector<SampleInfo>& SamplerIO::getLoadedSampleList() const {
+    return sampleList;
+}
+
+/**
+ * @brief Getter pro nÃ¡zev souboru na zadanÃ©m indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logovÃ¡nÃ­ chyb
+ * @return const char* na filename, pokud platnÃ½ index
+ */
+const char* SamplerIO::getFilename(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getFilename", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].filename;
+}
+
+/**
+ * @brief Getter pro MIDI notu na zadanÃ©m indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logovÃ¡nÃ­ chyb
+ * @return uint8_t MIDI nota
+ */
+uint8_t SamplerIO::getMidiNote(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getMidiNote", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].midi_note;
+}
+
+/**
+ * @brief Getter pro velocity MIDI noty na zadanÃ©m indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logovÃ¡nÃ­ chyb
+ * @return uint8_t velocity
+ */
+uint8_t SamplerIO::getMidiNoteVelocity(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getMidiNoteVelocity", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].midi_note_velocity;
+}
+
+/**
+ * @brief Getter pro frekvenci samplu na zadanÃ©m indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logovÃ¡nÃ­ chyb
+ * @return int frekvence (Hz)
+ */
+int SamplerIO::getFrequency(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getFrequency", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].frequency;
+}
+
+/**
+ * @brief Getter pro poÄet vzorkÅ¯ na zadanÃ©m indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logovÃ¡nÃ­ chyb
+ * @return sf_count_t poÄet vzorkÅ¯ (frames)
+ */
+sf_count_t SamplerIO::getSampleCount(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getSampleCount", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].sample_count;
+}
+
+/**
+ * @brief Getter pro dÃ©lku v sekundÃ¡ch na zadanÃ©m indexu (pÅ™ejmenovÃ¡no pro jasnost)
+ * @param index Index v seznamu
+ * @param logger Reference pro logovÃ¡nÃ­ chyb
+ * @return double dÃ©lka v sekundÃ¡ch
+ */
+double SamplerIO::getDurationInSeconds(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getDurationInSeconds", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].duration_seconds;
+}
+
+/**
+ * @brief Getter pro poÄet kanÃ¡lÅ¯ na zadanÃ©m indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logovÃ¡nÃ­ chyb
+ * @return int poÄet kanÃ¡lÅ¯
+ */
+int SamplerIO::getChannelCount(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getChannelCount", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].channels;
+}
+
+/**
+ * @brief Getter pro stereo flag na zadanÃ©m indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logovÃ¡nÃ­ chyb
+ * @return bool true pokud stereo (channels >= 2)
+ */
+bool SamplerIO::getIsStereo(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getIsStereo", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].is_stereo;
+}
+
+/**
+ * @brief NOVÃ GETTER pro interleaved formÃ¡t flag na zadanÃ©m indexu (pÅ™ejmenovÃ¡no pro konzistenci)
+ * @param index Index v seznamu
+ * @param logger Reference pro logovÃ¡nÃ­ chyb
+ * @return bool true pokud interleaved (standard pro WAV)
+ */
+bool SamplerIO::getIsInterleavedFormat(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getIsInterleavedFormat", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].interleaved_format;
+}
+
+/**
+ * @brief NOVÃ GETTER pro potÅ™ebu konverze do float na zadanÃ©m indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logovÃ¡nÃ­ chyb
+ * @return bool true pokud potÅ™ebuje konverzi (16-bit PCM -> float)
+ */
+bool SamplerIO::getNeedsConversion(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getNeedsConversion", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].needs_conversion;
+}
+
+
+===== File: CMakeLists.txt =====
+Path: C:\Users\jindr\IthacaCore\CMakeLists.txt
+=====
+cmake_minimum_required(VERSION 3.10)
+project(IthacaCore CXX)
+
+# NastavenÃ­ C++ standardu
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Informace o projektu
+set(PROJECT_VERSION "1.0.0")
+set(PROJECT_DESCRIPTION "IthacaCore Audio Sampler - Professional Sample Engine")
+
+# Build konfigurace
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug)
+endif()
+
+# VÃ½stupnÃ­ adresÃ¡Å™e
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Debug)
+
+# PÅ™idÃ¡nÃ­ externÃ­ knihovny libsndfile
+add_subdirectory(libsndfile)
+
+# HlavnÃ­ executable
+add_executable(IthacaCore 
+    # Entry point
+    main.cpp
+    
+    # Core Logger module
+    sampler/core_logger.cpp
+    sampler/core_logger.h
+    
+    # SamplerIO module  
+    sampler/sampler_io.cpp
+    
+    # Sampler coordinator module
+    sampler/sampler.cpp
+    sampler/sampler.h
+)
+
+# Include directories pro kompilaci a IntelliSense
+target_include_directories(IthacaCore PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}          # KoÅ™enovÃ½ adresÃ¡Å™ projektu
+    ${CMAKE_CURRENT_SOURCE_DIR}/sampler  # Sampler moduly
+)
+
+# LinkovÃ¡nÃ­ externÃ­ch knihoven
+target_link_libraries(IthacaCore PRIVATE 
+    sndfile  # libsndfile pro WAV operace
+)
+
+# Compiler-specific nastavenÃ­
+if(MSVC)
+    # MSVC specifickÃ© flagy
+    target_compile_definitions(IthacaCore PRIVATE 
+        _CRT_SECURE_NO_WARNINGS  # OdstranÄ›nÃ­ MSVC warnings pro bezpeÄnÃ© funkce
+        WIN32_LEAN_AND_MEAN      # RychlejÅ¡Ã­ kompilace na Windows
+    )
+    
+    # Optimalizace pro Debug/Release
+    target_compile_options(IthacaCore PRIVATE
+        $<$<CONFIG:Debug>:/Od /Zi /RTC1>      # Debug: Å¾Ã¡dnÃ¡ optimalizace, debug info
+        $<$<CONFIG:Release>:/O2 /DNDEBUG>     # Release: optimalizace, bez debug
+    )
+else()
+    # GCC/Clang flagy
+    target_compile_options(IthacaCore PRIVATE
+        -Wall -Wextra -pedantic              # VÅ¡echna varovÃ¡nÃ­
+        $<$<CONFIG:Debug>:-g -O0>            # Debug: debug info, Å¾Ã¡dnÃ¡ optimalizace  
+        $<$<CONFIG:Release>:-O3 -DNDEBUG>    # Release: maximÃ¡lnÃ­ optimalizace
+    )
+endif()
+
+# VÃ½stupnÃ­ informace
+message(STATUS "=== IthacaCore Build Configuration ===")
+message(STATUS "Project: ${PROJECT_NAME} v${PROJECT_VERSION}")
+message(STATUS "Description: ${PROJECT_DESCRIPTION}")
+message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "C++ Standard: C++${CMAKE_CXX_STANDARD}")
+message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID}")
+message(STATUS "Output directory: ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+message(STATUS "=======================================")
+
+# Post-build informace
+add_custom_command(TARGET IthacaCore POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E echo "=== IthacaCore Build Completed ==="
+    COMMAND ${CMAKE_COMMAND} -E echo "Executable: $<TARGET_FILE:IthacaCore>"
+    COMMAND ${CMAKE_COMMAND} -E echo "Ready to run: ./$<TARGET_FILE_NAME:IthacaCore>"
+    COMMAND ${CMAKE_COMMAND} -E echo "Log output: ./core_logger/core_logger.log"
+    COMMAND ${CMAKE_COMMAND} -E echo "====================================="
+)
+
+# Instalace (volitelnÃ©)
+if(WIN32)
+    install(TARGETS IthacaCore
+        RUNTIME DESTINATION bin
+        CONFIGURATIONS Release
+    )
+    
+    # KopÃ­rovÃ¡nÃ­ libsndfile DLL na Windows
+    install(FILES $<TARGET_FILE:sndfile>
+        DESTINATION bin
+        CONFIGURATIONS Release
+    )
+endif()
+
+# Development targets pro snadnÄ›jÅ¡Ã­ prÃ¡ci
+
+# Target pro vyÄiÅ¡tÄ›nÃ­ log souborÅ¯
+add_custom_target(clean-logs
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_CURRENT_SOURCE_DIR}/core_logger
+    COMMENT "Cleaning log files and directories"
+)
+
+# Target pro spuÅ¡tÄ›nÃ­ s ÄistÃ½mi logy
+add_custom_target(run-clean
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_CURRENT_SOURCE_DIR}/core_logger
+    COMMAND $<TARGET_FILE:IthacaCore>
+    DEPENDS IthacaCore
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Running IthacaCore with clean logs"
+)
+
+# Target pro zobrazenÃ­ logu
+if(WIN32)
+    add_custom_target(show-log
+        COMMAND type ${CMAKE_CURRENT_SOURCE_DIR}/core_logger/core_logger.log
+        COMMENT "Displaying current log file"
+    )
+else()
+    add_custom_target(show-log
+        COMMAND cat ${CMAKE_CURRENT_SOURCE_DIR}/core_logger/core_logger.log
+        COMMENT "Displaying current log file"
+    )
+endif()
+
+# Debug informace pro vÃ½vojÃ¡Å™e
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    message(STATUS "=== Debug Build Information ===")
+    message(STATUS "Enable detailed logging: YES")
+    message(STATUS "Runtime checks: ENABLED")
+    message(STATUS "Optimization: DISABLED")
+    message(STATUS "Available targets:")
+    message(STATUS "  - IthacaCore: Build main executable")
+    message(STATUS "  - clean-logs: Remove all log files")
+    message(STATUS "  - run-clean: Run with fresh logs")
+    message(STATUS "  - show-log: Display current log")
+    message(STATUS "===============================")
+endif()
+
+
+===== File: main.cpp =====
+Path: C:\Users\jindr\IthacaCore\main.cpp
+=====
+#include <stdio.h>
+#include "sampler/core_logger.h"       // Include pro Logger
+#include "sampler/sampler.h"           // Include pro runSampler
+
+/**
+ * HlavnÃ­ funkce programu, kterÃ¡ vypÃ­Å¡e ÃºvodnÃ­ zprÃ¡vu, inicializuje logger
+ * a pÅ™edÃ¡ Å™Ã­zenÃ­ do sampleru.
+ * 
+ * ARCHITEKTURA VÃSTUPÅ®:
+ * - main.cpp: PouÅ¾Ã­vÃ¡ pouze printf pro konzolovÃ½ vÃ½stup
+ * - Logger: Vypisuje inicializaÄnÃ­ zprÃ¡vy na konzoli + loguje do souboru
+ * - VÅ¡echny ostatnÃ­ moduly: Pouze logovÃ¡nÃ­ do souboru, Å¾Ã¡dnÃ© konzolovÃ© vÃ½stupy
+ * 
+ * CHOVÃNÃ PÅ˜I CHYBÃCH:
+ * - Pokud Logger selÅ¾e pÅ™i inicializaci, program se ukonÄÃ­ s exit(1)
+ * - Pokud jakÃ½koliv dalÅ¡Ã­ modul selÅ¾e, program se ukonÄÃ­ s exit(1)
+ * - VÅ¡echny chyby jsou logovÃ¡ny pÅ™ed ukonÄenÃ­m
+ * 
+ * @param argc PoÄet argumentÅ¯ (vÄetnÄ› nÃ¡zvu programu).
+ * @param argv Pole argumentÅ¯.
+ * @return VracÃ­ 0 pÅ™i ÃºspÄ›Å¡nÃ©m ukonÄenÃ­ programu.
+ */
+int main(int argc, char *argv[]) {
+    // ÃšvodnÃ­ banner - pouze printf na konzoli
+    printf("=====================================\n");
+    printf("      IthacaCore Audio Sampler      \n");
+    printf("      Professional Sample Engine     \n");
+    printf("=====================================\n");
+    printf("[main] Starting IthacaCore application\n");
+
+    // ZpracovÃ¡nÃ­ parametrÅ¯ pÅ™Ã­kazovÃ© Å™Ã¡dky
+    if (argc > 1) {
+        printf("[main] Command line parameters detected: ");
+        for (int i = 1; i < argc; i++) {
+            printf("%s ", argv[i]);
+        }
+        printf("\n");
+        printf("[main] Parameters will be passed to sampler system\n");
+    } else {
+        printf("[main] No command line parameters provided\n");
+        printf("[main] Using default configuration\n");
+    }
+
+    printf("-------------------------------------\n");
+    printf("[main] Initializing logger subsystem\n");
+    
+    // Inicializace loggeru s cestou "./" (aktuÃ¡lnÃ­ adresÃ¡Å™)
+    // Logger bude vypisovat svÃ© vlastnÃ­ inicializaÄnÃ­ zprÃ¡vy na konzoli
+    // Od tohoto bodu bude veÅ¡kerÃ© logovÃ¡nÃ­ modulÅ¯ probÃ­hat pouze pÅ™es Logger
+    Logger logger("./");
+    
+    // Logger inicializace dokonÄena - pokraÄujeme
+    printf("-------------------------------------\n");
+    printf("[main] Logger initialization completed\n");
+    printf("[main] Transferring control to sampler system\n");
+    printf("[main] All further operations will be logged to: core_logger/core_logger.log\n");
+    printf("[main] Monitor log file for detailed operation progress\n");
+    printf("=====================================\n\n");
+
+    // PÅ™edÃ¡nÃ­ Å™Ã­zenÃ­ do sampleru s loggerem
+    // Od tohoto bodu budou vÅ¡echny operace logovÃ¡ny pouze do souboru
+    // Å½Ã¡dnÃ© dalÅ¡Ã­ konzolovÃ© vÃ½stupy kromÄ› zÃ¡vÄ›reÄnÃ½ch zprÃ¡v z main.cpp
+    int result = runSampler(logger);
+    
+    // ZÃ¡vÄ›reÄnÃ½ vÃ½stup na konzoli - pouze main.cpp
+    printf("\n=====================================\n");
+    printf("[main] Sampler system execution completed\n");
+    
+    if (result == 0) {
+        printf("[main] SUCCESS: All operations completed successfully\n");
+        printf("[main] Exit code: 0 (success)\n");
+    } else {
+        printf("[main] WARNING: System completed with errors\n");
+        printf("[main] Exit code: %d (check logs for details)\n", result);
+    }
+    
+    printf("[main] Detailed operation log available in the displayed log file path above\n");
+    printf("[main] Thank you for using IthacaCore Audio Sampler\n");
+    printf("=====================================\n");
+    
+    return result;
+}
+
+
+===== File: README.md =====
+Path: C:\Users\jindr\IthacaCore\README.md
+=====
+```markdown
+# IthacaCore: C++ Sampler s Loggerem
+
+## Popis projektu
+IthacaCore je profesionÃ¡lnÃ­ audio sampler engine napsanÃ½ v C++17. SystÃ©m je modulÃ¡rnÃ­, s podporou logovÃ¡nÃ­ (Logger), prohledÃ¡vÃ¡nÃ­ WAV sample souborÅ¯ (SamplerIO) a koordinaci celÃ©ho workflow (runSampler). NavrÅ¾en pro snadnou integraci do vÄ›tÅ¡Ã­ch projektÅ¯, jako je audio plugin nebo standalone aplikace. PouÅ¾Ã­vÃ¡ libsndfile pro prÃ¡ci s WAV soubory a podporuje parsovÃ¡nÃ­ nÃ¡zvÅ¯ souborÅ¯ ve formÃ¡tu `mXXX-velY-fZZ.wav` (kde XXX je MIDI nota 0-127, Y je velocity 0-7, ZZ je zkrÃ¡cenÃ¡ frekvence s 'f' prefixem).
+
+KlÃ­ÄovÃ© vlastnosti:
+- Thread-safe logovÃ¡nÃ­ do souboru.
+- ProhledÃ¡vÃ¡nÃ­ metadat (frekvence, MIDI nota, velocity, dÃ©lka, poÄet kanÃ¡lÅ¯) z WAV souborÅ¯.
+- Detekce audio formÃ¡tu (interleaved/non-interleaved) a potÅ™eby konverze do float.
+- AnalÃ½za subformÃ¡tu (16-bit PCM, 24-bit PCM, 32-bit float, atd.).
+- Validace konzistence frekvence mezi nÃ¡zvem souboru a obsahem.
+- VyhledÃ¡vÃ¡nÃ­ sample podle MIDI noty a velocity.
+- PÅ™Ã­stup k metadatÅ¯m pÅ™es bezpeÄnÃ© gettery (s kontrolou indexu).
+- Å½Ã¡dnÃ© konzolovÃ© vÃ½stupy v modulech â€“ vÅ¡e logovÃ¡no.
+- Detekce mono/stereo formÃ¡tu a dalÅ¡Ã­ audio metadata.
+
+## PoÅ¾adavky
+- Visual Studio Code
+- Visual Studio 2022 Build Tools (s C++ komponentami) nebo Community Edition
+- CMake (verze 3.10+, pÅ™idejte do PATH)
+- RozÅ¡Ã­Å™enÃ­ VS Code: CMake Tools a C/C++ od Microsoftu
+- libsndfile (stÃ¡hne se automaticky pÅ™es `add_subdirectory` v CMakeLists.txt)
+- C++17 kompatibilnÃ­ kompilÃ¡tor (MSVC/GCC/Clang)
+
+## Postup nastavenÃ­
+1. UloÅ¾te vÅ¡echny soubory do koÅ™enovÃ© sloÅ¾ky projektu (napÅ™. `IthacaCore`).
+2. VytvoÅ™te sloÅ¾ku `.vscode` a uloÅ¾te do nÃ­ `tasks.json`, `launch.json` a `settings.json`.
+3. VytvoÅ™te sloÅ¾ku `libsndfile` a stÃ¡hnÄ›te do nÃ­ zdrojovÃ½ kÃ³d libsndfile (nebo pouÅ¾ijte externÃ­ build).
+4. OtevÅ™ete projekt v VS Code (File â†’ Open Folder).
+5. SpusÅ¥te CMake: Configure (Ctrl+Shift+P â†’ CMake: Configure). To vygeneruje build soubory v `build` sloÅ¾ce.
+
+## SestavenÃ­ a spuÅ¡tÄ›nÃ­
+- **SestavenÃ­**: SpusÅ¥te Ãºlohu "build" (Ctrl+Shift+P â†’ Tasks: Run Task â†’ build). To nastavÃ­ prostÅ™edÃ­ MSVC pÅ™es `vcvars64.bat` a spustÃ­ `cmake --build .`. VytvoÅ™Ã­ `Debug/IthacaCore.exe`.
+- **SpuÅ¡tÄ›nÃ­**: KliknÄ›te na tlaÄÃ­tko spustit (|> ) nebo stisknÄ›te F5. Program se sestavÃ­ a spustÃ­.
+- **VÃ½stup**:
+  - Na konzoli: ÃšvodnÃ­ zprÃ¡va "[i] Starting IthacaCore" a pÅ™Ã­padnÄ› parametry.
+  - V logu (`core_logger/core_logger.log`): ZÃ¡znamy o inicializaci loggeru, prohledÃ¡vÃ¡nÃ­ sample, vyhledÃ¡vÃ¡nÃ­ (napÅ™. "Loaded: m108-vel7-f44.wav (MIDI: 108, Vel: 7, Freq: 44100 Hz, Duration: 2.5s, Channels: 2 (stereo), Frames: 110250, Format: interleaved, needs float conversion)").
+- **ÄŒiÅ¡tÄ›nÃ­**: SmaÅ¾te sloÅ¾ku `build` a `core_logger` pro reset.
+
+**PoznÃ¡mka**: Cesta k `vcvars64.bat` v tasks.json je pro VS 2022 Build Tools. Pokud mÃ¡te Community, upravte na `C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat`. Pro PowerShell execution policy: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`.
+
+## PouÅ¾itÃ­ v vlastnÃ­m projektu
+Pro integraci do vaÅ¡eho C++ projektu zahrÅˆte hlaviÄky a linkujte libsndfile. PÅ™Ã­klad minimÃ¡lnÃ­ho pouÅ¾itÃ­ (v main.cpp):
+```cpp
+#include "core_logger.h"
+#include "sampler.h"
+int main() {
+    Logger logger("./"); // Cesta k logÅ¯m
+    int result = runSampler(logger); // SpustÃ­ celÃ½ workflow
+    return result;
+}
+```
+Pro vlastnÃ­ logiku pouÅ¾ijte tÅ™Ã­du `SamplerIO` (pro IO operace). VÅ¾dy inicializujte `Logger` pro logovÃ¡nÃ­.
+
+### PouÅ¾itÃ­ tÅ™Ã­dy SamplerIO
+`SamplerIO` pro ÄistÃ© IO operace (prohledÃ¡vÃ¡nÃ­, vyhledÃ¡vÃ¡nÃ­, pÅ™Ã­stup k metadatÅ¯m). VytvoÅ™te instanci a pÅ™edejte logger.
+
+| Metoda | Parametry | PÅ™Ã­klad | KomentÃ¡Å™ | NÃ¡vratovÃ½ typ | PÅ™Ã­klad nÃ¡vratu / Chyba |
+|--------|-----------|---------|----------|---------------|-------------------------|
+| `SamplerIO()` | - | `SamplerIO io;` | Konstruktor: Inicializuje prÃ¡zdnÃ½ seznam `sampleList`. Å½Ã¡dnÃ© logovÃ¡nÃ­ v konstruktoru. | `void` (konstruktor) | - (Å¾Ã¡dnÃ½ nÃ¡vratovÃ½ kÃ³d, ÃºspÄ›Å¡nÃ¡ inicializace) |
+| `~SamplerIO()` | - | AutomatickÃ½ | Destruktor: Å½Ã¡dnÃ© speciÃ¡lnÃ­ akce (seznam se uvolnÃ­ automaticky). | `void` (destruktor) | - (automatickÃ© uvolnÄ›nÃ­) |
+| `scanSampleDirectory(const std::string& directoryPath, Logger& logger)` | `directoryPath` â€“ cesta k adresÃ¡Å™i se WAV soubory (napÅ™. `"./samples"`), `logger` â€“ reference na Logger | `io.scanSampleDirectory(R"(c:\samples)", logger);` | ProhledÃ¡ adresÃ¡Å™. Deleguje parsovÃ¡nÃ­ nÃ¡zvÅ¯ (regex), naÄte metadata (libsndfile). Validuje konzistenci frekvence mezi nÃ¡zvem a souborem. Detekuje formÃ¡t (interleaved) a potÅ™ebu konverze (PCMâ†’float). Loguje info/warn/error. Chyby (neexistujÃ­cÃ­ adresÃ¡Å™, nekonzistentnÃ­ frekvence): zaloguje a `std::exit(1)`. | `void` | - (ÃºspÄ›ch: naÄte data; chyba: exit(1) po logu) |
+| `findSampleInSampleList(uint8_t midi_note, uint8_t velocity) const` | `midi_note` (0-127), `velocity` (0-7) | `int idx = io.findSampleInSampleList(60, 5);` | VyhledÃ¡ index sample v internÃ­m seznamu. VrÃ¡tÃ­ -1, pokud nenalezeno. LineÃ¡rnÃ­ prohledÃ¡vÃ¡nÃ­, Å¾Ã¡dnÃ© logovÃ¡nÃ­. | `int` | `0` (index prvnÃ­ shody); `-1` (nenalezeno, nenÃ­ chyba) |
+| `getLoadedSampleList() const` | - | `const auto& list = io.getLoadedSampleList();` | VrÃ¡tÃ­ konstantnÃ­ referenci na vektor `SampleInfo` pro ÄtenÃ­ metadat. Å½Ã¡dnÃ© logovÃ¡nÃ­. | `const std::vector<SampleInfo>&` | Reference na vektor (prÃ¡zdnÃ½, pokud nenÃ­ naÄteno) |
+| `getFilename(int index, Logger& logger) const` | `index` â€“ index v seznamu, `logger` â€“ reference na Logger | `const char* fn = io.getFilename(idx, logger);` | VrÃ¡tÃ­ cestu k souboru. Kontroluje platnost indexu (>=0 a < velikost); pÅ™i chybÄ›: zaloguje error a `std::exit(1)`. | `const char*` | Cesta k souboru (napÅ™. `"C:\\samples\\m60-vel5-f44.wav"`); chyba: exit(1) po logu |
+| `getMidiNote(int index, Logger& logger) const` | `index` â€“ index v seznamu, `logger` â€“ reference na Logger | `uint8_t note = io.getMidiNote(idx, logger);` | VrÃ¡tÃ­ MIDI notu. StejnÃ¡ kontrola indexu jako vÃ½Å¡e. | `uint8_t` | MIDI nota (napÅ™. `60` pro C4); chyba: exit(1) po logu |
+| `getMidiNoteVelocity(int index, Logger& logger) const` | `index` â€“ index v seznamu, `logger` â€“ reference na Logger | `uint8_t vel = io.getMidiNoteVelocity(idx, logger);` | VrÃ¡tÃ­ velocity. StejnÃ¡ kontrola indexu jako vÃ½Å¡e. | `uint8_t` | Velocity (napÅ™. `5`); chyba: exit(1) po logu |
+| `getFrequency(int index, Logger& logger) const` | `index` â€“ index v seznamu, `logger` â€“ reference na Logger | `int freq = io.getFrequency(idx, logger);` | VrÃ¡tÃ­ frekvenci (Hz). StejnÃ¡ kontrola indexu jako vÃ½Å¡e. | `int` | Frekvence (napÅ™. `44100`); chyba: exit(1) po logu |
+| `getSampleCount(int index, Logger& logger) const` | `index` â€“ index v seznamu, `logger` â€“ reference na Logger | `sf_count_t frames = io.getSampleCount(idx, logger);` | VrÃ¡tÃ­ poÄet vzorkÅ¯ (frames) ze souboru. Kontrola indexu jako u ostatnÃ­ch getterÅ¯. | `sf_count_t` | PoÄet vzorkÅ¯ (napÅ™. `110250`); chyba: exit(1) po logu |
+| `getDurationInSeconds(int index, Logger& logger) const` | `index` â€“ index v seznamu, `logger` â€“ reference na Logger | `double dur = io.getDurationInSeconds(idx, logger);` | VrÃ¡tÃ­ dÃ©lku v sekundÃ¡ch (vypoÄteno jako frames/samplerate). Kontrola indexu jako u ostatnÃ­ch. | `double` | DÃ©lka v sekundÃ¡ch (napÅ™. `2.5`); chyba: exit(1) po logu |
+| `getChannelCount(int index, Logger& logger) const` | `index` â€“ index v seznamu, `logger` â€“ reference na Logger | `int ch = io.getChannelCount(idx, logger);` | VrÃ¡tÃ­ poÄet kanÃ¡lÅ¯ ze souboru. Kontrola indexu jako u ostatnÃ­ch. | `int` | PoÄet kanÃ¡lÅ¯ (napÅ™. `2` pro stereo, `1` pro mono); chyba: exit(1) po logu |
+| `getIsStereo(int index, Logger& logger) const` | `index` â€“ index v seznamu, `logger` â€“ reference na Logger | `bool stereo = io.getIsStereo(idx, logger);` | VrÃ¡tÃ­ true pokud stereo (channels >= 2). Kontrola indexu jako u ostatnÃ­ch. | `bool` | `true` (stereo), `false` (mono); chyba: exit(1) po logu |
+| `getIsInterleavedFormat(int index, Logger& logger) const` | `index` â€“ index v seznamu, `logger` â€“ reference na Logger | `bool interleaved = io.getIsInterleavedFormat(idx, logger);` | VrÃ¡tÃ­ true pokud interleaved formÃ¡t (standard pro WAV). Kontrola indexu jako u ostatnÃ­ch. | `bool` | `true` (interleaved), `false` (non-interleaved); chyba: exit(1) po logu |
+| `getNeedsConversion(int index, Logger& logger) const` | `index` â€“ index v seznamu, `logger` â€“ reference na Logger | `bool needsConv = io.getNeedsConversion(idx, logger);` | VrÃ¡tÃ­ true pokud potÅ™ebuje konverzi do float (16-bit PCM â†’ float). Kontrola indexu jako u ostatnÃ­ch. | `bool` | `true` (potÅ™ebuje konverzi), `false` (jiÅ¾ float); chyba: exit(1) po logu |
+
+**PÅ™Ã­klad plnÃ©ho pouÅ¾itÃ­ s gettery**:
+```cpp
+Logger logger("./");
+SamplerIO io;  // PrÃ¡zdnÃ½ sampler
+std::string dir = R"(c:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)";
+io.scanSampleDirectory(dir, logger);  // ProhledÃ¡ a zaloguje (s validacÃ­ frekvence a detekce formÃ¡tu)
+int idx = io.findSampleInSampleList(108, 7);  // VyhledÃ¡ index
+if (idx != -1) {
+    const char* filename = io.getFilename(idx, logger);
+    int freq = io.getFrequency(idx, logger);
+    uint8_t note = io.getMidiNote(idx, logger);
+    uint8_t vel = io.getMidiNoteVelocity(idx, logger);
+    
+    // RozÅ¡Ã­Å™enÃ¡ metadata
+    sf_count_t frames = io.getSampleCount(idx, logger);
+    double duration = io.getDurationInSeconds(idx, logger);
+    int channels = io.getChannelCount(idx, logger);
+    bool isStereo = io.getIsStereo(idx, logger);
+    
+    // Metadata pro audio processing
+    bool isInterleaved = io.getIsInterleavedFormat(idx, logger);
+    bool needsConversion = io.getNeedsConversion(idx, logger);
+    
+    // PouÅ¾ij data: filename, freq, note, vel, duration, channels, formÃ¡t, konverze atd.
+}
+```
+
+### Funkce runSampler
+- **Signatura**: `int runSampler(Logger& logger)`
+- **PÅ™Ã­klad**: `runSampler(logger);`
+- **KomentÃ¡Å™**: SpustÃ­ kompletnÃ­ workflow (deleguje prohledÃ¡vÃ¡nÃ­ do SamplerIO, vyhledÃ¡ pÅ™Ã­klad MIDI 108/vel 7, pouÅ¾ije gettery pro metadata vÄetnÄ› novÃ½ch). Loguje vÅ¡echny kroky vÄetnÄ› detailnÃ­ch informacÃ­ o dÃ©lce, kanÃ¡lech, stereo mÃ³du, formÃ¡tu a potÅ™ebÄ› konverze. VrÃ¡tÃ­ 0 pÅ™i ÃºspÄ›chu (chyby konÄÃ­ `std::exit(1)`). PouÅ¾ijte pro standalone test.
+
+## Struktura projektu
+### KlÃ­ÄovÃ© soubory
+- **CMakeLists.txt**: Definuje projekt, pÅ™idÃ¡vÃ¡ libsndfile, linkuje soubory (`main.cpp`, `sampler/*.cpp`) a include cesty.
+- **main.cpp**: HlavnÃ­ vstup â€“ inicializuje logger, zpracuje argumenty a volÃ¡ `runSampler`.
+- **sampler/core_logger.h/cpp**: Implementace tÅ™Ã­dy `Logger`.
+- **sampler/sampler.h/cpp**: Deklarace a implementace funkce `runSampler` a tÅ™Ã­dy `SamplerIO` (po refaktoru slouÄeno pro jednoduchost).
+- **.vscode/**: Konfigurace pro VS Code (build tasky, launch, settings pro terminal a file associations).
+- **README.md**: Tento soubor.
+
+### Struktury a tÅ™Ã­dy
+#### Struktura `SampleInfo` (v `sampler.h`)
+UchovÃ¡vÃ¡ metadata o WAV samplu:
+```cpp
+struct SampleInfo {
+    char filename[256];             // Cesta k souboru (max 256 znakÅ¯)
+    uint8_t midi_note;              // MIDI nota (0-127)
+    uint8_t midi_note_velocity;     // Velocity (0-7)
+    int frequency;                  // Frekvence vzorkovÃ¡nÃ­ (Hz, z WAV headeru)
+    sf_count_t sample_count;        // CelkovÃ½ poÄet vzorkÅ¯ (frames)
+    double duration_seconds;        // DÃ©lka v sekundÃ¡ch
+    int channels;                   // PoÄet kanÃ¡lÅ¯ (1=mono, 2=stereo, atd.)
+    bool is_stereo;                 // True pokud stereo (channels >= 2)
+    bool interleaved_format;        // True pokud interleaved formÃ¡t (standard pro WAV)
+    bool needs_conversion;          // True pokud potÅ™ebuje konverzi do float (16-bit PCM â†’ float)
+};
+```
+- PouÅ¾Ã­vÃ¡ se pro uklÃ¡dÃ¡nÃ­ dat v `std::vector<SampleInfo>` v `SamplerIO`.
+- Pro kompletnÃ­ metadata z WAV souborÅ¯ a analÃ½zu formÃ¡tu.
+
+#### TÅ™Ã­da `Logger` (v `core_logger.h/cpp`)
+- **Konstruktor**: `Logger(const std::string& path)` â€“ VytvoÅ™Ã­ sloÅ¾ku `core_logger`, smaÅ¾e starÃ½ log, otevÅ™e novÃ½ soubor. SelhÃ¡nÃ­ vede k `std::exit(1)`.
+- **Metoda `log`**: `void log(const std::string& component, const std::string& severity, const std::string& message)` â€“ Zaloguje zprÃ¡vu ve formÃ¡tu `[timestamp] [component] [severity]: message`. Thread-safe dÃ­ky `std::mutex`.
+- **Destruktor**: `~Logger()` â€“ UzavÅ™e soubor.
+- **PÅ™Ã­klad instancovÃ¡nÃ­ a volÃ¡nÃ­** (z `main.cpp`):
+  ```cpp
+  Logger logger("./");  // Cesta k aktuÃ¡lnÃ­mu adresÃ¡Å™i
+  logger.log("SamplerIO/scanSampleDirectory", "info", "Scanning sample directory: /path/to/dir");
+  ```
+
+## Å˜eÅ¡enÃ­ problÃ©mÅ¯
+- **Execution Policy**: SpusÅ¥te `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` v PowerShell.
+- **libsndfile chybÃ­**: StÃ¡hnÄ›te z [libsndfile GitHub](https://github.com/libsndfile/libsndfile) a upravte CMakeLists.txt.
+- **LinkovacÃ­ chyba LNK1104**: UkonÄete vÅ¡echny procesy IthacaCore.exe, smaÅ¾te build sloÅ¾ku a sestavte znovu.
+- **Logy**: Sledujte `core_logger/core_logger.log`. Pro real-time: `Get-Content -Path "core_logger/core_logger.log" -Tail 10 -Wait`.
+- **RozÅ¡Ã­Å™enÃ­**: Upravte cestu v `sampler.cpp` pro jinÃ© samples. Pro plnÃ© naÄÃ­tÃ¡nÃ­ audio dat rozÅ¡iÅ™te `SamplerIO` o `sf_readf_float` z libsndfile.
+- **Chyba - nekonzistence frekvence**: Program se ukonÄÃ­ s chybou, pokud frekvence v nÃ¡zvu souboru neodpovÃ­dÃ¡ frekvenci v WAV headeru.
+- **NepodporovanÃ½ subformÃ¡t**: Program konÄÃ­ s chybou pÅ™i detekci nepodporovanÃ©ho audio formÃ¡tu.
+
+## PoznÃ¡mky
+- **NÃ¡zvoslovÃ­ souborÅ¯**: Samples musÃ­ mÃ­t formÃ¡t `mXXX-velY-fZZ.wav` (XXX = MIDI nota 0-127, Y = velocity 0-7, ZZ = zkrÃ¡cenÃ¡ frekvence s 'f' prefixem: f8, f11, f16, f22, f44, f48, f88, f96, f176, f192). Jinak se ignorujÃ­ s warningem.
+- Validace: Frekvence v nÃ¡zvu (fZZ) musÃ­ odpovÃ­dat frekvenci v WAV headeru, jinak program konÄÃ­ s chybou.
+- Detekce formÃ¡tu: Program analyzuje, zda je WAV interleaved (standard) a jakÃ½ mÃ¡ subformÃ¡t (16-bit PCM, float, atd.).
+- PodporovanÃ© formÃ¡ty: 16-bit PCM, 24-bit PCM, 32-bit PCM, 32-bit float, 64-bit double.
+- OptimÃ¡lnÃ­ formÃ¡t: 32-bit float (Å¾Ã¡dnÃ¡ konverze potÅ™ebnÃ¡).
+- Chyby: SelhÃ¡nÃ­ inicializace (adresÃ¡Å™, pÅ™Ã­stup, neplatnÃ½ index v gettech, nekonzistentnÃ­ frekvence, nepodporovanÃ½ formÃ¡t) vede k logu a `std::exit(1)`.
+- Thread-safety: Pouze logovÃ¡nÃ­ je chrÃ¡nÄ›no mutexem; sampler nenÃ­ navrÅ¾en pro multi-threading.
+- RozÅ¡Ã­Å™enÃ¡ metadata: Program nynÃ­ prohledÃ¡vÃ¡ a poskytuje pÅ™Ã­stup k dÃ©lce, poÄtu kanÃ¡lÅ¯, stereo detekci, poÄtu vzorkÅ¯, formÃ¡tu a potÅ™ebÄ› konverze.
+- Projekt je pÅ™enositelnÃ½; pro sloÅ¾itÄ›jÅ¡Ã­ aplikace pÅ™idejte JUCE nebo dalÅ¡Ã­ knihovny.
+
+## Grab-Files
+```
+PowerShell.exe -ExecutionPolicy Bypass -File .\Grab-Files.ps1
+```
+
+## Watch log
+
+```
+Get-Content -Path "./core_logger/core_logger.log" -Tail 10 -Wait
+```
+```
+
+
