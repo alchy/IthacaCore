@@ -308,7 +308,7 @@ graph TD
     E --> F[Voice.initialize: Uložení sampleRate, Instrument pointer]
     F --> G[Voice.setNoteState: Nastavení stavu, obálka na sampleRate]
     G --> H[Voice.processBlock: Posun position, aplikace gain z releaseSamples]
-    H --> I[Instrument.get_sample_begin_pointer: Stereo data (L,R...)]
+    H --> I[Instrument.get_sample_begin_pointer: Stereo data L,R...]
     I --> J[Mixdown v VoiceManager.processBlock: Součet aktivních hlasů]
     J --> K[Výstup: Stereo audio buffer]
 ```
