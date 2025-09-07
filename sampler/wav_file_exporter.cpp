@@ -182,12 +182,21 @@ void WavExporter::logTime(const std::string& operation, std::chrono::steady_cloc
 }
 
 // convertFloatToInt16: Škáluje a clipuje (bez ditheringu)
+// SKonverze float → int16 s manuálním clippingem (pro kompatibilitu s MSVC)
 void WavExporter::convertFloatToInt16(float* src, int16_t* dst, int numSamples) {
     static constexpr int16_t MAX_INT16 = 32767;
     static constexpr int16_t MIN_INT16 = -32768;
     for (int i = 0; i < numSamples; ++i) {
-        float scaled = src[i] * MAX_INT16;  // -1.0..1.0 → -32767..32767
-        int32_t clamped = (std::clamp)(static_cast<int32_t>(scaled), MIN_INT16, MAX_INT16);  // Clipping
-        dst[i] = static_cast<int16_t>(clamped);
+        float scaled = src[i] * MAX_INT16;  // Škálování -1.0..1.0 → -32767..32767
+        int32_t temp = static_cast<int32_t>(scaled);  // Dočasný int32_t pro bezpečný cast
+        int16_t clamped;
+        if (temp > MAX_INT16) {
+            clamped = MAX_INT16;  // Clipping nahoru
+        } else if (temp < MIN_INT16) {
+            clamped = MIN_INT16;  // Clipping dolů
+        } else {
+            clamped = static_cast<int16_t>(temp);  // Bez clippingu
+        }
+        dst[i] = clamped;
     }
 }
