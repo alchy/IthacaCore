@@ -1,139 +1,120 @@
-// Ukázka integrace do sampler.cpp
-// Přidejte tento include na začátek souboru:
-#include "instrument_loader.h"
-
-// Upravená funkce runSampler() s integrací InstrumentLoader:
+#include "sampler.h"  // SamplerIO
+#include "instrument_loader.h"  // InstrumentLoader
+#include "wav_file_exporter.h"  // WavExporter pro test exportu
 
 /**
- * @brief Funkce pro řízení sampleru – prohledá adresář s WAV soubory, načte je do paměti a testuje přístup.
- * ROZŠÍŘENO: Nově také načítá samples do paměti jako 32-bit float buffery pomocí InstrumentLoader.
+ * @brief Hlavní koordinátor sampleru – spustí celý workflow.
  * @param logger Reference na Logger pro logování.
- * @return 0 při úspěchu, 1 při chybě (ale chyby jsou řešeny ukončením programu).
+ * @return 0 při úspěchu.
+ * 
+ * Workflow:
+ * 1. Prohledá adresář se samples (SamplerIO).
+ * 2. Načte všechny samples do paměti jako stereo float buffery (InstrumentLoader).
+ * 3. TESTY: Na konci v try-catch bloku – test přístupu k instrumentu (retrieve: MIDI 108, vel 7) a export WAV pro ověření konverze.
+ *    - Provádí se vždy (pokud sample existuje).
+ *    - Používá Pcm16 formát (default), buffer 512 samples (JUCE-like).
+ *    - Měří časy zápisu pro debugging.
+ *    - Vytvoří soubor ./exports/export_test.wav pro poslech.
+ * 4. Statistiky na úplném konci.
+ * Chyby v testech: Zachytí try-catch, log + return 1. Jiné chyby končí std::exit(1) po logu.
  */
 int runSampler(Logger& logger) {
-    logger.log("runSampler", "info", "Starting sampler with InstrumentLoader integration.");
+    logger.log("runSampler", "info", "Starting IthacaCore sampler workflow");
 
-    // REF: Prohledání a test sampleru – delegace do SamplerIO
+    /* ======= Globální nastavení proměnných (společné pro celý workflow) ====== */
+    // Cesta k samples (upravte podle potřeby)
+    std::string sampleDir = R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)";
+    
+    // Konfigurace pro načítání (targetSampleRate)
+    int targetSampleRate = 44100;  // Typická frekvence pro audio plugin
+    /* ======= Konец globálního nastavení ====== */
+
+    /* ======= Hlavní workflow: Inicializace a načtení samples ====== */
+    // Krok 1: Inicializace SamplerIO a prohledání adresáře
     SamplerIO sampler;
-    std::string sampleDir = R"(c:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)";
-    sampler.scanSampleDirectory(sampleDir, logger);  // Delegace prohledávání (obsahuje logování a exit při chybě)
-    
-    // NOVÉ: Inicializace InstrumentLoader a načtení všech samplů do paměti
-    logger.log("runSampler", "info", "Initializing InstrumentLoader for 44100 Hz target sample rate.");
-    InstrumentLoader loader(sampler, 44100, logger);
-    
-    // Načtení všech instrumentů do RAM jako float buffery
+    logger.log("runSampler", "info", "Scanning sample directory: " + sampleDir);
+    sampler.scanSampleDirectory(sampleDir, logger);
+
+    // Krok 2: Načtení do paměti jako stereo buffery
+    InstrumentLoader loader(sampler, targetSampleRate, logger);
     loader.loadAllInstruments();
-    
-    // REF: Příklad vyhledávání (MIDI 108, velocity 7, sample rate 44100 Hz) – použití rozšířeného vyhledávání
-    int index = sampler.findSampleInSampleList(108, 7, 44100);
-    if (index != -1) {
-        // Použití getterů pro přístup k metadatům (předá logger pro kontrolu)
-        std::string filename = sampler.getFilename(index, logger);
-        int frequency = sampler.getFrequency(index, logger);
-        uint8_t midiNote = sampler.getMidiNote(index, logger);
-        uint8_t velocity = sampler.getMidiNoteVelocity(index, logger);
+
+    /* ======= TESTY: Přístup k instrumentu a export (v try-catch na konci) ====== */
+    try {
+        /* ======= Parametry pro retrieve (test přístupu) ====== */
+        uint8_t testMidi = 108;  // Příklad MIDI noty pro test přístupu
+        uint8_t testVel = 5;     // Příklad velocity vrstvy pro test přístupu
+        /* ======= Konец parametrů pro retrieve ====== */
         
-        // Původní metadata
-        sf_count_t sampleCount = sampler.getSampleCount(index, logger);
-        double duration = sampler.getDurationInSeconds(index, logger);
-        int channels = sampler.getChannelCount(index, logger);
-        bool isStereo = sampler.getIsStereo(index, logger);
-        
-        // Metadata - rozšířené atributy
-        bool isInterleaved = sampler.getIsInterleavedFormat(index, logger);
-        bool needsConversion = sampler.getNeedsConversion(index, logger);
-        
-        // Sestavení detailní zprávy se všemi metadaty
-        std::string stereoInfo = isStereo ? "stereo" : "mono";
-        std::string interleavedInfo = isInterleaved ? "interleaved" : "non-interleaved";
-        std::string conversionInfo = needsConversion ? "needs float conversion" : "no conversion needed";
-        
-        std::string msg = "Found sample: " + std::string(filename) + 
-                          ", MIDI: " + std::to_string(midiNote) + 
-                          ", Vel: " + std::to_string(velocity) + 
-                          ", Frequency: " + std::to_string(frequency) + " Hz" +
-                          ", Duration: " + std::to_string(duration) + "s" +
-                          ", Frames: " + std::to_string(sampleCount) +
-                          ", Channels: " + std::to_string(channels) + " (" + stereoInfo + ")" +
-                          ", Format: " + interleavedInfo + 
-                          ", Conversion: " + conversionInfo;
-        
-        logger.log("runSampler/findSampleInSampleList", "info", msg);
-        
-        // NOVÉ: Test přístupu k načtenému bufferu přes InstrumentLoader
-        logger.log("runSampler", "info", "Testing buffer access through InstrumentLoader...");
-        
-        try {
-            Instrument& inst = loader.getInstrument(108);
-            if (inst.velocityExists[7]) {
-                // Buffer byl úspěšně načten
-                float* audioBuffer = inst.sample_ptr_velocity[7];
-                SampleInfo* sampleInfo = inst.sample_ptr_sampleInfo[7];
-                
-                if (audioBuffer != nullptr && sampleInfo != nullptr) {
-                    logger.log("runSampler/bufferTest", "info", 
-                              "SUCCESS: Buffer pro MIDI 108 velocity 7 načten v paměti");
-                    logger.log("runSampler/bufferTest", "info", 
-                              "Buffer pointer: 0x" + std::to_string(reinterpret_cast<uintptr_t>(audioBuffer)));
-                    logger.log("runSampler/bufferTest", "info", 
-                              "SampleInfo pointer: 0x" + std::to_string(reinterpret_cast<uintptr_t>(sampleInfo)));
+        // Krok 3: Test přístupu k jednomu instrumentu (příklad: MIDI 108, vel 7)
+        Instrument& testInst = loader.getInstrument(testMidi);
+        if (testInst.velocityExists[testVel]) {
+            logger.log("runSampler", "info", "Test access OK: MIDI " + std::to_string(testMidi) + "/vel " + std::to_string(testVel) + 
+                       " exists. Frames: " + std::to_string(testInst.get_frame_count(testVel)) + 
+                       ", Total samples: " + std::to_string(testInst.get_total_sample_count(testVel)) + 
+                       ", Originally mono: " + (testInst.get_was_originally_mono(testVel) ? "yes" : "no"));
+
+            /* ======= Parametry pro test exportu ====== */
+            std::string exportDir = "./exports";  // Adresář pro výstupní WAV soubory
+            std::string exportFilename = "export_test.wav";  // Název výstupního souboru
+            sf_count_t framesPerBuffer = 512;     // Velikost bufferu pro JUCE-like zpracování (samples na blok)
+            bool isStereo = true;                 // Formát: stereo (interleaved [L,R,L,R...])
+            bool realWrite = true;                // Reálný zápis (ne dummy)
+            /* ======= Konец parametrů pro test exportu ====== */
+            
+            // Inicializace exportu
+            logger.log("runSampler", "info", "Starting WAV export test for verification");
+            WavExporter exporter(exportDir, logger);  // Default Pcm16
+
+            float* exportBuffer = exporter.wavFileCreate(exportFilename, targetSampleRate, static_cast<int>(framesPerBuffer), isStereo, realWrite);  // Stereo, reálný zápis
+            if (exportBuffer) {
+                sf_count_t totalFrames = testInst.get_frame_count(testVel);
+                sf_count_t remainingFrames = totalFrames;
+                float* sourceData = testInst.get_sample_begin_pointer(testVel);  // Zdroj: [L,R,L,R...] ze sample
+
+                // Zjednodušená smyčka exportu (minimalizováno vnoření)
+                while (remainingFrames > 0) {
+                    sf_count_t thisBufferFrames = std::min(framesPerBuffer, remainingFrames);
+                    size_t offset = (totalFrames - remainingFrames) * 2;  // *2 pro stereo
                     
-                    // Test prvních několika samplů z bufferu
-                    logger.log("runSampler/bufferTest", "info", 
-                              "První 4 vzorky z bufferu: [" + 
-                              std::to_string(audioBuffer[0]) + ", " +
-                              std::to_string(audioBuffer[1]) + ", " +
-                              std::to_string(audioBuffer[2]) + ", " +
-                              std::to_string(audioBuffer[3]) + "]");
-                              
-                } else {
-                    logger.log("runSampler/bufferTest", "error", 
-                              "NULL pointery navzdory velocityExists[7] == true");
+                    // Kopírování ze source do exportBuffer (interleaved stereo)
+                    for (sf_count_t i = 0; i < thisBufferFrames * 2; ++i) {
+                        exportBuffer[i] = sourceData[offset + i];
+                    }
+
+                    // Zápis bufferu (měří čas)
+                    if (!exporter.wavFileWriteBuffer(exportBuffer, static_cast<int>(thisBufferFrames))) {
+                        logger.log("runSampler", "error", "Export write failed");
+                        return 1;
+                    }
+                    
+                    remainingFrames -= thisBufferFrames;
                 }
+
+                logger.log("runSampler", "info", "WAV export completed: " + exportFilename + " in " + exportDir + 
+                           ". Listen to verify mono->stereo conversion and data integrity (format: Pcm16).");
             } else {
-                logger.log("runSampler/bufferTest", "warn", 
-                          "Buffer pro MIDI 108 velocity 7 nebyl načten (velocityExists[7] == false)");
+                logger.log("runSampler", "error", "Failed to create export buffer");
+                return 1;
             }
-        } catch (...) {
-            logger.log("runSampler/bufferTest", "error", 
-                      "Výjimka při přístupu k InstrumentLoader");
-        }
-        
-        // Dodatečné logování pro detailní analýzu formátu
-        if (needsConversion) {
-            logger.log("runSampler/analysis", "info", 
-                      "Sample requires format conversion from PCM to 32-bit float for audio processing");
         } else {
-            logger.log("runSampler/analysis", "info", 
-                      "Sample is already in optimal float format, ready for direct processing");
+            logger.log("runSampler", "warn", "Test sample MIDI " + std::to_string(testMidi) + "/vel " + std::to_string(testVel) + " not found");
         }
-        
-        if (!isInterleaved) {
-            logger.log("runSampler/analysis", "warn", 
-                      "Non-interleaved format detected - may require special handling");
-        } else {
-            logger.log("runSampler/analysis", "info", 
-                      "Standard interleaved format confirmed - compatible with standard audio processing");
-        }
-        
-        return 0;  // Úspěch
-    } else {
-        logger.log("runSampler/findSampleInSampleList", "warn", "Sample for MIDI 108 vel 7 at 44100 Hz not found.");
-        
-        // NOVÉ: I když konkrétní sample nebyl nalezen, test obecné funkčnosti loaderu
-        logger.log("runSampler", "info", "Testing InstrumentLoader general functionality...");
-        logger.log("runSampler", "info", 
-                  "Total loaded samples: " + std::to_string(loader.getTotalLoadedSamples()));
-        logger.log("runSampler", "info", 
-                  "Originally mono samples: " + std::to_string(loader.getMonoSamplesCount()));
-        logger.log("runSampler", "info", 
-                  "Originally stereo samples: " + std::to_string(loader.getStereoSamplesCount()));
-        logger.log("runSampler", "info", 
-                  "Target sample rate: " + std::to_string(loader.getTargetSampleRate()) + " Hz");
-        logger.log("runSampler", "info", 
-                  "All samples stored as stereo interleaved [L,R,L,R...] format");
-        
-        return 0;  // Žádná chyba, jen nenalezeno
+    } catch (const std::exception& e) {
+        logger.log("runSampler", "error", "Exception in tests: " + std::string(e.what()));
+        return 1;
+    } catch (...) {
+        logger.log("runSampler", "error", "Unknown exception in tests");
+        return 1;
     }
+    /* ======= KONEC TESTŮ ====== */
+
+    /* ======= Závěrečné statistiky ====== */
+    // Statistiky
+    logger.log("runSampler", "info", "Total loaded samples: " + std::to_string(loader.getTotalLoadedSamples()));
+    logger.log("runSampler", "info", "Mono originally: " + std::to_string(loader.getMonoSamplesCount()) + 
+               ", Stereo originally: " + std::to_string(loader.getStereoSamplesCount()));
+
+    logger.log("runSampler", "info", "Sampler workflow completed successfully");
+    return 0;
 }
