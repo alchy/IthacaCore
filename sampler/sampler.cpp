@@ -36,8 +36,8 @@ int runSampler(Logger& logger) {
     sampler.scanSampleDirectory(sampleDir, logger);
 
     // Krok 2: Načtení do paměti jako stereo buffery
-    InstrumentLoader loader(sampler, targetSampleRate, logger);
-    loader.loadInstrument();
+    InstrumentLoader instrument(sampler, targetSampleRate, logger);
+    instrument.loadInstrument();
 
     /* ======= TESTY: Přístup k instrumentu a export (v try-catch na konci) ====== */
     try {
@@ -47,19 +47,19 @@ int runSampler(Logger& logger) {
         /* ======= Konец parametrů pro retrieve ====== */
         
         // Krok 3: Test přístupu k jednomu instrumentu (příklad: MIDI 108, vel 7)
-        Instrument& testInst = loader.getInstrumentNote(testMidi);
-        if (testInst.velocityExists[testVel]) {
+        Instrument& instrument_note = instrument.getInstrumentNote(testMidi);
+        if (instrument_note.velocityExists[testVel]) {
             logger.log("runSampler", "info", "Test access OK: MIDI " + std::to_string(testMidi) + "/vel " + std::to_string(testVel) + 
-                       " exists. Frames: " + std::to_string(testInst.get_frame_count(testVel)) + 
-                       ", Total samples: " + std::to_string(testInst.get_total_sample_count(testVel)) + 
-                       ", Originally mono: " + (testInst.get_was_originally_mono(testVel) ? "yes" : "no"));
+                       " exists. Frames: " + std::to_string(instrument_note.get_frame_count(testVel)) + 
+                       ", Total samples: " + std::to_string(instrument_note.get_total_sample_count(testVel)) + 
+                       ", Originally mono: " + (instrument_note.get_was_originally_mono(testVel) ? "yes" : "no"));
 
             /* ======= Parametry pro test exportu ====== */
-            std::string exportDir = "./exports";  // Adresář pro výstupní WAV soubory
-            std::string exportFilename = "export_test.wav";  // Název výstupního souboru
-            sf_count_t framesPerBuffer = 512;     // Velikost bufferu pro JUCE-like zpracování (samples na blok)
-            bool isStereo = true;                 // Formát: stereo (interleaved [L,R,L,R...])
-            bool realWrite = true;                // Reálný zápis (ne dummy)
+            std::string exportDir = "./exports";                // Adresář pro výstupní WAV soubory
+            std::string exportFilename = "export_test.wav";     // Název výstupního souboru
+            sf_count_t framesPerBuffer = 512;                   // Velikost bufferu pro JUCE-like zpracování (samples na blok)
+            bool isStereo = true;                               // Formát: stereo (interleaved [L,R,L,R...])
+            bool realWrite = true;                              // Reálný zápis (ne dummy)
             /* ======= Konец parametrů pro test exportu ====== */
             
             // Inicializace exportu
@@ -68,9 +68,9 @@ int runSampler(Logger& logger) {
 
             float* exportBuffer = exporter.wavFileCreate(exportFilename, targetSampleRate, static_cast<int>(framesPerBuffer), isStereo, realWrite);  // Stereo, reálný zápis
             if (exportBuffer) {
-                sf_count_t totalFrames = testInst.get_frame_count(testVel);
+                sf_count_t totalFrames = instrument_note.get_frame_count(testVel);
                 sf_count_t remainingFrames = totalFrames;
-                float* sourceData = testInst.get_sample_begin_pointer(testVel);  // Zdroj: [L,R,L,R...] ze sample
+                float* sourceData = instrument_note.get_sample_begin_pointer(testVel);  // Zdroj: [L,R,L,R...] ze sample
 
                 // Zjednodušená smyčka exportu (minimalizováno vnoření)
                 while (remainingFrames > 0) {
@@ -111,9 +111,9 @@ int runSampler(Logger& logger) {
 
     /* ======= Závěrečné statistiky ====== */
     // Statistiky
-    logger.log("runSampler", "info", "Total loaded samples: " + std::to_string(loader.getTotalLoadedSamples()));
-    logger.log("runSampler", "info", "Mono originally: " + std::to_string(loader.getMonoSamplesCount()) + 
-               ", Stereo originally: " + std::to_string(loader.getStereoSamplesCount()));
+    logger.log("runSampler", "info", "Total loaded samples: " + std::to_string(instrument.getTotalLoadedSamples()));
+    logger.log("runSampler", "info", "Mono originally: " + std::to_string(instrument.getMonoSamplesCount()) + 
+               ", Stereo originally: " + std::to_string(instrument.getStereoSamplesCount()));
 
     logger.log("runSampler", "info", "Sampler workflow completed successfully");
     return 0;
