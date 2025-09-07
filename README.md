@@ -1,7 +1,7 @@
 # IthacaCore: C++ Sampler s Loggerem a InstrumentLoader
 
 ## Popis projektu
-IthacaCore je profesionální audio sampler engine napsaný v C++17. Systém je modulární, s podporou logování (Logger), prohledávání WAV sample souborů (SamplerIO), načítání do paměti jako stereo float buffery (InstrumentLoader) a koordinaci celého workflow (runSampler). Navržen pro snadnou integraci do větších projektů, jako je audio plugin nebo standalone aplikace. Používá libsndfile pro práci s WAV soubory a podporuje parsování názvů souborů ve formátu `mXXX-velY-fZZ.wav` (kde XXX je MIDI nota 0-127, Y je velocity 0-7, ZZ je zkrácená frekvence s 'f' prefixem).
+IthacaCore je profesionální audio sampler engine napsaný v C++17. Systém je modulární, s podporou logování (Logger), prohledávání WAV sample souborů (SamplerIO), načítání do paměti jako stereo float buffery (InstrumentLoader) a koordinaci celého workflow (runSampler). **NOVÉ: Přidána podpora pro voice management (Voice a VoiceManager) pro polyfonní přehrávání s obálkou a stavy (idle, attacking, sustaining, releasing).** Navržen pro snadnou integraci do větších projektů, jako je audio plugin nebo standalone aplikace. Používá libsndfile pro práci s WAV soubory a podporuje parsování názvů souborů ve formátu `mXXX-velY-fZZ.wav` (kde XXX je MIDI nota 0-127, Y je velocity 0-7, ZZ je zkrácená frekvence s 'f' prefixem).
 
 Klíčové vlastnosti:
 - Thread-safe logování do souboru
@@ -15,8 +15,10 @@ Klíčové vlastnosti:
 - Vyhledávání sample podle MIDI noty a velocity
 - Přístup k metadatům přes bezpečné gettery (s kontrolou indexu)
 - **NOVÉ: Automatická validace stereo konzistence všech načtených bufferů**
+- **NOVÉ: Simulace JUCE AudioBuffer pro stereo výstup bez závislosti na JUCE**
 - Žádné konzolové výstupy v modulech – vše logováno
 - Detekce mono/stereo formátu a další audio metadata
+- **NOVÉ: Polyfonní voice management s obálkou (attack/release) a stavy**
 
 ## Požadavky
 - Visual Studio Code
@@ -38,7 +40,7 @@ Klíčové vlastnosti:
 - **Spuštění**: Klikněte na tlačítko spustit (|> ) nebo stiskněte F5. Program se sestaví a spustí
 - **Výstup**:
   - Na konzoli: Úvodní zpráva "[i] Starting IthacaCore" a případně parametry
-  - V logu (`core_logger/core_logger.log`): Záznamy o inicializaci loggeru, prohledávání sample, **NOVÝCH operacích InstrumentLoader (načítání do paměti, mono→stereo konverze, validace)**, vyhledávání (např. "Loaded: m108-vel7-f44.wav (MIDI: 108, Vel: 7, Freq: 44100 Hz, Duration: 2.5s, Channels: 2 (stereo), Frames: 110250, Format: interleaved, needs float conversion)")
+  - V logu (`core_logger/core_logger.log`): Záznamy o inicializaci loggeru, prohledávání sample, **NOVÝCH operacích InstrumentLoader (načítání do paměti, mono→stereo konverze, validace)**, **NOVÝCH operacích Voice/VoiceManager (inicializace voice, setNoteState, processBlock)**, vyhledávání (např. "Loaded: m108-vel7-f44.wav (MIDI: 108, Vel: 7, Freq: 44100 Hz, Duration: 2.5s, Channels: 2 (stereo), Frames: 110250, Format: interleaved, needs float conversion)")
 - **Čištění**: Smažte složku `build` a `core_logger` pro reset
 
 **Poznámka**: Cesta k `vcvars64.bat` v tasks.json je pro VS 2022 Build Tools. Pokud máte Community, upravte na `C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat`. Pro PowerShell execution policy: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`.
@@ -49,13 +51,15 @@ Pro integraci do vašeho C++ projektu zahrňte hlavičky a linkujte libsndfile. 
 #include "core_logger.h"
 #include "sampler.h"
 #include "instrument_loader.h"
+#include "voice.h"           // NOVÉ: Pro Voice a VoiceManager
+#include "voice_manager.h"   // NOVÉ: Pro polyfonní management
 int main() {
     Logger logger("./"); // Cesta k logům
-    int result = runSampler(logger); // Spustí celý workflow včetně InstrumentLoader
+    int result = runSampler(logger); // Spustí celý workflow včetně InstrumentLoader a VoiceManager
     return result;
 }
 ```
-Pro vlastní logiku použijte třídu `SamplerIO` (pro IO operace) a **NOVOU třídu `InstrumentLoader`** (pro načítání do paměti). Vždy inicializujte `Logger` pro logování.
+Pro vlastní logiku použijte třídu `SamplerIO` (pro IO operace) a **NOVOU třídu `InstrumentLoader`** (pro načítání do paměti). **NOVÉ: Pro přehrávání použijte `Voice` a `VoiceManager` pro polyfonii.** Vždy inicializujte `Logger` pro logování.
 
 ### Použití třídy SamplerIO
 `SamplerIO` pro čisté IO operace (prohledávání, vyhledávání, přístup k metadatům). Vytvořte instanci a předejte logger.
@@ -67,8 +71,6 @@ Pro vlastní logiku použijte třídu `SamplerIO` (pro IO operace) a **NOVOU tř
 | `scanSampleDirectory(const std::string& directoryPath, Logger& logger)` | `directoryPath` – cesta k adresáři se WAV soubory (např. `"./samples"`), `logger` – reference na Logger | `io.scanSampleDirectory(R"(c:\samples)", logger);` | Prohledá adresář. Deleguje parsování názvů (regex), načte metadata (libsndfile). Validuje konzistenci frekvence mezi názvem a souborem. Detekuje formát (interleaved) a potřebu konverze (PCM→float). Loguje info/warn/error. Chyby (neexistující adresář, nekonzistentní frekvence): zaloguje a `std::exit(1)`. | `void` | - (úspěch: načte data; chyba: exit(1) po logu) |
 | `findSampleInSampleList(uint8_t midi_note, uint8_t velocity, int sampleRate) const` | `midi_note` (0-127), `velocity` (0-7), `sampleRate` (frekvence v Hz) | `int idx = io.findSampleInSampleList(60, 5, 44100);` | Vyhledá index sample v interním seznamu. Vrátí -1, pokud nenalezeno. Lineární prohledávání, žádné logování. | `int` | `0` (index první shody); `-1` (nenalezeno, není chyba) |
 | `getLoadedSampleList() const` | - | `const auto& list = io.getLoadedSampleList();` | Vrátí konstantní referenci na vektor `SampleInfo` pro čtení metadat. Žádné logování. | `const std::vector<SampleInfo>&` | Reference na vektor (prázdný, pokud není načteno) |
-
-[Tabulka s gettery zůstává stejná...]
 
 ### **NOVÉ: Použití třídy InstrumentLoader**
 `InstrumentLoader` pro načítání WAV samples do paměti jako 32-bit stereo float buffery optimalizované pro JUCE. **Klíčová nová funkcionalita:**
@@ -103,7 +105,7 @@ struct Instrument {
     sf_count_t total_samples_stereo[8];      // celkový počet float hodnot (frame_count * 2)
     bool was_originally_mono[8];             // původní formát před konverzí
     
-    // NOVÉ API metody
+    // NOVÉ API metody pro přístup k stereo datům
     float* get_sample_begin_pointer(uint8_t velocity);    // pointer na stereo data [L,R,L,R...]
     sf_count_t get_frame_count(uint8_t velocity);         // počet stereo frame párů
     sf_count_t get_total_sample_count(uint8_t velocity);  // celkový počet float hodnot
@@ -152,19 +154,72 @@ logger.log("demo", "info", "Originally mono: " + std::to_string(loader.getMonoSa
 logger.log("demo", "info", "Originally stereo: " + std::to_string(loader.getStereoSamplesCount()));
 ```
 
+### **NOVÉ: Použití třídy Voice a VoiceManager**
+`Voice` reprezentuje jednu hlasovou jednotku pro přehrávání sample s obálkou (attack/release) a stavy (idle, attacking, sustaining, releasing). `VoiceManager` spravuje pool voice pro polyfonii (např. 128 hlasů). Používá simulaci `AudioBuffer` pro stereo výstup bez závislosti na JUCE.
+
+#### **Hlavní vlastnosti:**
+- **Polyfonie**: VoiceManager přiřazuje MIDI noty k volným voices.
+- **Obálka**: Jednoduchá time-based gain (release 200 ms).
+- **Stavy**: Enum `VoiceState` pro řízení lifecycle (startNote/stopNote).
+- **AudioBuffer**: Simulace JUCE bufferu pro výstup [left, right].
+- **AudioData**: Struktura pro jeden stereo sample.
+
+#### **Tabulka metod Voice:**
+| Metoda | Parametry | Příklad | Komentář | Návratový typ |
+|--------|-----------|---------|----------|---------------|
+| `Voice()` | - | `Voice voice;` | Default konstruktor: Inicializuje idle stav (pro pool v VoiceManager). | `void` (konstruktor) |
+| `Voice(uint8_t midiNote, Logger& logger)` | `midiNote` (0-127), `logger` | `Voice voice(60, logger);` | Konstruktor pro VoiceManager: Nastaví MIDI notu, instrument později přes initialize. | `void` (konstruktor) |
+| `Voice(uint8_t midiNote, const Instrument& instrument, Logger& logger)` | `midiNote`, `instrument`, `logger` | `Voice voice(60, inst, logger);` | Plný konstruktor: Inicializuje s instrumentem. | `void` (konstruktor) |
+| `initialize(const Instrument& instrument)` | `instrument` | `voice.initialize(inst);` | Inicializuje s instrumentem (pro pool). | `void` |
+| `cleanup()` | - | `voice.cleanup();` | Reset na idle stav. | `void` |
+| `reinitialize(const Instrument& instrument)` | `instrument` | `voice.reinitialize(inst);` | Reinicializuje s novým instrumentem. | `void` |
+| `setNoteState(bool isOn, uint8_t velocity = 0)` | `isOn` (true/false), `velocity` (0-127) | `voice.setNoteState(true, 100);` | Nastaví stav: true = startNote, false = stopNote. | `void` |
+| `advancePosition()` | - | `voice.advancePosition();` | Posune pozici o 1 frame (pro non-real-time). | `void` |
+| `getCurrentAudioData() const` | - | `AudioData data = voice.getCurrentAudioData();` | Vrátí stereo sample (left/right) s gainem. | `AudioData` |
+| `processBlock(AudioBuffer& outputBuffer, int numSamples)` | `outputBuffer`, `numSamples` | `voice.processBlock(buf, 512);` | **HLAVNÍ METODA**: Zpracuje blok, aplikuje obálku, zapisuje do bufferu. Vrátí true, pokud aktivní. | `bool` |
+| `getMidiNote() const` | - | `uint8_t note = voice.getMidiNote();` | Getter pro MIDI notu. | `uint8_t` |
+| `isActive() const` | - | `if (voice.isActive()) { ... }` | Kontroluje aktivitu (gate on nebo releasing). | `bool` |
+
+#### **Příklad použití VoiceManager:**
+```cpp
+Logger logger("./");
+InstrumentLoader loader(sampler, 44100, logger);
+loader.loadInstrument();
+
+// NOVÉ: Inicializace VoiceManager (pool 128 voice)
+VoiceManager manager(128, logger);
+manager.initializeAll(loader);  // Inicializuje voices s instrumenty
+
+// Nastavení noty (note-on pro MIDI 60, velocity 100)
+manager.setNoteState(60, true, 100);
+
+// Procesování audio bloku (simulace JUCE processBlock)
+AudioBuffer output(512);  // Stereo buffer pro 512 samples
+if (manager.processBlock(output, 512)) {
+    // Výstup v output.leftChannel a output.rightChannel
+    // Např. pro JUCE: Přidej do reálného AudioBuffer
+}
+
+// Note-off
+manager.setNoteState(60, false);
+```
+
 ### Funkce runSampler
 - **Signatura**: `int runSampler(Logger& logger)`
 - **Příklad**: `runSampler(logger);`
-- **Komentář**: **AKTUALIZOVÁNO**: Spustí kompletní workflow včetně nového InstrumentLoader. Deleguje prohledávání do SamplerIO, **inicializuje InstrumentLoader, načte všechny samples do paměti jako stereo buffery**, vyhledá příklad MIDI 108/vel 7, použije gettery pro metadata včetně nových stereo informací. **Testuje nové API metody get_sample_begin_pointer(), get_frame_count() atd.** Loguje všechny kroky včetně detailních informací o stereo konverzi a JUCE-ready formátu. Vrátí 0 při úspěchu (chyby končí `std::exit(1)`). Použijte pro standalone test s plnou funkcionalitou.
+- **Komentář**: **AKTUALIZOVÁNO**: Spustí kompletní workflow včetně nového InstrumentLoader. Deleguje prohledávání do SamplerIO, **inicializuje InstrumentLoader, načte všechny samples do paměti jako stereo buffery**, **NOVÉ: Inicializuje VoiceManager, nastaví test notu (MIDI 108/vel 7), procesuje blok s obálkou a loguje stavy**. **Testuje nové API metody get_sample_begin_pointer(), get_frame_count() atd. i processBlock pro Voice**. Loguje všechny kroky včetně detailních informací o stereo konverzi a JUCE-ready formátu. Vrátí 0 při úspěchu (chyby končí `std::exit(1)`). Použijte pro standalone test s plnou funkcionalitou.
 
 ## Struktura projektu
 ### Klíčové soubory
-- **CMakeLists.txt**: Definuje projekt, přidává libsndfile, linkuje soubory (`main.cpp`, `sampler/*.cpp`) a include cesty. **AKTUALIZOVÁNO**: Přidány `instrument_loader.h/cpp` soubory.
+- **CMakeLists.txt**: Definuje projekt, přidává libsndfile, linkuje soubory (`main.cpp`, `sampler/*.cpp`) a include cesty. **AKTUALIZOVÁNO**: Přidány `instrument_loader.h/cpp`, `voice.h/cpp`, `voice_manager.h/cpp`.
 - **main.cpp**: Hlavní vstup – inicializuje logger, zpracuje argumenty a volá `runSampler`.
 - **sampler/core_logger.h/cpp**: Implementace třídy `Logger`.
 - **sampler/sampler.h/cpp**: Deklarace a implementace funkce `runSampler` a třídy `SamplerIO`.
 - **sampler/sampler_io.cpp**: Implementace SamplerIO metod.
 - **sampler/instrument_loader.h/cpp**: **NOVÉ**: Implementace třídy `InstrumentLoader` pro načítání do paměti.
+- **sampler/voice.h/cpp**: **NOVÉ**: Implementace třídy `Voice` pro hlasovou jednotku s obálkou a stavy.
+- **sampler/voice_manager.h/cpp**: **NOVÉ**: Implementace třídy `VoiceManager` pro polyfonní management.
+- **sampler/wav_file_exporter.h/cpp**: Export WAV pro testování.
 - **.vscode/**: Konfigurace pro VS Code (build tasky, launch, settings pro terminal a file associations).
 - **README.md**: Tento soubor.
 
@@ -172,35 +227,16 @@ logger.log("demo", "info", "Originally stereo: " + std::to_string(loader.getSter
 #### Struktura `SampleInfo` (v `sampler.h`) - NEZMĚNĚNO
 Uchovává metadata o WAV samplu - bez změn, podle freeze requirement.
 
-#### **NOVÁ struktura `Instrument` (v `instrument_loader.h`)**
-Reprezentuje jeden MIDI note s velocity vrstvami a **novými stereo metadaty**:
-```cpp
-struct Instrument {
-    SampleInfo* sample_ptr_sampleInfo[8];    // pointery na původní metadata
-    float* sample_ptr_velocity[8];           // pointery na STEREO float buffery
-    bool velocityExists[8];                  // indikátory existence
-    
-    // NOVÁ stereo metadata (nezávislá na SampleInfo)
-    sf_count_t frame_count_stereo[8];        // počet stereo frame párů
-    sf_count_t total_samples_stereo[8];      // celkový počet float hodnot (frame_count * 2)
-    bool was_originally_mono[8];             // true = byl mono před konverzí
-    
-    // NOVÉ API metody pro přístup k stereo datům
-    float* get_sample_begin_pointer(uint8_t velocity);
-    sf_count_t get_frame_count(uint8_t velocity);
-    sf_count_t get_total_sample_count(uint8_t velocity);
-    bool get_was_originally_mono(uint8_t velocity);
-};
-```
+#### **NOVÁ struktura `Instrument` (v `instrument_loader.h`)** - BEZ ZMĚN
+Reprezentuje jeden MIDI note s velocity vrstvami a **novými stereo metadaty** (viz výše).
 
-#### **NOVÁ třída `InstrumentLoader` (v `instrument_loader.h/cpp`)**
-Centralizuje načítání WAV samples do paměti s klíčovými vlastnostmi:
-- **Konstruktor**: `InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger)`
-- **Hlavní metoda**: `loadInstrument()` - načte všechny MIDI noty 0-127 jako stereo buffery
-- **Automatická konverze**: Mono→Stereo duplikace (L=R), PCM→Float konverze, Non-interleaved→Interleaved
-- **Validace**: `validateStereoConsistency()` - kontrola integrity všech bufferů
-- **Paměťová správa**: Malloc/free pro buffery, automatické uvolnění v destruktoru
-- **Gettery**: `getTotalLoadedSamples()`, `getMonoSamplesCount()`, `getStereoSamplesCount()`
+#### **NOVÁ třída `InstrumentLoader` (v `instrument_loader.h/cpp`)** - BEZ ZMĚN
+Centralizuje načítání WAV samples do paměti s klíčovými vlastnostmi (viz výše).
+
+#### **NOVÉ třídy `Voice` a `VoiceManager` (v `voice.h/cpp` a `voice_manager.h/cpp`)**
+- `Voice`: Spravuje jednu notu s obálkou, stavy a přístupem k stereo bufferům. Podporuje metody pro inicializaci, setNoteState a processBlock.
+- `VoiceManager`: Pool voice pro polyfonii, inicializuje voices, nastavuje stavy a procesuje bloky.
+- **Simulace JUCE**: `AudioBuffer` pro výstup, `AudioData` pro sample data.
 
 #### Třída `Logger` (v `core_logger.h/cpp`) - NEZMĚNĚNO
 Zůstává stejná jako před aktualizací.
@@ -210,10 +246,11 @@ Zůstává stejná jako před aktualizací.
 - **libsndfile chybí**: Stáhněte z [libsndfile GitHub](https://github.com/libsndfile/libsndfile) a upravte CMakeLists.txt.
 - **Linkovací chyba LNK1104**: Ukončete všechny procesy IthacaCore.exe, smažte build složku a sestavte znovu.
 - **Logy**: Sledujte `core_logger/core_logger.log`. Pro real-time: `Get-Content -Path "core_logger/core_logger.log" -Tail 10 -Wait`.
-- **Rozšíření**: Upravte cestu v `sampler.cpp` pro jiné samples. **NOVÉ: Pro práci s načtenými buffery použijte InstrumentLoader API**.
+- **Rozšíření**: Upravte cestu v `sampler.cpp` pro jiné samples. **NOVÉ: Pro práci s načtenými buffery použijte InstrumentLoader API; pro přehrávání VoiceManager**.
 - **Chyba - nekonzistence frekvence**: Program se ukončí s chybou, pokud frekvence v názvu souboru neodpovídá frekvenci v WAV headeru.
 - **Nepodporovaný subformát**: Program končí s chybou při detekci nepodporovaného audio formátu.
 - **NOVÉ - Validace stereo**: Program končí s chybou při selhání validace stereo konzistence v InstrumentLoader.
+- **NOVÉ - Chyba v Voice**: Pokud instrument není inicializován, processBlock vrátí false (log warning).
 
 ## Poznámky
 - **Názvosloví souborů**: Samples musí mít formát `mXXX-velY-fZZ.wav` (XXX = MIDI nota 0-127, Y = velocity 0-7, ZZ = zkrácená frekvence s 'f' prefixem: f8, f11, f16, f22, f44, f48, f88, f96, f176, f192). Jinak se ignorují s warningem.
@@ -225,14 +262,15 @@ Zůstává stejná jako před aktualizací.
 - **Podporované formáty**: 16-bit PCM, 24-bit PCM, 32-bit PCM, 32-bit float, 64-bit double.
 - **Optimální formát**: 32-bit float (žádná konverze potřebná).
 - **NOVÉ - Paměťové nároky**: **Paměťové nároky jsou vyšší - všechny samples jsou uloženy jako stereo float buffery**.
-- **Chyby**: Selhání inicializace (adresář, přístup, neplatný index v gettech, nekonzistentní frekvence, nepodporovaný formát, **validace stereo**) vede k logu a `std::exit(1)`.
+- **Chyby**: Selhání inicializace (adresář, přístup, neplatný index v gettech, nekonzistentní frekvence, nepodporovaný formát, **validace stereo**, **neinicializovaný instrument v Voice**) vede k logu a `std::exit(1)`.
 - **Thread-safety**: Pouze logování je chráněno mutexem; sampler není navržen pro multi-threading.
 - **NOVÉ - Rozšířená metadata**: Program nyní prohledává a poskytuje přístup k délce, počtu kanálů, stereo detekci, počtu vzorků, formátu, potřebě konverze a **novým stereo metadatům**.
 - **NOVÉ - Validace integrity**: **Automatická validace konzistence všech načtených stereo bufferů**.
+- **NOVÉ - Voice stavy**: Použijte `isActive()` pro kontrolu, `processBlock` pro renderování.
 - **Projekt je přenositelný**: Pro složitější aplikace přidejte JUCE nebo další knihovny.
 
 ## **NOVÉ: JUCE Integrace**
-InstrumentLoader poskytuje perfektní integraci s JUCE AudioBuffer:
+InstrumentLoader poskytuje perfektní integraci s JUCE AudioBuffer. **NOVÉ: Voice procesuje do simulovaného AudioBuffer, který lze snadno převést do reálného JUCE bufferu.**
 
 ```cpp
 // Získání stereo dat z InstrumentLoader
@@ -251,6 +289,13 @@ if (inst.velocityExists[velocity]) {
         rightChannel[frame] = stereoData[frame * 2 + 1];    // R kanál
     }
 }
+
+// NOVÉ: Použití s Voice pro obálku
+Voice voice(midiNote, inst, logger);
+voice.startNote(velocity);
+AudioBuffer simBuf(512);  // Simulace pro test
+voice.processBlock(simBuf, 512);  // Aplikován gain, výstup v simBuf
+// Převeď simBuf do JUCE bufferu
 ```
 
 ---
