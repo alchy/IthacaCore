@@ -299,32 +299,108 @@ voice.processBlock(simBuf, 512);  // Aplikován gain, výstup v simBuf
 ```
 ---
 
-```mermaid
-graph TD
-    A["VoiceManager
-- Pool 128 Voice
-- Konstruktor: sampleRate | Logger
-- initializeAll: Prochází 128x | volá Voice.initialize s Instrument + sampleRate"] --> B["Voice
-- Fixní midiNote = index
-- initialize: Uloží sampleRate | Instrument pointer | vypočítá releaseSamples = 0.2 * sampleRate
-- setNoteState: Mapuje velocity na layer | nastaví stav (Sustaining|Releasing) | gain=1.0 nebo spustí útlum
-- processBlock: Posouvá position | aplikuje gain (lineární release) | vrací stereo data s obálkou"]
-    B --> C["Instrument (struktura)
-- Pole pro velocity 0-7: sample_ptr_velocity (stereo float buffer L|R|L|R...)
-- sample_ptr_sampleInfo (pointer na SampleInfo)
-- get_sample_begin_pointer(velocity): Vrátí pointer na buffer
-- get_frame_count(velocity): Počet stereo frameů
-- was_originally_mono: Flag pro původní formát (duplikace L=R v Loaderu)"]
-    C --> D["SampleInfo (z SamplerIO)
-- Metadata: filename | sampleRate | channels (1=mono | 2=stereo) | sample_count (frames)
-- findSampleInSampleList: Vyhledá index v seznamu podle midi|vel|rate
-- getChannelCount | getSampleCount: Poskytne data pro validaci v Loaderu
-- Žádné buffery – jen info pro načtení v InstrumentLoader"]
-
-    style A fill:#e1f5fe
-    style B fill:#f3e5f5
-    style C fill:#e8f5e8
-    style D fill:#fff3e0
+```
++---------------------------------------------------+
+|                VOICEMANAGER                       |
+|  - Fixní pool 128 Voice (index = midiNote 0-127)  |
+|  - Konstruktor: sampleRate (Hz), Logger           |
+|                                                   |
+|  initializeAll(InstrumentLoader& loader):         |
+|    Prochází 128x:                                 |
+|      voices_[i].initialize(                      |
+|        loader.getInstrumentNote(i),               |
+|        sampleRate, logger)                       |
+|                                                   |
+|  setNoteState(midiNote, isOn, velocity):          |
+|    voices_[midiNote].setNoteState(isOn, velocity) |
+|                                                   |
+|  processBlock(outputBuffer, numSamples):          |
+|    Loop 128x:                                     |
+|      if (voices_[i].processBlock(...)) {          |
+|        Mixdown: Součet stereo výstupů (L/R)       |
+|                  s obálkou (gain z Voice)         |
+|      }                                            |
++---------------------------------------------------+
+                                  |
+                                  | (propaguje: sampleRate, Instrument ref)
+                                  v
++---------------------------------------------------+
+|                    VOICE                           |
+|  - Členy: midiNote, Instrument*, sampleRate,      |
+|            state (Idle/Sustaining/Releasing),     |
+|            position (frames), gain (0-1),         |
+|            releaseSamples (0.2 * sampleRate)      |
+|                                                   |
+|  initialize(Instrument& inst, int sampleRate,     |
+|              Logger& logger):                     |
+|    Uloží sampleRate (validace >0),                |
+|    inst pointer, vypočítá releaseSamples,         |
+|    reset na Idle stav                             |
+|                                                   |
+|  setNoteState(bool isOn, uint8_t velocity):       |
+|    Mapuje velocity / 16 na layer (0-7),           |
+|    if isOn: state=Sustaining, position=0, gain=1.0|
+|    else: state=Releasing, releaseStartPosition=pos|
+|                                                   |
+|  processBlock(outputBuffer, numSamples):          |
+|    Loop numSamples:                               |
+|      advancePosition()  // Posun + release gain   |
+|      getCurrentAudioData(sample)  // Z bufferu    |
+|      Přidá do outputBuffer (L/R * gain)           |
+|    return isActive()  // !Idle                     |
+|                                                   |
+|  advancePosition():                               |
+|    ++position (do frame_count),                   |
+|    if Releasing: gain = 1.0 - (elapsed / release) |
+|                                                   |
+|  getCurrentAudioData(AudioData& data):            |
+|    Z interleaved buffer: data.L = buffer[pos*2]   |
+|                         data.R = buffer[pos*2+1]  |
+|    applyEnvelope(data.L/R * gain)                 |
++---------------------------------------------------+
+                                  |
+                                  | (používá: buffer pointer, frame_count)
+                                  v
++---------------------------------------------------+
+|                INSTRUMENT (struktura)             |
+|  - Pro velocity 0-7:                              |
+|    sample_ptr_sampleInfo[vel] (pointer na SampleInfo)|
+|    sample_ptr_velocity[vel] (float* stereo buffer)|
+|    frame_count_stereo[vel] (počet L/R párů)       |
+|    total_samples_stereo[vel] (frames * 2)         |
+|    was_originally_mono[vel] (true=mono duplikován)|
+|                                                   |
+|  get_sample_begin_pointer(uint8_t vel):           |
+|    if velocityExists[vel]: return buffer pointer  |
+|    else: nullptr                                  |
+|                                                   |
+|  get_frame_count(uint8_t vel):                    |
+|    return frame_count_stereo[vel] (stereo frames) |
+|                                                   |
+|  velocityExists[vel]: Flag existence sample       |
++---------------------------------------------------+
+                                  |
+                                  | (odkazuje na: metadata)
+                                  v
++---------------------------------------------------+
+|                SAMPLEINFO (z SamplerIO)           |
+|  - Metadata z WAV souboru (libsndfile):           |
+|    filename (cesta k .wav)                        |
+|    sampleRate (Hz, validováno s názvem souboru)   |
+|    channels (1=mono | 2=stereo)                   |
+|    sample_count (frames, délka / sampleRate)      |
+|    needsConversion (PCM → float?)                 |
+|    isInterleaved (formát dat)                     |
+|                                                   |
+|  findSampleInSampleList(midi, vel, rate):         |
+|    Vyhledá index v seznamu podle klíčů            |
+|                                                   |
+|  getFilename(index), getChannelCount(index),      |
+|  getSampleCount(index):                           |
+|    Vrátí metadata pro načtení v Loaderu           |
+|                                                   |
+|  Žádné buffery – jen info pro I/O a validaci      |
++---------------------------------------------------+
 ```
 
 ---
