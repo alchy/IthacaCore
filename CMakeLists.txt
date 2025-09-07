@@ -43,6 +43,14 @@ add_executable(IthacaCore
     # Wav exporter
     sampler/wav_file_exporter.cpp
     sampler/wav_file_exporter.h
+
+    # Voice module (nové)
+    sampler/voice.cpp
+    sampler/voice.h
+    
+    # VoiceManager module (nové)
+    sampler/voice_manager.cpp
+    sampler/voice_manager.h
 )
 
 # Include directories pro kompilaci a IntelliSense

@@ -1,0 +1,3424 @@
+===== File: launch.json =====
+Path: C:\Users\jindr\IthacaCore\.vscode\launch.json
+=====
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Spustit IthacaCore",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/Debug/IthacaCore.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "preLaunchTask": "build"
+        }
+    ]
+}
+
+
+===== File: settings.json =====
+Path: C:\Users\jindr\IthacaCore\.vscode\settings.json
+=====
+{
+    "terminal.integrated.defaultProfile.windows": "Command Prompt",
+    "files.associations": {
+        "xstring": "cpp",
+        "vector": "cpp",
+        "algorithm": "cpp",
+        "atomic": "cpp",
+        "bit": "cpp",
+        "cctype": "cpp",
+        "charconv": "cpp",
+        "chrono": "cpp",
+        "clocale": "cpp",
+        "cmath": "cpp",
+        "compare": "cpp",
+        "concepts": "cpp",
+        "cstddef": "cpp",
+        "cstdint": "cpp",
+        "cstdio": "cpp",
+        "cstdlib": "cpp",
+        "cstring": "cpp",
+        "ctime": "cpp",
+        "cwchar": "cpp",
+        "exception": "cpp",
+        "filesystem": "cpp",
+        "format": "cpp",
+        "forward_list": "cpp",
+        "fstream": "cpp",
+        "initializer_list": "cpp",
+        "iomanip": "cpp",
+        "ios": "cpp",
+        "iosfwd": "cpp",
+        "iostream": "cpp",
+        "istream": "cpp",
+        "iterator": "cpp",
+        "limits": "cpp",
+        "locale": "cpp",
+        "memory": "cpp",
+        "mutex": "cpp",
+        "new": "cpp",
+        "optional": "cpp",
+        "ostream": "cpp",
+        "ratio": "cpp",
+        "regex": "cpp",
+        "sstream": "cpp",
+        "stdexcept": "cpp",
+        "stop_token": "cpp",
+        "streambuf": "cpp",
+        "string": "cpp",
+        "system_error": "cpp",
+        "thread": "cpp",
+        "tuple": "cpp",
+        "type_traits": "cpp",
+        "typeinfo": "cpp",
+        "utility": "cpp",
+        "xfacet": "cpp",
+        "xiosbase": "cpp",
+        "xlocale": "cpp",
+        "xlocbuf": "cpp",
+        "xlocinfo": "cpp",
+        "xlocmes": "cpp",
+        "xlocmon": "cpp",
+        "xlocnum": "cpp",
+        "xloctime": "cpp",
+        "xmemory": "cpp",
+        "xtr1common": "cpp",
+        "xutility": "cpp"
+    }
+}
+
+
+===== File: tasks.json =====
+Path: C:\Users\jindr\IthacaCore\.vscode\tasks.json
+=====
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "cmd.exe",
+            "args": [
+                "/C",
+                "\"\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat\" && cmake --build build --parallel 1\""
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$msCompile"],
+            "detail": "Kompilace projektu pomocí CMake a MSVC. Používá složku 'build' pro CMake cache."
+        }
+    ]
+}
+
+
+===== File: core_logger.cpp =====
+Path: C:\Users\jindr\IthacaCore\sampler\core_logger.cpp
+=====
+#include "core_logger.h"
+#include <fstream>      // Pro std::ofstream a zápis do souboru
+#include <filesystem>   // Pro kontrolu adresáře, vytvoření složky a smazání souboru (C++17)
+#include <chrono>       // Pro získání aktuálního času
+#include <iomanip>      // Pro formátování času
+#include <sstream>      // Pro sestavení stringu
+#include <iostream>     // Pro std::cerr při chybě inicializace
+#include <cstdlib>      // Pro std::exit
+#include <string>       // Pro std::string
+#include <cstdio>       // Pro printf
+
+/**
+ * @brief Konstruktor loggeru.
+ * Kontroluje existenci a přístup k adresáři, vytváří složku core_logger,
+ * smaže existující log soubor a otevře nový v append módu.
+ * VÝSTUP: Vypisuje inicializační zprávy na konzoli pomocí printf.
+ * @param path Cesta k adresáři.
+ * Při selhání: Tiskne chybu do std::cerr a volá std::exit(1).
+ */
+Logger::Logger(const std::string& path) {
+    printf("[Logger] Initializing logger subsystem...\n");
+    printf("[Logger] Target directory: %s\n", path.c_str());
+    
+    std::filesystem::path dirPath(path);
+    if (!std::filesystem::exists(dirPath)) {
+        printf("[Logger] ERROR: Directory '%s' does not exist.\n", path.c_str());
+        std::cerr << "Logger error: Directory '" << path << "' does not exist." << std::endl;
+        std::exit(1);
+    }
+    if (!std::filesystem::is_directory(dirPath)) {
+        printf("[Logger] ERROR: '%s' is not a valid directory.\n", path.c_str());
+        std::cerr << "Logger error: '" << path << "' is not a valid directory." << std::endl;
+        std::exit(1);
+    }
+
+    printf("[Logger] Directory validation: OK\n");
+
+    // Kontrola přístupu k zápisu (pokus o vytvoření test souboru)
+    printf("[Logger] Testing write access...\n");
+    std::filesystem::path testFile = dirPath / "test_write.tmp";
+    std::ofstream testStream(testFile);
+    if (!testStream.is_open()) {
+        printf("[Logger] ERROR: No write access to directory '%s'.\n", path.c_str());
+        std::cerr << "Logger error: No write access to directory '" << path << "'." << std::endl;
+        std::exit(1);
+    }
+    testStream.close();
+    std::filesystem::remove(testFile);  // Vyčištění test souboru
+    printf("[Logger] Write access: OK\n");
+
+    // Vytvoření složky core_logger
+    std::filesystem::path loggerDir = dirPath / "core_logger";
+    printf("[Logger] Creating/verifying core_logger directory...\n");
+    try {
+        bool created = std::filesystem::create_directory(loggerDir);
+        if (created) {
+            printf("[Logger] Created new directory: %s\n", loggerDir.string().c_str());
+        } else {
+            printf("[Logger] Using existing directory: %s\n", loggerDir.string().c_str());
+        }
+    } catch (const std::filesystem::filesystem_error& e) {
+        printf("[Logger] ERROR: Failed to create core_logger directory.\n");
+        std::cerr << "Logger error creating core_logger directory: " << e.what() << std::endl;
+        std::exit(1);
+    }
+
+    // Cesta k log souboru
+    logFilePath_ = (loggerDir / "core_logger.log").string();
+    printf("[Logger] Log file path: %s\n", logFilePath_.c_str());
+
+    // Smazání existujícího log souboru, pokud existuje
+    if (std::filesystem::exists(logFilePath_)) {
+        std::filesystem::remove(logFilePath_);
+        printf("[Logger] Removed existing log file for clean start\n");
+    }
+
+    // Otevření nového souboru v append módu
+    printf("[Logger] Opening log file for writing...\n");
+    logFile_.open(logFilePath_, std::ios::app);
+    if (!logFile_.is_open()) {
+        printf("[Logger] ERROR: Cannot open log file '%s'.\n", logFilePath_.c_str());
+        std::cerr << "Logger error: Cannot open log file '" << logFilePath_ << "'." << std::endl;
+        std::exit(1);
+    }
+
+    // Počáteční záznam v angličtině
+    std::string initialLog = getTimestamp() + " [Logger/constructor] [info]: Logger initialized successfully at " + logFilePath_;
+    logFile_ << initialLog << std::endl;
+    logFile_.flush();  // Okamžitý zápis
+
+    printf("[Logger] SUCCESS: Logger fully operational\n");
+    std::string absolutePath = std::filesystem::absolute(logFilePath_).string();
+    printf("[Logger] Log file can be found at: %s\n", absolutePath.c_str());
+    printf("[Logger] To monitor logs in real-time, use: Get-Content -Path \"%s\" -Tail 10 -Wait\n", absolutePath.c_str());
+}
+
+/**
+ * @brief Loguje zprávu do souboru s timestampem.
+ * Thread-safe: Používá mutex pro zápis.
+ * @param component Název komponenty.
+ * @param severity Závažnost.
+ * @param message Zpráva.
+ */
+void Logger::log(const std::string& component, const std::string& severity, const std::string& message) {
+    std::lock_guard<std::mutex> lock(logMutex_);  // Thread-safety
+
+    if (!logFile_.is_open()) {
+        return;  // Ignorovat, pokud soubor není otevřený
+    }
+
+    std::string logEntry = "[" + getTimestamp() + "] [" + component + "] [" + severity + "]: " + message + "\n";
+    logFile_ << logEntry;
+    logFile_.flush();  // Okamžitý zápis pro debugging
+}
+
+/**
+ * @brief Získává aktuální timestamp ve formátu YYYY-MM-DD HH:MM:SS.
+ * @return Formátovaný timestamp jako std::string.
+ */
+std::string Logger::getTimestamp() const {
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+    std::tm timeStruct;
+    localtime_s(&timeStruct, &time_t);  // Bezpečné pro MSVC
+    std::stringstream ss;
+    ss << std::put_time(&timeStruct, "%Y-%m-%d %H:%M:%S");
+    return ss.str();
+}
+
+/**
+ * @brief Destruktor: Zaloguje ukončení a uzavře souborový stream.
+ */
+Logger::~Logger() {
+    if (logFile_.is_open()) {
+        // Finální záznam před uzavřením
+        std::string finalLog = getTimestamp() + " [Logger/destructor] [info]: Logger shutting down, closing log file";
+        logFile_ << finalLog << std::endl;
+        logFile_.flush();
+        
+        logFile_.close();
+        
+        // Konzolová zpráva o ukončení
+        printf("[Logger] Logger destructor called - log file closed\n");
+    }
+}
+
+
+===== File: core_logger.h =====
+Path: C:\Users\jindr\IthacaCore\sampler\core_logger.h
+=====
+#ifndef CORE_LOGGER_H  // Include guard pro prevenci duplikátního includu
+#define CORE_LOGGER_H
+
+#include <string>       // Pro std::string
+#include <mutex>        // Pro thread-safety při zápisu
+#include <fstream>      // Pro std::ofstream (definice logFile_)
+#include <stdexcept>    // Pro výjimky při chybách (pouze interně)
+
+/**
+ * @class Logger
+ * @brief Jednoduchý souborový logger bez JUCE závislostí.
+ * 
+ * Loguje zprávy s timestampem, komponentou a závažností do souboru core_logger.log.
+ * Konstruktor bere cestu k adresáři, kde vytvoří složku core_logger a log soubor.
+ * Při startu smaže existující core_logger.log pro čistý restart.
+ * Thread-safe díky mutexu. Selhání inicializace vede k tisku do std::cerr a ukončení programu.
+ * 
+ * DŮLEŽITÉ: Logger vypisuje inicializační zprávy na konzoli (printf).
+ * Pokud inicializace selže, program se ukončí s exit(1).
+ */
+class Logger {
+public:
+    /**
+     * @brief Konstruktor loggeru.
+     * @param path Cesta k adresáří (absolutní nebo relativní, např. "./").
+     * Kontroluje existenci adresáře a přístup; vytváří složku core_logger a log soubor.
+     * Smaže existující core_logger.log, pokud existuje.
+     * VÝSTUP: Vypisuje inicializační zprávy na konzoli pomocí printf.
+     * Při selhání: Tiskne chybu do std::cerr a volá std::exit(1).
+     */
+    explicit Logger(const std::string& path);
+
+    /**
+     * @brief Loguje zprávu do souboru.
+     * Formát: [YYYY-MM-DD HH:MM:SS] [component] [severity]: message
+     * @param component Název třídy/metody (např. "SamplerIO/loadSamples").
+     * @param severity Závažnost (např. "info", "error", "warn").
+     * @param message Zpráva k logování.
+     */
+    void log(const std::string& component, const std::string& severity, const std::string& message);
+
+    /**
+     * @brief Destruktor: Uzavře souborový stream.
+     */
+    ~Logger();
+
+private:
+    std::string logFilePath_;  // Cesta k log souboru
+    std::ofstream logFile_;    // Souborový stream pro zápis
+    mutable std::mutex logMutex_;  // Mutex pro thread-safety
+
+    // Pomocná metoda pro získání timestampu
+    std::string getTimestamp() const;
+};
+
+#endif  // CORE_LOGGER_H    
+
+
+===== File: instrument_loader.cpp =====
+Path: C:\Users\jindr\IthacaCore\sampler\instrument_loader.cpp
+=====
+#include "instrument_loader.h"
+#include <cstdlib>      // Pro malloc, free, std::exit
+#include <cstring>      // Pro memcpy
+#include <sndfile.h>    // Pro sf_open, sf_readf_float, sf_close
+
+/**
+ * @brief Konstruktor InstrumentLoader
+ * Inicializuje všechny reference a pole instruments na výchozí hodnoty.
+ * @param sampler Reference na SamplerIO pro přístup k sample metadatům
+ * @param targetSampleRate Požadovaná frekvence vzorkování (např. 44100 Hz)
+ * @param logger Reference na Logger pro zaznamenávání
+ */
+InstrumentLoader::InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger)
+    : sampler_(sampler), targetSampleRate_(targetSampleRate), logger_(logger), 
+      totalLoadedSamples_(0), monoSamplesCount_(0), stereoSamplesCount_(0) {
+    
+    // Inicializace pole instruments - konstruktory Instrument se zavolají automaticky
+    // (všechny pointery na nullptr, velocityExists na false)
+    
+    logger_.log("InstrumentLoader/constructor", "info", 
+                "InstrumentLoader initialized with targetSampleRate " + 
+                std::to_string(targetSampleRate_) + " Hz");
+    
+    logger_.log("InstrumentLoader/constructor", "info", 
+                "Prepared array for " + std::to_string(MIDI_NOTE_MAX + 1) + 
+                " MIDI notes with " + std::to_string(VELOCITY_LAYERS) + " velocity layers");
+                
+    logger_.log("InstrumentLoader/constructor", "info", 
+                "All samples will be converted to stereo interleaved format [L,R,L,R...]");
+}
+
+/**
+ * @brief Destruktor - uvolní všechnu alokovanou paměť
+ * Prochází všechny MIDI noty a velocity vrstvy a uvolňuje float buffery.
+ * SampleInfo pointery se neuvolňují (patří SamplerIO).
+ */
+InstrumentLoader::~InstrumentLoader() {
+    int freedCount = 0;
+    
+    // Prochází všechny MIDI noty 0-127
+    for (int midi = MIDI_NOTE_MIN; midi <= MIDI_NOTE_MAX; midi++) {
+        // Prochází všechny velocity 0-7
+        for (int vel = 0; vel < VELOCITY_LAYERS; vel++) {
+            if (instruments_[midi].velocityExists[vel] && 
+                instruments_[midi].sample_ptr_velocity[vel] != nullptr) {
+                
+                // Uvolnění float bufferu
+                free(instruments_[midi].sample_ptr_velocity[vel]);
+                instruments_[midi].sample_ptr_velocity[vel] = nullptr;
+                instruments_[midi].velocityExists[vel] = false;
+                
+                // SampleInfo pointery se NEUVOLŇUJÍ - patří SamplerIO
+                instruments_[midi].sample_ptr_sampleInfo[vel] = nullptr;
+                
+                freedCount++;
+            }
+        }
+    }
+    
+    logger_.log("InstrumentLoader/destructor", "info", 
+                "Memory freed for " + std::to_string(freedCount) + " stereo buffers");
+    
+    logger_.log("InstrumentLoader/destructor", "info", 
+                "InstrumentLoader destructor completed");
+}
+
+/**
+ * @brief Hlavní metoda pro načtení všech instrumentů
+ * Prochází všechny MIDI noty a velocity, vyhledává samples a načítá je do bufferů.
+ */
+void InstrumentLoader::loadInstrument() {
+    logger_.log("InstrumentLoader/loadInstrument", "info", 
+                "Starting loading of all instruments for targetSampleRate " + 
+                std::to_string(targetSampleRate_) + " Hz");
+    
+    int foundSamples = 0;
+    int missingSamples = 0;
+    totalLoadedSamples_ = 0;
+    
+    // Cyklus pro všechny MIDI noty 0-127
+    for (int midi = MIDI_NOTE_MIN; midi <= MIDI_NOTE_MAX; midi++) {
+        // Cyklus pro všechny velocity 0-7
+        for (int vel = 0; vel < VELOCITY_LAYERS; vel++) {
+            // Vyhledání indexu v SamplerIO
+            int index = sampler_.findSampleInSampleList(
+                static_cast<uint8_t>(midi), 
+                static_cast<uint8_t>(vel), 
+                targetSampleRate_
+            );
+            
+            if (index != -1) {
+                // Sample nalezen - načtení do bufferu
+                logger_.log("InstrumentLoader/loadInstrument", "info", 
+                           "Sample found for MIDI " + std::to_string(midi) + 
+                           " velocity " + std::to_string(vel) + " at index " + std::to_string(index));
+                
+                // Načtení samplu do bufferu
+                if (loadSampleToBuffer(index, static_cast<uint8_t>(vel), static_cast<uint8_t>(midi))) {
+                    foundSamples++;
+                    totalLoadedSamples_++;
+                }
+                
+            } else {
+                // Sample nenalezen - nastavení null a warning log
+                instruments_[midi].sample_ptr_sampleInfo[vel] = nullptr;
+                instruments_[midi].sample_ptr_velocity[vel] = nullptr;
+                instruments_[midi].velocityExists[vel] = false;
+                instruments_[midi].frame_count_stereo[vel] = 0;
+                instruments_[midi].total_samples_stereo[vel] = 0;
+                instruments_[midi].was_originally_mono[vel] = false;
+                
+                logger_.log("InstrumentLoader/loadInstrument", "warn", 
+                           "Sample for MIDI " + std::to_string(midi) + 
+                           " velocity " + std::to_string(vel) + 
+                           " not found at frequency " + std::to_string(targetSampleRate_) + " Hz");
+                
+                missingSamples++;
+            }
+        }
+    }
+    
+    // Summary log s mono/stereo statistikami
+    int totalSlots = (MIDI_NOTE_MAX + 1) * VELOCITY_LAYERS;
+    logger_.log("InstrumentLoader/loadAllInstruments", "info", 
+                "Loading completed. Found: " + std::to_string(foundSamples) + 
+                ", Missing: " + std::to_string(missingSamples) + 
+                ", Total slots: " + std::to_string(totalSlots));
+    
+    logger_.log("InstrumentLoader/loadAllInstruments", "info", 
+                "Successfully loaded " + std::to_string(totalLoadedSamples_) + 
+                " samples into memory as 32-bit stereo float buffers");
+                
+    logger_.log("InstrumentLoader/loadAllInstruments", "info", 
+                "Channel distribution: " + std::to_string(monoSamplesCount_) + 
+                " originally mono, " + std::to_string(stereoSamplesCount_) + " originally stereo/multi-channel");
+    
+    // NOVÉ: Validace stereo konzistence po načtení
+    logger_.log("InstrumentLoader/loadAllInstruments", "info", 
+                "Starting stereo consistency validation...");
+    validateStereoConsistency();
+}
+
+/**
+ * @brief Načte jeden sample do bufferu
+ * Kompletní pipeline: otevření souboru, alokace, načtení, konverze, přiřazení.
+ * @param sampleIndex Index samplu v SamplerIO
+ * @param velocity Velocity vrstva (0-7)
+ * @param midi_note MIDI nota (0-127)
+ * @return true při úspěchu, false při chybě (s error logem a exit)
+ */
+bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uint8_t midi_note) {
+    // Validace parametrů
+    validateVelocity(velocity, "loadSampleToBuffer");
+    validateMidiNote(midi_note, "loadSampleToBuffer");
+    
+    // Krok 1: Otevření souboru
+    SNDFILE* sndfile = nullptr;
+    SF_INFO sfinfo;
+    
+    if (!openSampleFile(sampleIndex, sndfile, sfinfo)) {
+        return false; // Chyba už je zalogována v openSampleFile
+    }
+    
+    // Získání metadat přes SamplerIO gettery
+    sf_count_t frameCount = sampler_.getSampleCount(sampleIndex, logger_);
+    int channelCount = sampler_.getChannelCount(sampleIndex, logger_);
+    bool needsConversion = sampler_.getNeedsConversion(sampleIndex, logger_);
+    bool isInterleaved = sampler_.getIsInterleavedFormat(sampleIndex, logger_);
+    const char* filename = sampler_.getFilename(sampleIndex, logger_);
+    
+    // Krok 2: Alokace temporary bufferu pro načtení (původní velikost)
+    size_t tempBufferSize = frameCount * channelCount * sizeof(float);
+    float* tempBuffer = static_cast<float*>(malloc(tempBufferSize));
+    
+    if (!tempBuffer) {
+        logger_.log("InstrumentLoader/loadSampleToBuffer", "error", 
+                   "Memory allocation error for temporary buffer: " + 
+                   std::to_string(tempBufferSize) + " bytes");
+        sf_close(sndfile);
+        std::exit(1);
+    }
+    
+    // Krok 3: Načtení dat pomocí sf_readf_float (automatická PCM->float konverze)
+    sf_count_t framesRead = sf_readf_float(sndfile, tempBuffer, frameCount);
+    sf_close(sndfile);
+    
+    if (framesRead != frameCount) {
+        logger_.log("InstrumentLoader/loadSampleToBuffer", "error", 
+                   "Data reading error from file " + std::string(filename) + 
+                   ": expected " + std::to_string(frameCount) + 
+                   " frames, read " + std::to_string(framesRead));
+        free(tempBuffer);
+        std::exit(1);
+    }
+    
+    // Logování konverze (vždy, i když neproběhla)
+    if (needsConversion) {
+        logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+                   "PCM to 32-bit float conversion performed for file: " + std::string(filename));
+    } else {
+        logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+                   "File already in 32-bit float format, no conversion needed: " + std::string(filename));
+    }
+    
+    // Krok 4: NOVÉ - Alokace permanent bufferu VŽDY pro stereo (frameCount * 2 * sizeof(float))
+    size_t stereoBufferSize = frameCount * 2 * sizeof(float);
+    float* permanentBuffer = static_cast<float*>(malloc(stereoBufferSize));
+    
+    if (!permanentBuffer) {
+        logger_.log("InstrumentLoader/loadSampleToBuffer", "error", 
+                   "Memory allocation error for permanent stereo buffer: " + 
+                   std::to_string(stereoBufferSize) + " bytes");
+        free(tempBuffer);
+        std::exit(1);
+    }
+    
+    // Krok 5: NOVÉ - Konverze na stereo formát (mono→stereo duplikace nebo stereo kopírování)
+    bool wasOriginallyMono = (channelCount == 1);
+    
+    if (channelCount == 1) {
+        // MONO → STEREO konverze: duplikace mono dat do obou kanálů (L=R)
+        for (sf_count_t frame = 0; frame < frameCount; frame++) {
+            permanentBuffer[frame * 2] = tempBuffer[frame];     // L kanál
+            permanentBuffer[frame * 2 + 1] = tempBuffer[frame]; // R kanál (duplikace)
+        }
+        logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+                   "Mono to stereo conversion performed (L=R duplication): " + std::string(filename));
+        
+    } else if (channelCount == 2) {
+        // STEREO → STEREO: přímé kopírování (již správný formát)
+        if (isInterleaved) {
+            memcpy(permanentBuffer, tempBuffer, tempBufferSize);
+            logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+                       "Stereo data already in interleaved format, direct copy: " + 
+                       std::string(filename));
+        } else {
+            // Non-interleaved → interleaved konverze
+            for (sf_count_t frame = 0; frame < frameCount; frame++) {
+                permanentBuffer[frame * 2] = tempBuffer[frame];                    // L kanál
+                permanentBuffer[frame * 2 + 1] = tempBuffer[frameCount + frame];   // R kanál
+            }
+            logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+                       "Non-interleaved to interleaved stereo conversion performed: " + 
+                       std::string(filename));
+        }
+        
+    } else {
+        // Multi-channel (>2) → STEREO: použijeme jen první 2 kanály
+        if (isInterleaved) {
+            // Interleaved multi-channel: [L1,R1,C1,L2,R2,C2...] → [L1,R1,L2,R2...]
+            for (sf_count_t frame = 0; frame < frameCount; frame++) {
+                permanentBuffer[frame * 2] = tempBuffer[frame * channelCount];     // L
+                permanentBuffer[frame * 2 + 1] = tempBuffer[frame * channelCount + 1]; // R
+            }
+        } else {
+            // Non-interleaved multi-channel: [L...][R...][C...] → [L1,R1,L2,R2...]
+            for (sf_count_t frame = 0; frame < frameCount; frame++) {
+                permanentBuffer[frame * 2] = tempBuffer[frame];                    // L kanál
+                permanentBuffer[frame * 2 + 1] = tempBuffer[frameCount + frame];   // R kanál
+            }
+        }
+        logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+                   "Multi-channel to stereo conversion performed (using L+R channels): " + 
+                   std::string(filename) + " (" + std::to_string(channelCount) + " → 2 channels)");
+    }
+    
+    // Krok 6: Uvolnění temporary bufferu
+    free(tempBuffer);
+    
+    // Krok 7: AKTUALIZACE - Přiřazení permanent bufferu, SampleInfo pointeru a NOVÝCH stereo metadat
+    instruments_[midi_note].sample_ptr_velocity[velocity] = permanentBuffer;
+    instruments_[midi_note].velocityExists[velocity] = true;
+    
+    // NOVÉ: Uložení stereo metadat
+    instruments_[midi_note].frame_count_stereo[velocity] = frameCount;              // počet stereo frame párů
+    instruments_[midi_note].total_samples_stereo[velocity] = frameCount * 2;       // celkový počet float hodnot
+    instruments_[midi_note].was_originally_mono[velocity] = wasOriginallyMono;     // původní formát
+    
+    // Počítání mono/stereo statistik (podle původního formátu)
+    if (wasOriginallyMono) {
+        monoSamplesCount_++;
+    } else {
+        stereoSamplesCount_++;
+    }
+    
+    // Získání a přiřazení SampleInfo pointeru (pointer na data v SamplerIO)
+    // Pozor: Toto je trochu hacknuté, ale v kontextu současného API je to nejjednodušší
+    // V ideálním případě by SamplerIO mělo getter getSampleInfo(index)
+    const std::vector<SampleInfo>& sampleList = sampler_.getLoadedSampleList();
+    if (sampleIndex >= 0 && static_cast<size_t>(sampleIndex) < sampleList.size()) {
+        // Const cast kvůli designu - pointer na data v SamplerIO
+        instruments_[midi_note].sample_ptr_sampleInfo[velocity] = 
+            const_cast<SampleInfo*>(&sampleList[sampleIndex]);
+    } else {
+        logger_.log("InstrumentLoader/loadSampleToBuffer", "error", 
+                   "Invalid sampleIndex " + std::to_string(sampleIndex) + 
+                   " for SampleInfo pointer assignment");
+        std::exit(1);
+    }
+    
+    // Úspěšné přiřazení - detailní log s novými stereo metadaty
+    logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+               "Stereo buffer assigned for MIDI " + std::to_string(midi_note) + 
+               " velocity " + std::to_string(velocity) + ": " + 
+               std::to_string(frameCount) + " frames, " +
+               std::to_string(frameCount * 2) + " total samples, " +
+               std::to_string(stereoBufferSize) + " bytes, format: stereo interleaved [L,R,L,R...]");
+    
+    std::string originalFormat = wasOriginallyMono ? "originally mono" : "originally stereo";
+    logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+               "Buffer for MIDI " + std::to_string(midi_note) + 
+               "/velocity " + std::to_string(velocity) + 
+               " allocated and loaded successfully (" + originalFormat + ")");
+    
+    return true;
+}
+
+/**
+ * @brief Otevře sample soubor pro čtení
+ * @param sampleIndex Index samplu v SamplerIO
+ * @param sndfile Reference na SNDFILE pointer (výstup)
+ * @param sfinfo Reference na SF_INFO strukturu (výstup)
+ * @return true při úspěchu, false při chybě (s error logem a exit)
+ */
+bool InstrumentLoader::openSampleFile(int sampleIndex, SNDFILE*& sndfile, SF_INFO& sfinfo) {
+    // Získání cesty k souboru přes SamplerIO getter
+    const char* filename = sampler_.getFilename(sampleIndex, logger_);
+    
+    // Inicializace SF_INFO struktury
+    memset(&sfinfo, 0, sizeof(sfinfo));
+    
+    // Otevření souboru pro čtení
+    sndfile = sf_open(filename, SFM_READ, &sfinfo);
+    
+    if (!sndfile) {
+        logger_.log("InstrumentLoader/openSampleFile", "error", 
+                   "File opening error " + std::string(filename) + 
+                   ": " + sf_strerror(nullptr));
+        std::exit(1);
+    }
+    
+    logger_.log("InstrumentLoader/openSampleFile", "info", 
+               "File " + std::string(filename) + " opened successfully");
+    
+    return true;
+}
+
+/**
+ * @brief Getter pro přístup k Instrument struktuře podle MIDI noty
+ * @param midi_note MIDI nota (0-127)
+ * @return Reference na Instrument strukturu
+ */
+Instrument& InstrumentLoader::getInstrumentNote(uint8_t midi_note) {
+    validateMidiNote(midi_note, "getInstrumentNote");
+    return instruments_[midi_note];
+}
+
+/**
+ * @brief Const getter pro read-only přístup k Instrument struktuře
+ * @param midi_note MIDI nota (0-127)
+ * @return Const reference na Instrument strukturu
+ */
+const Instrument& InstrumentLoader::getInstrumentNote(uint8_t midi_note) const {
+    validateMidiNote(midi_note, "getInstrumentNote const");
+    return instruments_[midi_note];
+}
+
+/**
+ * @brief Validace, že všechny načtené buffery jsou skutečně stereo
+ * Kontroluje konzistenci mezi metadaty a skutečnými buffery.
+ * Při selhání validace: zaloguje chyby a volá std::exit(1).
+ */
+void InstrumentLoader::validateStereoConsistency() {
+    int validatedSamples = 0;
+    int validationErrors = 0;
+    
+    for (int midi = MIDI_NOTE_MIN; midi <= MIDI_NOTE_MAX; midi++) {
+        const Instrument& inst = instruments_[midi];
+        
+        for (int vel = 0; vel < VELOCITY_LAYERS; vel++) {
+            if (inst.velocityExists[vel]) {
+                validatedSamples++;
+                
+                // Kontrola 1: Buffer pointer nesmí být null
+                if (inst.sample_ptr_velocity[vel] == nullptr) {
+                    logger_.log("InstrumentLoader/validateStereoConsistency", "error", 
+                              "NULL audio buffer for MIDI " + std::to_string(midi) + 
+                              " velocity " + std::to_string(vel) + 
+                              " despite velocityExists=true");
+                    validationErrors++;
+                    continue;
+                }
+                
+                // Kontrola 2: SampleInfo pointer nesmí být null
+                if (inst.sample_ptr_sampleInfo[vel] == nullptr) {
+                    logger_.log("InstrumentLoader/validateStereoConsistency", "error", 
+                              "NULL sampleInfo for MIDI " + std::to_string(midi) + 
+                              " velocity " + std::to_string(vel) + 
+                              " despite velocityExists=true");
+                    validationErrors++;
+                    continue;
+                }
+                
+                // Kontrola 3: Frame count musí být > 0
+                if (inst.frame_count_stereo[vel] <= 0) {
+                    logger_.log("InstrumentLoader/validateStereoConsistency", "error", 
+                              "Invalid frame_count_stereo " + std::to_string(inst.frame_count_stereo[vel]) + 
+                              " for MIDI " + std::to_string(midi) + " velocity " + std::to_string(vel));
+                    validationErrors++;
+                }
+                
+                // Kontrola 4: Total samples musí být frame_count * 2
+                sf_count_t expectedTotalSamples = inst.frame_count_stereo[vel] * 2;
+                if (inst.total_samples_stereo[vel] != expectedTotalSamples) {
+                    logger_.log("InstrumentLoader/validateStereoConsistency", "error", 
+                              "Inconsistent total_samples_stereo for MIDI " + std::to_string(midi) + 
+                              " velocity " + std::to_string(vel) + 
+                              ": expected " + std::to_string(expectedTotalSamples) + 
+                              ", got " + std::to_string(inst.total_samples_stereo[vel]));
+                    validationErrors++;
+                }
+                
+                // Kontrola 5: Konzistence s původními metadata (SampleInfo.sample_count)
+                SampleInfo* sampleInfo = inst.sample_ptr_sampleInfo[vel];
+                if (inst.frame_count_stereo[vel] != sampleInfo->sample_count) {
+                    logger_.log("InstrumentLoader/validateStereoConsistency", "error", 
+                              "Frame count mismatch for MIDI " + std::to_string(midi) + 
+                              " velocity " + std::to_string(vel) + 
+                              ": stereo_frame_count=" + std::to_string(inst.frame_count_stereo[vel]) + 
+                              ", original_sample_count=" + std::to_string(sampleInfo->sample_count));
+                    validationErrors++;
+                }
+                
+                // Kontrola 6: Logická konzistence was_originally_mono vs původní channels
+                bool expectedMono = (sampleInfo->channels == 1);
+                if (inst.was_originally_mono[vel] != expectedMono) {
+                    logger_.log("InstrumentLoader/validateStereoConsistency", "error", 
+                              "Mono flag inconsistency for MIDI " + std::to_string(midi) + 
+                              " velocity " + std::to_string(vel) + 
+                              ": was_originally_mono=" + (inst.was_originally_mono[vel] ? "true" : "false") + 
+                              ", original_channels=" + std::to_string(sampleInfo->channels));
+                    validationErrors++;
+                }
+            }
+        }
+    }
+    
+    // Summary validace
+    logger_.log("InstrumentLoader/validateStereoConsistency", "info", 
+              "Stereo consistency validation completed. Validated " + std::to_string(validatedSamples) + 
+              " samples, found " + std::to_string(validationErrors) + " errors");
+    
+    if (validationErrors == 0) {
+        logger_.log("InstrumentLoader/validateStereoConsistency", "info", 
+                  "✓ All stereo buffers are consistent and valid");
+    } else {
+        logger_.log("InstrumentLoader/validateStereoConsistency", "error", 
+                  "✗ Stereo consistency validation FAILED with " + 
+                  std::to_string(validationErrors) + " errors - terminating");
+        std::exit(1);
+    }
+}
+
+/**
+ * @brief Validuje velocity parametr
+ * @param velocity Velocity hodnota k validaci
+ * @param functionName Název funkce pro error log
+ */
+void InstrumentLoader::validateVelocity(uint8_t velocity, const char* functionName) const {
+    if (velocity >= VELOCITY_LAYERS) {
+        logger_.log("InstrumentLoader/" + std::string(functionName), "error", 
+                   "Invalid velocity " + std::to_string(velocity) + 
+                   " outside range 0-" + std::to_string(VELOCITY_LAYERS - 1));
+        std::exit(1);
+    }
+}
+
+/**
+ * @brief Validuje MIDI note parametr
+ * @param midi_note MIDI nota k validaci
+ * @param functionName Název funkce pro error log
+ */
+void InstrumentLoader::validateMidiNote(uint8_t midi_note, const char* functionName) const {
+    if (midi_note < MIDI_NOTE_MIN || midi_note > MIDI_NOTE_MAX) {
+        logger_.log("InstrumentLoader/" + std::string(functionName), "error", 
+                   "Invalid MIDI note " + std::to_string(midi_note) + 
+                   " outside range " + std::to_string(MIDI_NOTE_MIN) + 
+                   "-" + std::to_string(MIDI_NOTE_MAX));
+        std::exit(1);
+    }
+}
+
+
+===== File: instrument_loader.h =====
+Path: C:\Users\jindr\IthacaCore\sampler\instrument_loader.h
+=====
+#ifndef INSTRUMENT_LOADER_H  // Include guard pro prevenci duplikátního includu
+#define INSTRUMENT_LOADER_H
+
+#include <cstdint>      // Pro uint8_t
+#include <sndfile.h>    // Pro SNDFILE*, SF_INFO, sf_count_t
+#include "sampler.h"    // Pro SamplerIO, SampleInfo, Logger
+#include "core_logger.h" // Pro Logger (explicitní include pro jasnost)
+
+// Globální konstanty pro MIDI rozsah
+#define MIDI_NOTE_MIN 0
+#define MIDI_NOTE_MAX 127
+#define VELOCITY_LAYERS 8  // Velocity 0-7
+
+/**
+ * @struct Instrument
+ * @brief Reprezentuje jeden MIDI note (index 0-127) s vrstvami pro velocity 0-7.
+ * 
+ * Struktura uchovává pointery na metadata (SampleInfo) a načtená float data (RAM buffery)
+ * pro všechny velocity vrstvy jedné MIDI noty. Index v poli instruments[] odpovídá MIDI notě,
+ * takže není potřeba ukládat midi_note hodnotu v struktuře.
+ * 
+ * DŮLEŽITÉ: Všechny buffery jsou VŽDY uloženy jako stereo interleaved 32-bit float formát!
+ * I původně mono samples jsou konvertovány na stereo (L=R duplikace).
+ * Buffer formát: [L1,R1,L2,R2,L3,R3,...] pro přímou JUCE kompatibilitu.
+ */
+struct Instrument {
+    // Pointery na SampleInfo struktury z SamplerIO pro velocity 0-7
+    // Tyto pointery odkazují na data vlastněná SamplerIO (nesmí se uvolňovat)
+    // POZOR: SampleInfo.channels obsahuje PŮVODNÍ počet kanálů (1=mono, 2=stereo)
+    SampleInfo* sample_ptr_sampleInfo[VELOCITY_LAYERS];
+    
+    // Pointery na načtená float data v RAM pro velocity 0-7
+    // Buffery jsou alokované pomocí malloc a obsahují VŽDY stereo interleaved 32-bit float
+    // Velikost: frame_count_stereo * 2 * sizeof(float) (vždy stereo)
+    // Formát: [L1,R1,L2,R2,...] i pro původně mono samples (L=R)
+    float* sample_ptr_velocity[VELOCITY_LAYERS];
+    
+    // Indikátory existence samplu pro velocity 0-7
+    // true = sample byl nalezen a načten jako stereo, false = sample neexistuje
+    bool velocityExists[VELOCITY_LAYERS];
+    
+    // NOVÁ METADATA - stereo informace (nezávislé na SampleInfo)
+    // Počet stereo frame párů (každý frame = L+R sample)
+    sf_count_t frame_count_stereo[VELOCITY_LAYERS];
+    
+    // Celkový počet float hodnot v bufferu (frame_count_stereo * 2)
+    sf_count_t total_samples_stereo[VELOCITY_LAYERS];
+    
+    // Indikátor původního formátu před konverzí (true = byl mono, false = byl stereo)
+    bool was_originally_mono[VELOCITY_LAYERS];
+    
+    /**
+     * @brief Konstruktor - inicializuje všechny pointery na nullptr a flags na false
+     */
+    Instrument() {
+        for (int i = 0; i < VELOCITY_LAYERS; i++) {
+            sample_ptr_sampleInfo[i] = nullptr;
+            sample_ptr_velocity[i] = nullptr;
+            velocityExists[i] = false;
+            frame_count_stereo[i] = 0;
+            total_samples_stereo[i] = 0;
+            was_originally_mono[i] = false;
+        }
+    }
+    
+    /**
+     * @brief Getter pro začátek stereo bufferu
+     * @param velocity Velocity vrstva (0-7)
+     * @return Pointer na začátek stereo float dat [L1,R1,L2,R2,...]
+     * Při neplatném velocity nebo neexistujícím samplu: nullptr
+     */
+    float* get_sample_begin_pointer(uint8_t velocity) const {
+        if (velocity >= VELOCITY_LAYERS || !velocityExists[velocity]) {
+            return nullptr;
+        }
+        return sample_ptr_velocity[velocity];
+    }
+    
+    /**
+     * @brief Getter pro počet stereo frame párů
+     * @param velocity Velocity vrstva (0-7)
+     * @return Počet stereo frame párů (každý frame = L+R sample)
+     * Při neplatném velocity nebo neexistujícím samplu: 0
+     */
+    sf_count_t get_frame_count(uint8_t velocity) const {
+        if (velocity >= VELOCITY_LAYERS || !velocityExists[velocity]) {
+            return 0;
+        }
+        return frame_count_stereo[velocity];
+    }
+    
+    /**
+     * @brief Getter pro celkový počet float hodnot
+     * @param velocity Velocity vrstva (0-7)
+     * @return Celkový počet float hodnot v bufferu (frame_count * 2)
+     * Při neplatném velocity nebo neexistujícím samplu: 0
+     */
+    sf_count_t get_total_sample_count(uint8_t velocity) const {
+        if (velocity >= VELOCITY_LAYERS || !velocityExists[velocity]) {
+            return 0;
+        }
+        return total_samples_stereo[velocity];
+    }
+    
+    /**
+     * @brief Getter pro informaci o původním formátu
+     * @param velocity Velocity vrstva (0-7)
+     * @return true pokud byl původně mono (před konverzí), false pokud stereo
+     * Při neplatném velocity nebo neexistujícím samplu: false
+     */
+    bool get_was_originally_mono(uint8_t velocity) const {
+        if (velocity >= VELOCITY_LAYERS || !velocityExists[velocity]) {
+            return false;
+        }
+        return was_originally_mono[velocity];
+    }
+};
+
+/**
+ * @class InstrumentLoader
+ * @brief Centralizuje načítání WAV samplů z SamplerIO do paměti jako 32-bit float buffery.
+ * 
+ * Třída automaticky konvertuje z PCM na float (podle getNeedsConversion) a na interleaved
+ * formát (podle getIsInterleavedFormat), s kompletním logováním všech konverzí.
+ * Načítá pouze samples s požadovanou frekvencí vzorkování (targetSampleRate).
+ * 
+ * Inicializuje struktury pro všechny MIDI noty (0-127) na základě výstupu scanSampleDirectory,
+ * včetně not bez samplů (null pointery + warning log).
+ * 
+ * PAMĚŤOVÁ SPRÁVA:
+ * - Alokuje buffery pomocí malloc (C-style pro konzistenci)
+ * - Automaticky uvolňuje v destruktoru
+ * - SampleInfo pointery patří SamplerIO (neuvolňují se)
+ * 
+ * BEZPEČNOST:
+ * - Všechny gettery kontrolují rozsah indexů
+ * - Chyby vedou k error logu a std::exit(1)
+ * - Thread-safety není implementována (single-threaded design)
+ */
+class InstrumentLoader {
+public:
+    /**
+     * @brief Konstruktor InstrumentLoader
+     * @param sampler Reference na SamplerIO pro přístup k sample metadatům
+     * @param targetSampleRate Požadovaná frekvence vzorkování (např. 44100 Hz)
+     * @param logger Reference na Logger pro zaznamenávání
+     * 
+     * Inicializuje pole instruments[128] na nullptr/false.
+     * Uloží reference pro pozdější použití v loadInstrument().
+     * Zaloguje inicializační zprávu s targetSampleRate.
+     */
+    InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger);
+
+    /**
+     * @brief Destruktor - uvolní alokovanou paměť
+     * 
+     * Prochází všechny MIDI noty 0-127 a velocity 0-7:
+     * - Pokud velocityExists[vel] == true, uvolní free(sample_ptr_velocity[vel])
+     * - NEUVOLŇUJE SampleInfo pointery (patří SamplerIO)
+     * - Zaloguje počet uvolněných samplů
+     */
+    ~InstrumentLoader();
+
+    /**
+     * @brief Hlavní metoda pro načtení všech instrumentů
+     * 
+     * Načte všechny MIDI noty 0-127 (včetně těch bez samplů - jen inicializuje null/false).
+     * 
+     * Algoritmus:
+     * 1. Pro každou MIDI notu (MIDI_NOTE_MIN to MIDI_NOTE_MAX)
+     * 2. Pro každou velocity 0-7:
+     *    a) Vyhledá index = sampler.findSampleInSampleList(midi, vel, targetSampleRate)
+     *    b) Pokud index != -1:
+     *       - Zavolá loadSampleToBuffer(index, vel, midi) pro načtení
+     *       - Nastaví instruments[midi].velocityExists[vel] = true
+     *    c) Pokud nenalezeno:
+     *       - Nastaví null pointery, velocityExists[vel] = false
+     *       - Warning log "Sample pro MIDI [midi] velocity [vel] nenalezen"
+     * 
+     * Loguje progress info a summary na konci.
+     */
+    void loadInstrument();
+
+    /**
+     * @brief Getter pro přístup k Instrument struktuře podle MIDI noty
+     * @param midi_note MIDI nota (0-127)
+     * @return Reference na Instrument strukturu
+     * 
+     * Kontroluje platnost rozsahu MIDI noty.
+     * Při neplatném rozsahu: log error a std::exit(1).
+     */
+    Instrument& getInstrumentNote(uint8_t midi_note);
+
+    /**
+     * @brief Const getter pro read-only přístup k Instrument struktuře
+     * @param midi_note MIDI nota (0-127)
+     * @return Const reference na Instrument strukturu
+     */
+    const Instrument& getInstrumentNote(uint8_t midi_note) const;
+
+    /**
+     * @brief Getter pro získání target sample rate
+     * @return Nastavenou target sample rate v Hz
+     */
+    int getTargetSampleRate() const { return targetSampleRate_; }
+
+    /**
+     * @brief Getter pro celkový počet načtených samplů
+     * @return Počet úspěšně načtených samplů
+     */
+    int getTotalLoadedSamples() const { return totalLoadedSamples_; }
+
+    /**
+     * @brief Getter pro počet mono samplů
+     * @return Počet načtených mono samplů
+     */
+    int getMonoSamplesCount() const { return monoSamplesCount_; }
+
+    /**
+     * @brief Getter pro počet stereo samplů  
+     * @return Počet načtených stereo samplů
+     */
+    int getStereoSamplesCount() const { return stereoSamplesCount_; }
+
+    /**
+     * @brief Validace, že všechny načtené buffery jsou skutečně stereo
+     * Kontroluje konzistenci mezi metadaty a skutečnými buffery.
+     * Při selhání validace: zaloguje chyby a volá std::exit(1).
+     */
+    void validateStereoConsistency();
+
+private:
+    // Reference na SamplerIO pro přístup k metadatům
+    SamplerIO& sampler_;
+    
+    // Požadovaná frekvence vzorkování
+    int targetSampleRate_;
+    
+    // Reference na Logger pro zaznamenávání
+    Logger& logger_;
+    
+    // Pole Instrument struktur pro MIDI noty 0-127
+    // Index pole odpovídá MIDI notě
+    Instrument instruments_[MIDI_NOTE_MAX + 1];
+    
+    // Počítadlo úspěšně načtených samplů
+    int totalLoadedSamples_;
+    
+    // Počítadla mono/stereo samplů pro diagnostiku
+    int monoSamplesCount_;
+    int stereoSamplesCount_;
+
+    /**
+     * @brief Načte jeden sample do bufferu
+     * @param sampleIndex Index samplu v SamplerIO
+     * @param velocity Velocity vrstva (0-7)
+     * @param midi_note MIDI nota (0-127)
+     * @return true při úspěchu, false při chybě (s error logem a exit)
+     * 
+     * Algoritmus:
+     * 1. Otevře soubor pomocí openSampleFile()
+     * 2. Alokuje temporary buffer pro načtení
+     * 3. Načte data pomocí sf_readf_float (automatická PCM->float konverze)
+     * 4. Alokuje permanent buffer pro interleaved data
+     * 5. Zkopíruje/konvertuje na interleaved formát (pokud potřeba)
+     * 6. Uvolní temporary buffer
+     * 7. Přiřadí permanent buffer a SampleInfo pointer do instruments_
+     * 
+     * Loguje všechny konverze (i když neproběhly) a úspěšné přiřazení.
+     * Při chybě alokace/načtení: log error a std::exit(1).
+     */
+    bool loadSampleToBuffer(int sampleIndex, uint8_t velocity, uint8_t midi_note);
+
+    /**
+     * @brief Otevře sample soubor pro čtení
+     * @param sampleIndex Index samplu v SamplerIO
+     * @param sndfile Reference na SNDFILE pointer (výstup)
+     * @param sfinfo Reference na SF_INFO strukturu (výstup)
+     * @return true při úspěchu, false při chybě (s error logem a exit)
+     * 
+     * Použije getFilename(sampleIndex) pro získání cesty.
+     * Otevře soubor pomocí sf_open() v SFM_READ módu.
+     * Při úspěchu: log info "Soubor [filename] otevřen úspěšně"
+     * Při chybě: log error s sf_strerror() a std::exit(1)
+     */
+    bool openSampleFile(int sampleIndex, SNDFILE*& sndfile, SF_INFO& sfinfo);
+
+    /**
+     * @brief Validuje velocity parametr
+     * @param velocity Velocity hodnota k validaci
+     * @param functionName Název funkce pro error log
+     * 
+     * Kontroluje rozsah 0-7. Při neplatné hodnotě: log error a std::exit(1).
+     */
+    void validateVelocity(uint8_t velocity, const char* functionName) const;
+
+    /**
+     * @brief Validuje MIDI note parametr
+     * @param midi_note MIDI nota k validaci
+     * @param functionName Název funkce pro error log
+     * 
+     * Kontroluje rozsah MIDI_NOTE_MIN-MIDI_NOTE_MAX. Při neplatné hodnotě: log error a std::exit(1).
+     */
+    void validateMidiNote(uint8_t midi_note, const char* functionName) const;
+};
+
+#endif  // INSTRUMENT_LOADER_H
+
+
+===== File: sampler_io.cpp =====
+Path: C:\Users\jindr\IthacaCore\sampler\sampler_io.cpp
+=====
+#include "sampler.h"  // Include hlavičky pro definice SampleInfo a SamplerIO (nyní v sampler.h)
+#include <filesystem>   // Pro procházení adresáře
+#include <regex>        // Pro parsování názvů souborů
+#include <sndfile.h>    // Pro práci s WAV soubory
+#include <iostream>     // Pro std::cerr při chybách (jen pro libsndfile error, ale teď přes logger)
+#include <cstdlib>      // Pro std::exit
+
+/**
+ * @brief Normalizuje zkrácenou frekvenci z názvu souboru na standardní hodnoty
+ * @param freq Frekvence z názvu (zkrácená: 8, 11, 16, 22, 44, 48, 88, 96, 176, 192)
+ * @return Normalizovaná frekvence nebo -1 při nerozpoznání
+ */
+int normalizeFrequency(int freq) {
+    switch (freq) {
+        case 8:   return 8000;
+        case 11:  return 11025;
+        case 16:  return 16000;
+        case 22:  return 22050;
+        case 44:  return 44100;
+        case 48:  return 48000;
+        case 88:  return 88200;
+        case 96:  return 96000;
+        case 176: return 176400;
+        case 192: return 192000;
+        default:  return -1;  // Nerozpoznaná frekvence
+    }
+}
+
+/**
+ * @brief Pomocná funkce pro extrakci frekvence z názvu souboru
+ * Očekává pattern: mXXX-velY-fZZ.wav kde ZZ je zkrácená frekvence (44, 48, atd.)
+ * @param filename Název souboru
+ * @return Frekvence z názvu nebo -1 pokud není nalezena
+ */
+int parseFrequencyFromFilename(const std::string& filename) {
+    // Regex pro pattern s frekvencí: mXXX-velY-fZZ.wav (nový formát s 'f' prefixem)
+    std::regex freqPattern(R"(^m(\d+)-vel(\d+)-f(\d+)\.wav$)", std::regex_constants::icase);
+    std::smatch matches;
+    
+    if (std::regex_match(filename, matches, freqPattern)) {
+        return std::stoi(matches[3].str());  // Extrakce FREQ z třetí skupiny (po 'f')
+    }
+    
+    return -1; // Frekvence není v názvu (nebo špatný formát)
+}
+
+/**
+ * @brief Konstruktor SamplerIO - inicializuje prázdný seznam samples
+ */
+SamplerIO::SamplerIO() {
+    // Prázdný konstruktor, sampleList se inicializuje automaticky
+}
+
+/**
+ * @brief Destruktor SamplerIO - loguje ukončení instance
+ */
+SamplerIO::~SamplerIO() {
+    // Pokud máme přístup k loggeru, zalogujeme ukončení
+    // Poznámka: V tomto designu nemáme přímý přístup k loggeru v destruktoru,
+    // takže použijeme printf pro konzistenci s Logger destruktorem
+    printf("[SamplerIO] SamplerIO destructor called - releasing %zu samples\n", sampleList.size());
+}
+
+/**
+ * @brief NOVÁ POMOCNÁ METODA: Detekce, zda je WAV v interleaved formátu
+ * Pro standardní WAV soubory je vždy true, ale kontrolujeme pro bezpečnost
+ * @param filename Cesta k souboru
+ * @param logger Reference na logger pro zaznamenávání
+ * @return true pokud interleaved (standard), false u vzácných případů
+ * Při chybě: loguje error a volá std::exit(1)
+ */
+bool SamplerIO::detectInterleavedFormat(const char* filename, Logger& logger) const {
+    SF_INFO sfInfo;
+    memset(&sfInfo, 0, sizeof(sfInfo));
+    
+    SNDFILE* sndFile = sf_open(filename, SFM_READ, &sfInfo);
+    if (!sndFile) {
+        logger.log("SamplerIO/detectInterleavedFormat", "error", 
+                  "Cannot open WAV file for interleaved detection: " + std::string(filename) + 
+                  " - " + sf_strerror(nullptr));
+        std::exit(1);
+    }
+    
+    // Kontrola major formátu (SF_FORMAT_WAV)
+    int majorFormat = sfInfo.format & SF_FORMAT_TYPEMASK;
+    if (majorFormat != SF_FORMAT_WAV) {
+        logger.log("SamplerIO/detectInterleavedFormat", "error", 
+                  "File is not a WAV format: " + std::string(filename) + 
+                  " (format: 0x" + std::to_string(majorFormat) + ")");
+        sf_close(sndFile);
+        std::exit(1);
+    }
+    
+    // Pro WAV: Standardně vždy interleaved
+    // Pouze vzácné případy speciálních WAV variant by mohly být non-interleaved
+    // V praxi: Vždy true pro běžné WAV soubory
+    sf_close(sndFile);
+    
+    logger.log("SamplerIO/detectInterleavedFormat", "info", 
+              "WAV format confirmed as interleaved: " + std::string(filename));
+    
+    return true;  // Standardní WAV je vždy interleaved
+}
+
+/**
+ * @brief NOVÁ POMOCNÁ METODA: Detekce subformátu a potřeby konverze do float
+ * @param filename Cesta k souboru
+ * @param logger Reference na logger pro zaznamenávání
+ * @return true pokud 16-bit PCM (potřebuje konverzi), false pokud již float
+ * Při chybě nebo nepodporovaném formátu: loguje error a volá std::exit(1)
+ */
+bool SamplerIO::detectFloatConversionNeed(const char* filename, Logger& logger) const {
+    SF_INFO sfInfo;
+    memset(&sfInfo, 0, sizeof(sfInfo));
+    
+    SNDFILE* sndFile = sf_open(filename, SFM_READ, &sfInfo);
+    if (!sndFile) {
+        logger.log("SamplerIO/detectFloatConversionNeed", "error", 
+                  "Cannot open WAV file for conversion detection: " + std::string(filename) + 
+                  " - " + sf_strerror(nullptr));
+        std::exit(1);
+    }
+    
+    // Kontrola subformátu (SF_FORMAT_SUBMASK)
+    int subformat = sfInfo.format & SF_FORMAT_SUBMASK;
+    sf_close(sndFile);
+    
+    switch (subformat) {
+        case SF_FORMAT_PCM_16:
+            // 16-bit PCM: Potřebuje konverzi do float (normalizace z int16 na [-1.0, 1.0])
+            logger.log("SamplerIO/detectFloatConversionNeed", "info", 
+                      "16-bit PCM detected, conversion to float needed: " + std::string(filename));
+            return true;
+            
+        case SF_FORMAT_FLOAT:
+            // Již 32-bit float: Žádná konverze potřebná
+            logger.log("SamplerIO/detectFloatConversionNeed", "info", 
+                      "32-bit float detected, no conversion needed: " + std::string(filename));
+            return false;
+            
+        case SF_FORMAT_PCM_24:
+            // 24-bit PCM: Také potřebuje konverzi do float
+            logger.log("SamplerIO/detectFloatConversionNeed", "info", 
+                      "24-bit PCM detected, conversion to float needed: " + std::string(filename));
+            return true;
+            
+        case SF_FORMAT_PCM_32:
+            // 32-bit PCM: Potřebuje konverzi do float
+            logger.log("SamplerIO/detectFloatConversionNeed", "info", 
+                      "32-bit PCM detected, conversion to float needed: " + std::string(filename));
+            return true;
+            
+        case SF_FORMAT_DOUBLE:
+            // 64-bit double: Potřebuje konverzi do 32-bit float
+            logger.log("SamplerIO/detectFloatConversionNeed", "info", 
+                      "64-bit double detected, conversion to 32-bit float needed: " + std::string(filename));
+            return true;
+            
+        default:
+            // Nepodporovaný formát
+            logger.log("SamplerIO/detectFloatConversionNeed", "error", 
+                      "Unsupported subformat detected in file: " + std::string(filename) + 
+                      " (subformat: 0x" + std::to_string(subformat) + 
+                      "). Supported: 16-bit PCM, 24-bit PCM, 32-bit PCM, 32-bit float, 64-bit double");
+            std::exit(1);
+    }
+}
+
+/**
+ * @brief Prohledá adresář s WAV soubory a naplní seznam metadat (přejmenováno z loadSamples)
+ * ROZŠÍŘENO: Nyní také detekuje interleaved formát a potřebu konverze
+ * @param directoryPath Cesta k adresáři se samples
+ * @param logger Reference na logger pro zaznamenávání
+ */
+void SamplerIO::scanSampleDirectory(const std::string& directoryPath, Logger& logger) {
+    logger.log("SamplerIO/scanSampleDirectory", "info", "Scanning sample directory: " + directoryPath);
+    
+    // Kontrola existence adresáře
+    if (!std::filesystem::exists(directoryPath)) {
+        logger.log("SamplerIO/scanSampleDirectory", "error", "Directory does not exist: " + directoryPath);
+        std::exit(1);
+    }
+    
+    if (!std::filesystem::is_directory(directoryPath)) {
+        logger.log("SamplerIO/scanSampleDirectory", "error", "Path is not a directory: " + directoryPath);
+        std::exit(1);
+    }
+    
+    // Regex pattern pro parsování názvů souborů: mXXX-velY-fZZ.wav (nový formát s 'f' pro FREQ)
+    std::regex filenamePattern(R"(^m(\d+)-vel(\d+)-f(\d+)\.wav$)", std::regex_constants::icase);
+    std::smatch matches;
+    
+    int loadedCount = 0;
+    
+    try {
+        // Procházení všech souborů v adresáři
+        for (const auto& entry : std::filesystem::directory_iterator(directoryPath)) {
+            if (!entry.is_regular_file()) {
+                continue;
+            }
+            
+            std::string filename = entry.path().filename().string();
+            std::string fullPath = entry.path().string();
+            
+            // Pokus o parsování názvu souboru
+            if (std::regex_match(filename, matches, filenamePattern)) {
+                // Extrakce MIDI noty a velocity z názvu
+                int midiNote = std::stoi(matches[1].str());
+                int velocity = std::stoi(matches[2].str());
+                
+                // Validace rozsahů
+                if (midiNote < 0 || midiNote > 127) {
+                    logger.log("SamplerIO/scanSampleDirectory", "warn", 
+                              "Invalid MIDI note " + std::to_string(midiNote) + " in file: " + filename);
+                    continue;
+                }
+                
+                if (velocity < 0 || velocity > 7) {
+                    logger.log("SamplerIO/scanSampleDirectory", "warn", 
+                              "Invalid velocity " + std::to_string(velocity) + " in file: " + filename);
+                    continue;
+                }
+                
+                // Extrakce frekvence z názvu (nový formát s 'fZZ')
+                int filenameFreq = parseFrequencyFromFilename(filename);
+                
+                // Načtení metadata z WAV souboru pomocí libsndfile
+                SF_INFO sfInfo;
+                memset(&sfInfo, 0, sizeof(sfInfo));
+                
+                SNDFILE* sndFile = sf_open(fullPath.c_str(), SFM_READ, &sfInfo);
+                if (!sndFile) {
+                    logger.log("SamplerIO/scanSampleDirectory", "error", 
+                              "Cannot open WAV file: " + fullPath + " - " + sf_strerror(nullptr));
+                    std::exit(1);
+                }
+                
+                // Kontrola konzistence frekvence (pokud je v názvu)
+                if (filenameFreq != -1) {
+                    int normalizedFreq = normalizeFrequency(filenameFreq);
+                    if (normalizedFreq == -1) {
+                        logger.log("SamplerIO/scanSampleDirectory", "error", 
+                                  "Unsupported frequency format in filename: " + filename + 
+                                  " (frequency: " + std::to_string(filenameFreq) + 
+                                  "). Supported: 8, 11, 16, 22, 44, 48, 88, 96, 176, 192");
+                        sf_close(sndFile);
+                        std::exit(1);
+                    } else if (normalizedFreq != sfInfo.samplerate) {
+                        logger.log("SamplerIO/scanSampleDirectory", "error", 
+                                  "Frequency mismatch in file: " + filename + 
+                                  " (filename: " + std::to_string(filenameFreq) + 
+                                  " -> " + std::to_string(normalizedFreq) + 
+                                  " Hz, actual file: " + std::to_string(sfInfo.samplerate) + " Hz)");
+                        sf_close(sndFile);
+                        std::exit(1);
+                    }
+                    
+                    // Logování úspěšné validace
+                    logger.log("SamplerIO/scanSampleDirectory", "info", 
+                              "Frequency validation passed: " + filename + 
+                              " (" + std::to_string(filenameFreq) + " -> " + 
+                              std::to_string(normalizedFreq) + " Hz)");
+                }
+                
+                // Uzavření souboru před dalšími detekcemi
+                sf_close(sndFile);
+                
+                // NOVÉ: Detekce interleaved formátu a potřeby konverze
+                bool isInterleaved = detectInterleavedFormat(fullPath.c_str(), logger);
+                bool needsConversion = detectFloatConversionNeed(fullPath.c_str(), logger);
+                
+                // Výpočet délky v sekundách
+                double duration = static_cast<double>(sfInfo.frames) / static_cast<double>(sfInfo.samplerate);
+                
+                // Vytvoření SampleInfo struktury s novými atributy
+                SampleInfo sample;
+                strncpy(sample.filename, fullPath.c_str(), sizeof(sample.filename) - 1);
+                sample.filename[sizeof(sample.filename) - 1] = '\0';  // Zajištění null-termination
+                sample.midi_note = static_cast<uint8_t>(midiNote);
+                sample.midi_note_velocity = static_cast<uint8_t>(velocity);
+                sample.frequency = sfInfo.samplerate;
+                sample.sample_count = sfInfo.frames;
+                sample.duration_seconds = duration;
+                sample.channels = sfInfo.channels;
+                sample.is_stereo = (sfInfo.channels >= 2);
+                sample.interleaved_format = isInterleaved;      // NOVÉ
+                sample.needs_conversion = needsConversion;      // NOVÉ
+                
+                // Přidání do seznamu
+                sampleList.push_back(sample);
+                loadedCount++;
+                
+                // Logování informací o načteném sample s novými atributy
+                std::string channelInfo = sample.is_stereo ? "stereo" : "mono";
+                std::string interleavedInfo = sample.interleaved_format ? "interleaved" : "non-interleaved";
+                std::string conversionInfo = sample.needs_conversion ? "needs float conversion" : "no conversion needed";
+                
+                logger.log("SamplerIO/scanSampleDirectory", "info", 
+                          "Loaded: " + filename + " (MIDI: " + std::to_string(midiNote) + 
+                          ", Vel: " + std::to_string(velocity) + 
+                          ", Freq: " + std::to_string(sfInfo.samplerate) + " Hz" +
+                          ", Duration: " + std::to_string(duration) + "s" +
+                          ", Channels: " + std::to_string(sfInfo.channels) + " (" + channelInfo + ")" +
+                          ", Frames: " + std::to_string(sfInfo.frames) +
+                          ", Format: " + interleavedInfo + ", " + conversionInfo + ")");
+                
+            } else {
+                logger.log("SamplerIO/scanSampleDirectory", "warn", 
+                          "Filename doesn't match pattern mXXX-velY-fZZ.wav: " + filename);
+            }
+        }
+    } catch (const std::filesystem::filesystem_error& e) {
+        logger.log("SamplerIO/scanSampleDirectory", "error", "Filesystem error: " + std::string(e.what()));
+        std::exit(1);
+    }
+    
+    logger.log("SamplerIO/scanSampleDirectory", "info", 
+              "Scanning complete. Total samples indexed: " + std::to_string(loadedCount));
+}
+
+/**
+ * @brief Vyhledá index sample v interním seznamu podle MIDI noty, velocity a požadované frekvence vzorkování
+ * @param midi_note MIDI nota (0-127)
+ * @param velocity Velocity (0-7)
+ * @param sampleRate Požadovaná frekvence vzorkování v Hz (např. 44100)
+ * @return Index v seznamu nebo -1 pokud nenalezeno
+ * Chování: Lineární prohledávání, vrací první shodu kde odpovídají všechny tři kritéria.
+ * Pokud sampleRate je 0 nebo -1, ignoruje se (pro zpětnou kompatibilitu, ale nedoporučeno).
+ */
+int SamplerIO::findSampleInSampleList(uint8_t midi_note, uint8_t velocity, int sampleRate) const {
+    for (size_t i = 0; i < sampleList.size(); ++i) {
+        bool frequencyMatch = (sampleRate <= 0) ? true : (sampleList[i].frequency == sampleRate);  // Ignoruj frekvenci při neplatné hodnotě
+        if (sampleList[i].midi_note == midi_note && 
+            sampleList[i].midi_note_velocity == velocity &&
+            frequencyMatch) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;  // Nenalezeno
+}
+
+/**
+ * @brief Getter pro přístup k načtenému seznamu samples
+ * @return Konstantní reference na vektor SampleInfo
+ */
+const std::vector<SampleInfo>& SamplerIO::getLoadedSampleList() const {
+    return sampleList;
+}
+
+/**
+ * @brief Getter pro název souboru na zadaném indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logování chyb
+ * @return const char* na filename, pokud platný index
+ */
+const char* SamplerIO::getFilename(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getFilename", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].filename;
+}
+
+/**
+ * @brief Getter pro MIDI notu na zadaném indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logování chyb
+ * @return uint8_t MIDI nota
+ */
+uint8_t SamplerIO::getMidiNote(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getMidiNote", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].midi_note;
+}
+
+/**
+ * @brief Getter pro velocity MIDI noty na zadaném indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logování chyb
+ * @return uint8_t velocity
+ */
+uint8_t SamplerIO::getMidiNoteVelocity(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getMidiNoteVelocity", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].midi_note_velocity;
+}
+
+/**
+ * @brief Getter pro frekvenci samplu na zadaném indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logování chyb
+ * @return int frekvence (Hz)
+ */
+int SamplerIO::getFrequency(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getFrequency", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].frequency;
+}
+
+/**
+ * @brief Getter pro počet vzorků na zadaném indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logování chyb
+ * @return sf_count_t počet vzorků (frames)
+ */
+sf_count_t SamplerIO::getSampleCount(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getSampleCount", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].sample_count;
+}
+
+/**
+ * @brief Getter pro délku v sekundách na zadaném indexu (přejmenováno pro jasnost)
+ * @param index Index v seznamu
+ * @param logger Reference pro logování chyb
+ * @return double délka v sekundách
+ */
+double SamplerIO::getDurationInSeconds(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getDurationInSeconds", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].duration_seconds;
+}
+
+/**
+ * @brief Getter pro počet kanálů na zadaném indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logování chyb
+ * @return int počet kanálů
+ */
+int SamplerIO::getChannelCount(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getChannelCount", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].channels;
+}
+
+/**
+ * @brief Getter pro stereo flag na zadaném indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logování chyb
+ * @return bool true pokud stereo (channels >= 2)
+ */
+bool SamplerIO::getIsStereo(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getIsStereo", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].is_stereo;
+}
+
+/**
+ * @brief NOVÝ GETTER pro interleaved formát flag na zadaném indexu (přejmenováno pro konzistenci)
+ * @param index Index v seznamu
+ * @param logger Reference pro logování chyb
+ * @return bool true pokud interleaved (standard pro WAV)
+ */
+bool SamplerIO::getIsInterleavedFormat(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getIsInterleavedFormat", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].interleaved_format;
+}
+
+/**
+ * @brief NOVÝ GETTER pro potřebu konverze do float na zadaném indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logování chyb
+ * @return bool true pokud potřebuje konverzi (16-bit PCM -> float)
+ */
+bool SamplerIO::getNeedsConversion(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getNeedsConversion", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].needs_conversion;
+}
+
+
+===== File: sampler.cpp =====
+Path: C:\Users\jindr\IthacaCore\sampler\sampler.cpp
+=====
+#include "sampler.h"  // SamplerIO
+#include "instrument_loader.h"  // InstrumentLoader
+#include "wav_file_exporter.h"  // WavExporter pro test exportu
+
+/**
+ * @brief Hlavní koordinátor sampleru – spustí celý workflow.
+ * @param logger Reference na Logger pro logování.
+ * @return 0 při úspěchu.
+ * 
+ * Workflow:
+ * 1. Prohledá adresář se samples (SamplerIO).
+ * 2. Načte všechny samples do paměti jako stereo float buffery (InstrumentLoader).
+ * 3. TESTY: Na konci v try-catch bloku – test přístupu k instrumentu (retrieve: MIDI 108, vel 7) a export WAV pro ověření konverze.
+ *    - Provádí se vždy (pokud sample existuje).
+ *    - Používá Pcm16 formát (default), buffer 512 samples (JUCE-like).
+ *    - Měří časy zápisu pro debugging.
+ *    - Vytvoří soubor ./exports/export_test.wav pro poslech.
+ * 4. Statistiky na úplném konci.
+ * Chyby v testech: Zachytí try-catch, log + return 1. Jiné chyby končí std::exit(1) po logu.
+ */
+int runSampler(Logger& logger) {
+    logger.log("runSampler", "info", "Starting IthacaCore sampler workflow");
+
+    /* ======= Globální nastavení proměnných (společné pro celý workflow) ====== */
+    // Cesta k samples (upravte podle potřeby)
+    std::string sampleDir = R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)";
+    
+    // Konfigurace pro načítání (targetSampleRate)
+    int targetSampleRate = 44100;  // Typická frekvence pro audio plugin
+    /* ======= Konец globálního nastavení ====== */
+
+    /* ======= Hlavní workflow: Inicializace a načtení samples ====== */
+    // Krok 1: Inicializace SamplerIO a prohledání adresáře
+    SamplerIO sampler;
+    logger.log("runSampler", "info", "Scanning sample directory: " + sampleDir);
+    sampler.scanSampleDirectory(sampleDir, logger);
+
+    // Krok 2: Načtení do paměti jako stereo buffery
+    InstrumentLoader instrument(sampler, targetSampleRate, logger);
+    instrument.loadInstrument();
+
+    /* ======= TESTY: Přístup k instrumentu a export (v try-catch na konci) ====== */
+    try {
+        /* ======= Parametry pro retrieve (test přístupu) ====== */
+        uint8_t testMidi = 108;  // Příklad MIDI noty pro test přístupu
+        uint8_t testVel = 5;     // Příklad velocity vrstvy pro test přístupu
+        /* ======= Konец parametrů pro retrieve ====== */
+        
+        // Krok 3: Test přístupu k jednomu instrumentu (příklad: MIDI 108, vel 7)
+        Instrument& instrument_note = instrument.getInstrumentNote(testMidi);
+        if (instrument_note.velocityExists[testVel]) {
+            logger.log("runSampler", "info", "Test access OK: MIDI " + std::to_string(testMidi) + "/vel " + std::to_string(testVel) + 
+                       " exists. Frames: " + std::to_string(instrument_note.get_frame_count(testVel)) + 
+                       ", Total samples: " + std::to_string(instrument_note.get_total_sample_count(testVel)) + 
+                       ", Originally mono: " + (instrument_note.get_was_originally_mono(testVel) ? "yes" : "no"));
+
+            /* ======= Parametry pro test exportu ====== */
+            std::string exportDir = "./exports";                // Adresář pro výstupní WAV soubory
+            std::string exportFilename = "export_test.wav";     // Název výstupního souboru
+            sf_count_t framesPerBuffer = 512;                   // Velikost bufferu pro JUCE-like zpracování (samples na blok)
+            bool isStereo = true;                               // Formát: stereo (interleaved [L,R,L,R...])
+            bool realWrite = true;                              // Reálný zápis (ne dummy)
+            /* ======= Konец parametrů pro test exportu ====== */
+            
+            // Inicializace exportu
+            logger.log("runSampler", "info", "Starting WAV export test for verification");
+            WavExporter exporter(exportDir, logger);  // Default Pcm16
+
+            float* exportBuffer = exporter.wavFileCreate(exportFilename, targetSampleRate, static_cast<int>(framesPerBuffer), isStereo, realWrite);  // Stereo, reálný zápis
+            if (exportBuffer) {
+                sf_count_t totalFrames = instrument_note.get_frame_count(testVel);
+                sf_count_t remainingFrames = totalFrames;
+                float* sourceData = instrument_note.get_sample_begin_pointer(testVel);  // Zdroj: [L,R,L,R...] ze sample
+
+                // Zjednodušená smyčka exportu (minimalizováno vnoření)
+                while (remainingFrames > 0) {
+                    sf_count_t thisBufferFrames = std::min(framesPerBuffer, remainingFrames);
+                    size_t offset = (totalFrames - remainingFrames) * 2;  // *2 pro stereo
+                    
+                    // Kopírování ze source do exportBuffer (interleaved stereo)
+                    for (sf_count_t i = 0; i < thisBufferFrames * 2; ++i) {
+                        exportBuffer[i] = sourceData[offset + i];
+                    }
+
+                    // Zápis bufferu (měří čas)
+                    if (!exporter.wavFileWriteBuffer(exportBuffer, static_cast<int>(thisBufferFrames))) {
+                        logger.log("runSampler", "error", "Export write failed");
+                        return 1;
+                    }
+                    
+                    remainingFrames -= thisBufferFrames;
+                }
+
+                logger.log("runSampler", "info", "WAV export completed: " + exportFilename + " in " + exportDir + 
+                           ". Listen to verify mono->stereo conversion and data integrity (format: Pcm16).");
+            } else {
+                logger.log("runSampler", "error", "Failed to create export buffer");
+                return 1;
+            }
+        } else {
+            logger.log("runSampler", "warn", "Test sample MIDI " + std::to_string(testMidi) + "/vel " + std::to_string(testVel) + " not found");
+        }
+    } catch (const std::exception& e) {
+        logger.log("runSampler", "error", "Exception in tests: " + std::string(e.what()));
+        return 1;
+    } catch (...) {
+        logger.log("runSampler", "error", "Unknown exception in tests");
+        return 1;
+    }
+    /* ======= KONEC TESTŮ ====== */
+
+    /* ======= Závěrečné statistiky ====== */
+    // Statistiky
+    logger.log("runSampler", "info", "Total loaded samples: " + std::to_string(instrument.getTotalLoadedSamples()));
+    logger.log("runSampler", "info", "Mono originally: " + std::to_string(instrument.getMonoSamplesCount()) + 
+               ", Stereo originally: " + std::to_string(instrument.getStereoSamplesCount()));
+
+    logger.log("runSampler", "info", "Sampler workflow completed successfully");
+    return 0;
+}
+
+
+===== File: sampler.h =====
+Path: C:\Users\jindr\IthacaCore\sampler\sampler.h
+=====
+#ifndef SAMPLER_H       // Include guard pro prevenci duplicitního includu
+#define SAMPLER_H
+
+#include <cstdint>      // Pro uint8_t a size_t
+#include <cstddef>      // Pro size_t (pokud není v cstdint)
+#include <string>       // Pro std::string
+#include <vector>       // Pro std::vector
+#include <sndfile.h>    // Pro sf_count_t typ
+
+#include "core_logger.h"  // Pro Logger (pro předání reference)
+
+// Struktura pro metadata o samplu (načtená z WAV souboru a názvu)
+// Uchovává základní informace pro vyhledávání a správu sample
+struct SampleInfo {
+    char filename[256];             // Celé jméno souboru (včetně cesty, max 256 znaků)
+    uint8_t midi_note;              // MIDI nota (z názvu, rozsah 0-127, ale podporuje až 999)
+    uint8_t midi_note_velocity;     // Velocity (z názvu, rozsah 0-7)
+    int frequency;                  // Frekvence samplu (načtená z WAV souboru, musí odpovídat názvu)
+    sf_count_t sample_count;        // Celkový počet vzorků (frames)
+    double duration_seconds;        // Délka v sekundách
+    int channels;                   // Počet kanálů (1=mono, 2=stereo, atd.)
+    bool is_stereo;                 // True pokud stereo (channels >= 2)
+    bool interleaved_format;        // True pokud je WAV v interleaved formátu (standard)
+    bool needs_conversion;          // True pokud potřebuje konverzi do float (16-bit PCM -> float)
+};
+
+// Hlavní třída pro IO operace se WAV samplami
+// Centralizuje načítání metadat z adresáře pomocí libsndfile a vyhledávání
+class SamplerIO {
+public:
+    // Konstruktor: Inicializuje prázdný seznam sample
+    SamplerIO();
+
+    // Destruktor: Loguje ukončení instance
+    ~SamplerIO();
+
+    // Metoda pro prohledání adresáře s WAV soubory a naplnění seznamu metadat
+    // Vstup: Cesta k adresáři (string), reference na Logger pro logování
+    // Chování: Prochází adresář, parsuje názvy podle patternu mXXX-velY-fZZ.wav,
+    // načte freq z WAV headeru pomocí libsndfile; loguje info/warn/error
+    // Detekuje interleaved formát a potřebu konverze do float
+    // Validace konzistence: Kontroluje, zda frekvence v názvu odpovídá frekvenci v souboru
+    // Při chybě (např. neexistující adresář, nekonzistentní frekvence): Zaloguje error a volá std::exit(1)
+    void scanSampleDirectory(const std::string& directoryPath, Logger& logger);
+
+    // Metoda pro vyhledání indexu sample v interním seznamu podle MIDI noty, velocity a požadované frekvence vzorkování
+    // Vstup: uint8_t midi_note, uint8_t velocity, int sampleRate (frekvence v Hz, např. 44100)
+    // Výstup: Index v seznamu (int, -1 pokud nenalezeno)
+    // Chování: Lineární prohledávání, vrací první shodu kde odpovídají všechny tři kritéria (MIDI + velocity + frequency == sampleRate)
+    int findSampleInSampleList(uint8_t midi_note, uint8_t velocity, int sampleRate) const;
+
+    // Getter pro přístup k načtenému seznamu (volitelný)
+    // Vrátí konstantní referenci na vektor SampleInfo pro čtení dat
+    const std::vector<SampleInfo>& getLoadedSampleList() const;
+
+    // Gettery pro přístup k metadatům na základě indexu
+    // Tyto metody kontrolují platnost indexu; při neplatném: logují error a exit(1)
+    // Vstup: int index (musí být >=0 a < velikost seznamu)
+    // Výstup: Hodnota z SampleInfo na daném indexu
+
+    // Getter pro název souboru (cesta včetně)
+    const char* getFilename(int index, Logger& logger) const;
+
+    // Getter pro MIDI notu
+    uint8_t getMidiNote(int index, Logger& logger) const;
+
+    // Getter pro velocity MIDI noty
+    uint8_t getMidiNoteVelocity(int index, Logger& logger) const;
+
+    // Getter pro frekvenci samplu (Hz)
+    int getFrequency(int index, Logger& logger) const;
+
+    // Rozšířené gettery pro metadata
+    
+    // Getter pro počet vzorků (frames)
+    sf_count_t getSampleCount(int index, Logger& logger) const;
+
+    // Getter pro délku v sekundách
+    double getDurationInSeconds(int index, Logger& logger) const;
+
+    // Getter pro počet kanálů
+    int getChannelCount(int index, Logger& logger) const;
+
+    // Getter pro stereo flag (true pokud channels >= 2)
+    bool getIsStereo(int index, Logger& logger) const;
+
+    // Getter pro interleaved formát flag
+    bool getIsInterleavedFormat(int index, Logger& logger) const;
+
+    // Getter pro potřebu konverze do float
+    bool getNeedsConversion(int index, Logger& logger) const;
+
+private:
+    std::vector<SampleInfo> sampleList;  // Interní seznam načtených sample
+
+    // Pomocné metody pro detekci formátu
+    
+    // Detekce, zda je WAV v interleaved formátu (pro standardní WAV vždy true)
+    // Parametry: cesta k souboru, reference na logger
+    // Vrácí: true pokud interleaved, false jinak (vzácné případy)
+    // Při chybě: loguje error a volá std::exit(1)
+    bool detectInterleavedFormat(const char* filename, Logger& logger) const;
+
+    // Detekce subformátu a potřeby konverze do float
+    // Parametry: cesta k souboru, reference na logger  
+    // Vrácí: true pokud 16-bit PCM (potřebuje konverzi), false pokud již float
+    // Při chybě nebo nepodporovaném formátu: loguje error a volá std::exit(1)
+    bool detectFloatConversionNeed(const char* filename, Logger& logger) const;
+};
+
+// Deklarace funkce pro řízení sampleru
+// Volána z main.cpp; obsahuje logiku načítání a vyhledávání s loggerem
+// @param logger Reference na Logger pro logování
+// @return 0 při úspěchu, 1 při chybě (chyby jsou řešeny ukončením programu)
+int runSampler(Logger& logger);
+
+#endif  // SAMPLER_H
+
+
+===== File: voice_manager.cpp =====
+Path: C:\Users\jindr\IthacaCore\sampler\voice_manager.cpp
+=====
+#include "voice_manager.h"
+#include <algorithm>  // Pro std::min (clamping velocity)
+#include <cstring>    // Pro memset, pokud potřeba inicializovat buffery (volitelně)
+
+VoiceManager::VoiceManager(const std::string& sampleDir, int targetSampleRate, Logger& logger)
+    : logger_(logger) {
+    // Inicializace: Volá globální init Voice a vytvoří voices
+    Voice::initialize(sampleDir, targetSampleRate, logger_);
+    
+    // Vytvoř 128 voices
+    for (int i = 0; i < 128; ++i) {
+        voices_[i] = Voice(static_cast<uint8_t>(i), logger_);
+    }
+    
+    logger_.log("VoiceManager/constructor", "info", 
+                "VoiceManager initialized with 128 voices");
+}
+
+VoiceManager::~VoiceManager() {
+    // Cleanup: Uvolní sdílené zdroje
+    Voice::cleanup();
+    logger_.log("VoiceManager/destructor", "info", "VoiceManager shut down");
+}
+
+void VoiceManager::reinitialize(int newSampleRate, Logger& logger) {
+    // Reinicializace: Aktualizuje buffery pro nový sample rate
+    Voice::reinitialize(newSampleRate, logger);
+    
+    logger_.log("VoiceManager/reinitialize", "info", 
+                "Reinitialized for sample rate " + std::to_string(newSampleRate) + " Hz");
+}
+
+void VoiceManager::startNote(int midiNoteNumber, float velocity) {
+    // Start note: JUCE-like, mapuje na MIDI velocity
+    if (midiNoteNumber < 0 || midiNoteNumber >= 128) {
+        logger_.log("VoiceManager/startNote", "warn", "Invalid MIDI note " + std::to_string(midiNoteNumber));
+        return;
+    }
+    
+    uint8_t midiVelocity = static_cast<uint8_t>(std::min(127.0f, velocity * 127.0f));
+    voices_[midiNoteNumber].setNoteState(true, midiVelocity);
+    
+    logger_.log("VoiceManager/startNote", "info", 
+                "Started note " + std::to_string(midiNoteNumber) + " with velocity " + std::to_string(midiVelocity));
+}
+
+void VoiceManager::stopNote(int midiNoteNumber, bool allowTailOff) {
+    // Stop note: JUCE-like, spustí release nebo force off
+    if (midiNoteNumber < 0 || midiNoteNumber >= 128) {
+        logger_.log("VoiceManager/stopNote", "warn", "Invalid MIDI note " + std::to_string(midiNoteNumber));
+        return;
+    }
+    
+    voices_[midiNoteNumber].setNoteState(false, 0);  // Normální note-off (release)
+    
+    // Pokud !allowTailOff, přidej force idle – např. nastav currentPosition_ na max
+    if (!allowTailOff) {
+        voices_[midiNoteNumber].advancePosition(999999);  // Simulace konce (cap v advancePosition)
+    }
+    
+    logger_.log("VoiceManager/stopNote", "info", 
+                "Stopped note " + std::to_string(midiNoteNumber) + " (tailOff: " + std::to_string(allowTailOff) + ")");
+}
+
+/**
+ * @brief Renderuje další blok audio do separátních left/right kanálů (standalone verze)
+ * Prochází voices pro MIDI noty (0-127), získá data z Voice, de-interleave interleaved stereo data
+ * a přičte do left/right kanálů s aplikací gainu.
+ * Předpokládá, že left/right jsou inicializovány na 0 (např. memset mimo tuto metodu).
+ * OPRACHA: Upraveno pro kompatibilitu s AudioData – použito stereoPtr, remainingFrames, gain.
+ * Pokud data není, posune pozici. Pro JUCE port: Nahraď leftChannel = buffer.getWritePointer(0, startSample).
+ * @param leftChannel Pointer na left kanál (float array, velikost numSamples)
+ * @param rightChannel Pointer na right kanál (float array, velikost numSamples)
+ * @param numSamples Počet samples k renderování (mono samples, protože de-interleave)
+ */
+void VoiceManager::renderNextBlock(float* leftChannel, float* rightChannel, int numSamples) {
+    // Rendering: Prochází voices, de-interleave + gain, přičte do kanálů (standalone)
+    // Předpokládá stereo; inicializuj left/right na 0 mimo (např. memset)
+    for (int note = 0; note < 128; ++note) {
+        if (!voices_[note].isActive()) continue;
+        
+        AudioData data = voices_[note].getCurrentAudioData();  // Získání dat s gain a remainingFrames
+        if (!data.stereoPtr || data.remainingFrames <= 0) {  // Kontrola null a zbývajících frames
+            voices_[note].advancePosition(static_cast<sf_count_t>(numSamples));  // Posun i při konci
+            continue;
+        }
+        
+        // Rendering loop: De-interleave pro stereo
+        sf_count_t framesToProcess = std::min(static_cast<sf_count_t>(numSamples), data.remainingFrames);
+        for (sf_count_t i = 0; i < framesToProcess; ++i) {
+            int globalPos = static_cast<int>(i);  // startSample=0 zde (uprav pro offset)
+            if (globalPos >= numSamples) break;
+            
+            // OPRACHA: Použití nové struktury AudioData – stereoPtr pro data, gain pro envelope
+            leftChannel[globalPos] += data.stereoPtr[i * 2] * data.gain;
+            rightChannel[globalPos] += data.stereoPtr[i * 2 + 1] * data.gain;
+        }
+        
+        // Posun pozice
+        voices_[note].advancePosition(framesToProcess);
+    }
+    // Poznámka: Pro JUCE portaci: Nahraď leftChannel = getWritePointer(0, startSample); atd.
+}
+
+bool VoiceManager::isNoteActive(int midiNoteNumber) const {
+    // Getter: Aktivní nota?
+    if (midiNoteNumber < 0 || midiNoteNumber >= 128) return false;
+    return voices_[midiNoteNumber].isActive();
+}
+
+int VoiceManager::getNumActiveVoices() const {
+    // Getter: Počet aktivních voices
+    int count = 0;
+    for (int i = 0; i < 128; ++i) {
+        if (voices_[i].isActive()) ++count;
+    }
+    return count;
+}
+
+
+===== File: voice_manager.h =====
+Path: C:\Users\jindr\IthacaCore\sampler\voice_manager.h
+=====
+#ifndef VOICE_MANAGER_H
+#define VOICE_MANAGER_H
+
+#include "voice.h"                                // Pro Voice a AudioData
+#include "core_logger.h"                          // Pro Logger
+
+/**
+ * @class VoiceManager
+ * @brief Manažer pro 128 Voice instancí – JUCE-like pro snadnou portaci do Synthesiser.
+ * 
+ * Řídí inicializaci, MIDI události (startNote/stopNote) a rendering (renderNextBlock).
+ * Prochází všechny voices (bez polyfonního limitu – vhodné pro piano sampler).
+ * Používá sdílený InstrumentLoader z Voice pro buffery.
+ * 
+ * Rendering je JUCE-like, ale standalone: Přijímá pointery na výstupní kanály (float* left, float* right).
+ * Pro JUCE portaci: Nahraď pointery za getWritePointer(0/1, startSample).
+ * 
+ * Příklad použití (v runSampler nebo JUCE AudioProcessor):
+ * VoiceManager manager("./samples", 44100, logger);
+ * manager.startNote(60, 0.5f);  // MIDI 60, velocity 0.5 (64/127)
+ * float left[512] = {0}, right[512] = {0};
+ * manager.renderNextBlock(left, right, 512);
+ */
+class VoiceManager {
+public:
+    /**
+     * @brief Konstruktor: Inicializuje manažer s cestou k samples a sample rate.
+     * Automaticky volá Voice::initialize a vytvoří pole voices[128].
+     * @param sampleDir Cesta k samples (např. "./samples").
+     * @param targetSampleRate Frekvence vzorkování (Hz).
+     * @param logger Reference na Logger pro logování.
+     */
+    VoiceManager(const std::string& sampleDir, int targetSampleRate, Logger& logger);
+
+    /**
+     * @brief Destruktor: Uvolní sdílený InstrumentLoader.
+     */
+    ~VoiceManager();
+
+    /**
+     * @brief Reinicializace pro změnu sample rate (JUCE prepareToPlay-like).
+     * @param newSampleRate Nová frekvence (Hz).
+     * @param logger Reference na Logger.
+     */
+    void reinitialize(int newSampleRate, Logger& logger);
+
+    /**
+     * @brief Spustí note-on (JUCE-like: voláno z MIDI handleru).
+     * Mapuje velocity (0.0-1.0) na MIDI (0-127) a volá setNoteState(true).
+     * @param midiNoteNumber MIDI nota (0-127).
+     * @param velocity Normalizovaná velocity (0.0 = off, 1.0 = max).
+     */
+    void startNote(int midiNoteNumber, float velocity);
+
+    /**
+     * @brief Zastaví note-off (JUCE-like: allowTailOff pro release tail).
+     * Volá setNoteState(false). Pokud !allowTailOff, okamžitě idle.
+     * @param midiNoteNumber MIDI nota (0-127).
+     * @param allowTailOff true = umožni release fade-out.
+     */
+    void stopNote(int midiNoteNumber, bool allowTailOff);
+
+    /**
+     * @brief Rendering audio bloku (JUCE processBlock-like, standalone verze).
+     * Prochází aktivní voices, získá data z getCurrentAudioData a přičte do kanálů.
+     * De-interleaving (L/R), aplikuje gain. Posouvá pozice manuálně.
+     * @param leftChannel Pointer na levý kanál (float array, velikost >= numSamples).
+     * @param rightChannel Pointer na pravý kanál (float array, velikost >= numSamples).
+     * @param numSamples Počet samples k renderingu (např. 512).
+     */
+    void renderNextBlock(float* leftChannel, float* rightChannel, int numSamples);
+
+    // Gettery
+    bool isNoteActive(int midiNoteNumber) const;
+    int getNumActiveVoices() const;
+
+private:
+    Voice voices_[128];  // Pole pro 128 MIDI not (jedna Voice na notu)
+    Logger& logger_;     // Reference na logger
+};
+
+#endif // VOICE_MANAGER_H
+
+
+===== File: voice.cpp =====
+Path: C:\Users\jindr\IthacaCore\sampler\voice.cpp
+=====
+#include "voice.h"
+#include <algorithm>    // Pro std::min
+#include <cmath>        // Pro expf v envelope
+
+// Inicializace statických členů
+InstrumentLoader* Voice::sharedInstrumentLoader_ = nullptr;
+std::string Voice::sharedSampleDir_ = "";
+int Voice::sharedTargetSampleRate_ = 0;
+Logger* Voice::sharedLogger_ = nullptr;
+
+/**
+ * @brief Statická metoda pro globální inicializaci třídy Voice
+ * Nastaví sdílené zdroje (sampleDir, targetSampleRate, logger) před použitím hlasů.
+ * Volá se staticky: Voice::initialize(...).
+ * @param sampleDir Cesta k samples
+ * @param targetSampleRate Frekvence vzorkování
+ * @param logger Reference na Logger
+ */
+void Voice::initialize(const std::string& sampleDir, int targetSampleRate, Logger& logger) {
+    sharedSampleDir_ = sampleDir;
+    sharedTargetSampleRate_ = targetSampleRate;
+    sharedLogger_ = &logger;
+    
+    if (sharedLogger_) {
+        sharedLogger_->log("Voice/initialize", "info", 
+                           "Voice class initialized with sampleDir: " + sampleDir + 
+                           ", targetSampleRate: " + std::to_string(targetSampleRate));
+    }
+}
+
+/**
+ * @brief Statická metoda pro globální cleanup třídy Voice
+ * Resetuje sdílené zdroje (nullptr pro logger, prázdný string atd.).
+ * Volá se staticky: Voice::cleanup().
+ */
+void Voice::cleanup() {
+    sharedSampleDir_ = "";
+    sharedTargetSampleRate_ = 0;
+    sharedLogger_ = nullptr;
+    
+    if (sharedLogger_) {  // Log před resetem
+        sharedLogger_->log("Voice/cleanup", "info", "Voice class cleaned up");
+    }
+}
+
+/**
+ * @brief Statická metoda pro reinicializaci všech hlasů (pro hot-reload)
+ * Resetuje stav všech instancí Voice (např. v VoiceManager).
+ * OPRACHA: Upraveno pro shodu s voláním – přidány argumenty (targetSampleRate, logger) pro nastavení sdílených zdrojů.
+ * @param targetSampleRate Nová target sample rate
+ * @param logger Reference na Logger
+ */
+void Voice::reinitialize(int targetSampleRate, Logger& logger) {
+    sharedTargetSampleRate_ = targetSampleRate;
+    sharedLogger_ = &logger;
+    sharedInstrumentLoader_ = nullptr;  // Reset loaderu, pokud není předán
+    if (sharedLogger_) {
+        sharedLogger_->log("Voice/reinitialize", "info", "Voice class reinitialized with targetSampleRate " + std::to_string(targetSampleRate));
+    }
+}
+
+/**
+ * @brief Nastaví stav noty (varianta setNote pro VoiceManager)
+ * Nastaví velocity, mapuje na vrstvu a spustí envelope (midiNote z aktuálního stavu).
+ * OPRACHA: Upraveno pro shodu s voláním – 2 argumenty (gateOn, velocity); interně použije current midiNote_.
+ * @param gateOn Gate stav
+ * @param velocity Velocity (0-127)
+ * @return true při úspěchu
+ */
+bool Voice::setNoteState(bool gateOn, uint8_t velocity) {
+    uint8_t mappedLayer = mapVelocityToLayer(velocity);  // Mapuj velocity na vrstvu
+    // Použij current midiNote_ nebo nastav default (např. 60 pro C4)
+    if (setNote(midiNote_, velocity)) {  // Použij setNote s current midiNote_
+        updateState(gateOn);
+        activeVelocityLayer_ = mappedLayer;  // Aktualizuj vrstvu
+        return true;
+    }
+    return false;
+}
+
+/**
+ * @brief Posune pozici v samplu o daný počet frameů
+ * OPRACHA: Základní implementace – přidá frames k currentPosition_ (pro VoiceManager).
+ * @param frames Počet frameů k posunutí
+ */
+void Voice::advancePosition(sf_count_t frames) {
+    currentPosition_ += frames;
+    if (currentPosition_ < 0) currentPosition_ = 0;  // Bezpečnostní klip
+}
+
+/**
+ * @brief Getter pro aktivitu hlasu
+ * OPRACHA: Základní implementace – vrací true, pokud hlas není idle (pro VoiceManager).
+ * @return true, pokud hlas je aktivní
+ */
+bool Voice::isActive() const {
+    return currentState_ != VoiceState::idle;
+}
+
+/**
+ * @brief Vrátí aktuální audio data pro danou pozici
+ * OPRACHA: Upraveno pro kompatibilitu s renderNextBlock – přidán gain a remainingFrames.
+ * @return AudioData struktura
+ */
+AudioData Voice::getCurrentAudioData() const {
+    AudioData ad;
+    if (sharedInstrumentLoader_ && isActive()) {
+        const Instrument& inst = sharedInstrumentLoader_->getInstrumentNote(midiNote_);
+        ad.stereoPtr = inst.get_sample_begin_pointer(activeVelocityLayer_);
+        sf_count_t totalFrames = inst.get_frame_count(activeVelocityLayer_);
+        ad.remainingFrames = totalFrames - currentPosition_;  // Zbývající frames
+        if (ad.remainingFrames < 0) ad.remainingFrames = 0;  // Bezpečnostní klip
+        ad.gain = calculateEnvelopeGain();  // Výpočet aktuálního gainu z envelope
+    }
+    return ad;
+}
+
+/**
+ * @brief Nastaví MIDI notu a velocity pro hlas
+ * Automaticky mapuje velocity na vrstvu a načte sample z loaderu (pokud dostupný).
+ * @param midiNote Nová MIDI nota (0-127)
+ * @param midiVelocity MIDI velocity (0-127) – mapováno na 0-7 vrstvu
+ * @return true pokud sample nalezen a načten, false pokud ne (warning log)
+ */
+bool Voice::setNote(uint8_t midiNote, uint8_t midiVelocity) {
+    if (!sharedInstrumentLoader_) {
+        if (sharedLogger_) {
+            sharedLogger_->log("Voice/setNote", "error", "Shared InstrumentLoader not set - cannot load sample");
+        }
+        return false;
+    }
+
+    midiNote_ = midiNote;
+    activeVelocityLayer_ = mapVelocityToLayer(midiVelocity);
+
+    const Instrument& inst = sharedInstrumentLoader_->getInstrumentNote(midiNote_);
+    if (inst.velocityExists[activeVelocityLayer_]) {
+        currentPosition_ = 0;
+        currentState_ = VoiceState::idle;  // Připraven na start
+        if (sharedLogger_) {
+            sharedLogger_->log("Voice/setNote", "info", 
+                               "Voice set for MIDI " + std::to_string(midiNote_) + 
+                               " velocity layer " + std::to_string(activeVelocityLayer_));
+        }
+        return true;
+    } else {
+        if (sharedLogger_) {
+            sharedLogger_->log("Voice/setNote", "warn", 
+                               "No sample available for MIDI " + std::to_string(midiNote_) + 
+                               " velocity layer " + std::to_string(activeVelocityLayer_));
+        }
+        return false;
+    }
+}
+
+/**
+ * @brief Aktualizuje stav hlasu na základě gate signálu (non-const verze)
+ * Pokud se gate změní, nastaví nový stav (attack/release) a uloží čas note-off.
+ * Používá se v audio callbacku pro dynamickou změnu.
+ * @param gateOn Nový stav gate (true = note on, false = note off)
+ */
+void Voice::updateState(bool gateOn) {
+    if (gateOn != isGateOn_) {
+        isGateOn_ = gateOn;
+        if (!gateOn) {
+            currentState_ = VoiceState::release;
+            noteOffTime_ = std::chrono::steady_clock::now();  // Uložení času pro release envelope
+        } else {
+            currentState_ = VoiceState::attack;
+            currentPosition_ = 0;  // Reset pozice při novém note-on
+        }
+    }
+}
+
+/**
+ * @brief Vypne hlas (note-off) a spustí release fázi
+ */
+void Voice::stopNote() {
+    updateState(false);  // Použije non-const update pro změnu stavu
+    if (sharedLogger_) {
+        sharedLogger_->log("Voice/stopNote", "info", 
+                           "Note-off for MIDI " + std::to_string(midiNote_));
+    }
+}
+
+/**
+ * @brief Renderuje audio blok pro daný buffer (stereo float, non-const verze)
+ * Přidá výstup hlasu do bufferu (interleaved [L,R,L,R...]).
+ * Aplikuje envelope gain a posouvá pozici (modifikuje stav hlasu).
+ * OPRACHA: Oprava varování C4244 – použito sf_count_t místo int pro framesToRender.
+ * @param outputBuffer Pointer na stereo float buffer [L1,R1,L2,R2...]
+ * @param numFrames Počet stereo frameů k renderování
+ * @param sampleRate Frekvence vzorkování (pro envelope timing)
+ */
+void Voice::renderAudio(float* outputBuffer, int numFrames, int sampleRate) {
+    if (currentState_ == VoiceState::idle || !sharedInstrumentLoader_) {
+        return;  // Nic k renderování
+    }
+
+    const Instrument& inst = sharedInstrumentLoader_->getInstrumentNote(midiNote_);
+    if (!inst.velocityExists[activeVelocityLayer_]) {
+        return;  // Žádný sample
+    }
+
+    float* sampleData = inst.get_sample_begin_pointer(activeVelocityLayer_);
+    sf_count_t totalFrames = inst.get_frame_count(activeVelocityLayer_);
+    if (sampleData == nullptr || totalFrames == 0) {
+        return;
+    }
+
+    float gain = calculateEnvelopeGain();  // Volání const metody – bez modifikací
+    if (gain <= 0.0f) {
+        currentState_ = VoiceState::idle;  // Dokonči hlas (modifikace teď OK, protože non-const)
+        isGateOn_ = false;
+        return;
+    }
+
+    // OPRACHA: Oprava varování C4244 – static_cast<sf_count_t>(numFrames) pro shodu typů
+    sf_count_t framesToRender = std::min(static_cast<sf_count_t>(numFrames), totalFrames - currentPosition_);
+    for (sf_count_t i = 0; i < framesToRender; ++i) {
+        sf_count_t idx = (currentPosition_ + i) * 2;  // Stereo interleaved index (sf_count_t pro bezpečnost)
+        outputBuffer[static_cast<int>(i * 2)] += sampleData[static_cast<int>(idx)] * gain;     // Left
+        outputBuffer[static_cast<int>(i * 2 + 1)] += sampleData[static_cast<int>(idx + 1)] * gain;  // Right
+    }
+
+    currentPosition_ += framesToRender;  // Modifikace pozice teď povolena
+    if (currentPosition_ >= totalFrames) {
+        currentState_ = VoiceState::idle;  // Konec samplu (modifikace OK)
+        isGateOn_ = false;
+    }
+}
+
+/**
+ * @brief Mapuje MIDI velocity (0-127) na velocity vrstvu (0-7)
+ * Používá celočíselné dělení pro rovnoměrné rozložení vrstev.
+ * Např.: velocity 0-15 → vrstva 0, 16-31 → vrstva 1, ..., 112-127 → vrstva 7.
+ * @param midiVelocity MIDI velocity hodnota (0-127)
+ * @return Velocity vrstva (0-7)
+ */
+uint8_t Voice::mapVelocityToLayer(uint8_t midiVelocity) const {
+    return std::min(midiVelocity, static_cast<uint8_t>(127)) / 16;
+}
+
+/**
+ * @brief Vypočítá gain envelope na základě stavu a času (const verze)
+ * Attack: okamžitý (gain=1.0), Sustain: konstantní (gain=1.0), Release: exponenciální útlum.
+ * Žádné modifikace stavu – pouze výpočet.
+ * @return Současný gain (0.0 - 1.0)
+ */
+float Voice::calculateEnvelopeGain() const {
+    if (currentState_ == VoiceState::attack || currentState_ == VoiceState::sustain) {
+        return 1.0f;  // Plná hlasitost
+    } else if (currentState_ == VoiceState::release) {
+        auto now = std::chrono::steady_clock::now();
+        auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - noteOffTime_).count();
+        float t = static_cast<float>(elapsedMs) / RELEASE_TIME_MS;
+        if (t >= 1.0f) return 0.0f;
+        return 1.0f - expf(-5.0f * t);  // Exponenciální útlum (rychlý start, pomalý konec)
+    }
+    return 0.0f;  // Idle
+}
+
+
+===== File: voice.h =====
+Path: C:\Users\jindr\IthacaCore\sampler\voice.h
+=====
+#ifndef VOICE_H
+#define VOICE_H
+
+#include <cstdint>      // Pro uint8_t
+#include <chrono>       // Pro steady_clock
+#include <string>       // Pro std::string
+#include "instrument_loader.h"  // Pro InstrumentLoader a Instrument
+#include "core_logger.h"        // Pro Logger
+#include <sndfile.h>            // Pro sf_count_t
+
+// Konstanty pro VoiceManager
+#define MAX_VOICES 32  // Maximální počet souběžných hlasů (pro polyfonii; pro MIDI noty použij 128 pokud potřeba)
+
+/**
+ * @enum VoiceState
+ * @brief Stav hlasu v envelope (attack, sustain, release, idle).
+ */
+enum class VoiceState {
+    idle,     // Hlas neaktivní
+    attack,   // Attack fáze
+    sustain,  // Sustain fáze
+    release   // Release fáze
+};
+
+/**
+ * @struct AudioData
+ * @brief Jednoduchá struktura pro audio data (používá se v getCurrentAudioData pro VoiceManager).
+ * Obsahuje pointer na stereo float data, zbývající frames a gain pro envelope.
+ * OPRACHA: Upraveno pro kompatibilitu s renderNextBlock – přidány stereoPtr, remainingFrames a gain.
+ */
+struct AudioData {
+    float* stereoPtr;       // Pointer na interleaved stereo data [L,R,L,R...] (dříve 'data')
+    sf_count_t remainingFrames;  // Zbývající frames k přehrání (total - currentPosition_)
+    float gain;             // Aktuální envelope gain (z calculateEnvelopeGain)
+    
+    AudioData() : stereoPtr(nullptr), remainingFrames(0), gain(0.0f) {}  // Default konstruktor
+};
+
+/**
+ * @class Voice
+ * @brief Reprezentuje jeden hlas (voice) v polyfonním sampleru.
+ * 
+ * Každý hlas spravuje playback jednoho samplu (MIDI nota + velocity).
+ * Používá sdílený InstrumentLoader pro přístup k načteným stereo buffrům.
+ * Jednoduchá envelope: Attack (okamžitý start), Sustain (plná hlasitost), Release (exponenciální útlum).
+ * 
+ * DŮLEŽITÉ: Hlas není thread-safe – navržen pro single-threaded audio callback (jako JUCE processBlock).
+ * Sdílené zdroje (loader, logger) jsou statické pro snadnou reinicializaci.
+ * Statické metody initialize/cleanup pro globální setup (volány na Voice::).
+ * OPRACHA: Upraveny metody reinitialize (s argumenty int, Logger) a setNoteState (s 2 argumenty bool, uint8_t) pro shodu s voláním v VoiceManager.
+ */
+class Voice {
+public:
+    /**
+     * @brief Default konstruktor – inicializuje hlas na idle stav
+     * Používá se pro automatickou inicializaci pole v VoiceManager (např. Voice voices[MAX_VOICES]).
+     * Nastavuje výchozí hodnoty pro bezpečný start.
+     */
+    Voice() : midiNote_(0), isGateOn_(false), activeVelocityLayer_(0), currentState_(VoiceState::idle), currentPosition_(0) {
+        noteOffTime_ = std::chrono::steady_clock::now();
+    }
+
+    /**
+     * @brief Konstruktor s MIDI notou a loggerem
+     * Nastaví MIDI notu a sdílený logger (pro logování v hlasu).
+     * @param midiNote MIDI nota (0-127) pro přiřazení samplu
+     * @param logger Reference na Logger pro sdílené logování
+     */
+    Voice(uint8_t midiNote, Logger& logger) : midiNote_(midiNote), isGateOn_(false), activeVelocityLayer_(0), currentState_(VoiceState::idle), currentPosition_(0) {
+        noteOffTime_ = std::chrono::steady_clock::now();
+        sharedLogger_ = &logger;
+    }
+
+    /**
+     * @brief Statická metoda pro globální inicializaci třídy Voice
+     * Nastaví sdílené zdroje (sampleDir, targetSampleRate, logger) před použitím hlasů.
+     * Volá se staticky: Voice::initialize(...).
+     * @param sampleDir Cesta k samples
+     * @param targetSampleRate Frekvence vzorkování
+     * @param logger Reference na Logger
+     */
+    static void initialize(const std::string& sampleDir, int targetSampleRate, Logger& logger);
+
+    /**
+     * @brief Statická metoda pro globální cleanup třídy Voice
+     * Resetuje sdílené zdroje (nullptr pro logger, prázdný string atd.).
+     * Volá se staticky: Voice::cleanup().
+     */
+    static void cleanup();
+
+    /**
+     * @brief Statická metoda pro reinicializaci všech hlasů (pro hot-reload)
+     * Resetuje stav všech instancí Voice (např. v VoiceManager).
+     * OPRACHA: Upraveno pro shodu s voláním v VoiceManager – přidány argumenty (targetSampleRate, logger) pro nastavení sdílených zdrojů.
+     * @param targetSampleRate Nová target sample rate
+     * @param logger Reference na Logger
+     */
+    static void reinitialize(int targetSampleRate, Logger& logger);
+
+    /**
+     * @brief Nastaví stav noty (varianta setNote pro VoiceManager)
+     * Nastaví velocity, mapuje na vrstvu a spustí envelope (midiNote z aktuálního stavu).
+     * OPRACHA: Upraveno pro shodu s voláním v VoiceManager – 2 argumenty (gateOn, velocity).
+     * @param gateOn Gate stav
+     * @param velocity Velocity (0-127)
+     * @return true při úspěchu
+     */
+    bool setNoteState(bool gateOn, uint8_t velocity);
+
+    /**
+     * @brief Posune pozici v samplu o daný počet frameů
+     * OPRACHA: Přidáno pro kompilaci – používej v VoiceManager pro manuální advance.
+     * @param frames Počet frameů k posunutí
+     */
+    void advancePosition(sf_count_t frames);
+
+    /**
+     * @brief Getter pro aktivitu hlasu
+     * OPRACHA: Přidáno pro kompilaci – vrací true, pokud hlas není idle.
+     * @return true, pokud hlas je aktivní
+     */
+    bool isActive() const;
+
+    /**
+     * @brief Vrátí aktuální audio data pro danou pozici
+     * OPRACHA: Upraveno pro kompatibilitu s renderNextBlock – přidán gain a remainingFrames.
+     * @return AudioData struktura
+     */
+    AudioData getCurrentAudioData() const;
+
+    /**
+     * @brief Nastaví MIDI notu a velocity pro hlas
+     * Automaticky mapuje velocity na vrstvu a načte sample z loaderu (pokud dostupný).
+     * @param midiNote Nová MIDI nota (0-127)
+     * @param midiVelocity MIDI velocity (0-127) – mapováno na 0-7 vrstvu
+     * @return true pokud sample nalezen a načten, false pokud ne (warning log)
+     */
+    bool setNote(uint8_t midiNote, uint8_t midiVelocity);
+
+    /**
+     * @brief Aktualizuje stav hlasu na základě gate signálu (non-const verze)
+     * Pokud se gate změní, nastaví nový stav (attack/release) a uloží čas note-off.
+     * Používá se v audio callbacku pro dynamickou změnu.
+     * @param gateOn Nový stav gate (true = note on, false = note off)
+     */
+    void updateState(bool gateOn);
+
+    /**
+     * @brief Vypne hlas (note-off) a spustí release fázi
+     */
+    void stopNote();
+
+    /**
+     * @brief Renderuje audio blok pro daný buffer (stereo float, non-const verze)
+     * Přidá výstup hlasu do bufferu (interleaved [L,R,L,R...]).
+     * Aplikuje envelope gain a posouvá pozici (modifikuje stav hlasu).
+     * @param outputBuffer Pointer na stereo float buffer [L1,R1,L2,R2...]
+     * @param numFrames Počet stereo frameů k renderování
+     * @param sampleRate Frekvence vzorkování (pro envelope timing)
+     */
+    void renderAudio(float* outputBuffer, int numFrames, int sampleRate);
+
+    // Gettery pro stav a data
+    VoiceState getCurrentState() const { return currentState_; }
+    uint8_t getMidiNote() const { return midiNote_; }
+    uint8_t getCurrentVelocityLayer() const { return activeVelocityLayer_; }
+
+private:
+    // Sdílené pro všechny voices (statické)
+    static InstrumentLoader* sharedInstrumentLoader_;  // Sdílený loader pro reinicializaci
+    static std::string sharedSampleDir_;               // Sdílená cesta k samples
+    static int sharedTargetSampleRate_;                // Sdílená target sample rate
+    static Logger* sharedLogger_;                      // Sdílený logger
+
+    // Instance-specific
+    uint8_t midiNote_;                          // Tato MIDI nota (0-127)
+    bool isGateOn_ = false;                     // Gate stav
+    uint8_t activeVelocityLayer_ = 0;           // Aktivní velocity vrstva (0-7)
+    VoiceState currentState_ = VoiceState::idle; // Současný stav
+    sf_count_t currentPosition_ = 0;            // Aktuální pozice v framech
+
+    // Obálka parametry (sdílené, konstanty)
+    static constexpr float RELEASE_TIME_MS = 200.0f; // Doba release v ms
+    std::chrono::steady_clock::time_point noteOffTime_; // Čas note-off pro release
+
+    // Pomocné metody (interní)
+    uint8_t mapVelocityToLayer(uint8_t midiVelocity) const;  // Mapování 0-127 → 0-7
+    float calculateEnvelopeGain() const;                     // Time-based gain výpočet
+};
+
+#endif // VOICE_H
+
+
+===== File: wav_file_exporter.cpp =====
+Path: C:\Users\jindr\IthacaCore\sampler\wav_file_exporter.cpp
+=====
+#include "wav_file_exporter.h"
+#include <filesystem>   // Pro cestu k souboru
+#include <cstdlib>      // Pro std::exit
+#include <cstring>      // Pro memset
+#include <iostream>     // Pro std::cerr při chybě (pokud potřeba)
+#include <algorithm>    // Pro std::clamp (clipping)
+
+// Konstruktor: Inicializuje složku, ukládá parametry, loguje (pokud LOG_ENABLED)
+WavExporter::WavExporter(const std::string& outputDir, Logger& logger, ExportFormat exportFormat)
+    : logger_(logger), outputDir_(outputDir), exportFormat_(exportFormat), channels_(0), bufferSize_(0), dummy_write_(false) {
+    std::filesystem::path dirPath(outputDir_);
+    if (!std::filesystem::exists(dirPath)) {
+        std::filesystem::create_directory(dirPath);
+        #if LOG_ENABLED
+        logger_.log("WavExporter/constructor", "info", "Created output directory: " + outputDir_);
+        #endif
+    }
+    startTime_ = std::chrono::steady_clock::now();
+    #if LOG_ENABLED
+    std::string formatStr = (exportFormat_ == ExportFormat::Pcm16) ? "Pcm16 (default)" : "Float";
+    logger_.log("WavExporter/constructor", "info", "WavExporter initialized for directory: " + outputDir_ + ", format: " + formatStr);
+    #endif
+}
+
+// wavFileCreate: Vytvoří soubor, nastaví formát (default Pcm16), alokuje buffery, loguje (pokud LOG_ENABLED)
+float* WavExporter::wavFileCreate(const std::string& filename, int frequency, int bufferSize, bool stereo, bool dummy_write) {
+    if (frequency <= 0 || bufferSize <= 0) {
+        #if LOG_ENABLED
+        logger_.log("WavExporter/wavFileCreate", "error", "Invalid params: frequency=" + std::to_string(frequency) + ", bufferSize=" + std::to_string(bufferSize));
+        #endif
+        std::exit(1);
+    }
+
+    dummy_write_ = !dummy_write;  // true = reálný zápis
+    bufferSize_ = bufferSize;
+    channels_ = stereo ? 2 : 1;
+
+    std::filesystem::path fullPath = std::filesystem::path(outputDir_) / filename;
+
+    memset(&sfinfo_, 0, sizeof(sfinfo_));
+    sfinfo_.samplerate = frequency;
+    sfinfo_.channels = channels_;
+
+    if (exportFormat_ == ExportFormat::Float) {
+        sfinfo_.format = SF_FORMAT_WAV | SF_FORMAT_FLOAT;  // 32-bit float
+    } else {
+        sfinfo_.format = SF_FORMAT_WAV | SF_FORMAT_PCM_16; // 16-bit PCM (default)
+    }
+
+    if (!dummy_write_) {
+        sndfile_ = sf_open(fullPath.string().c_str(), SFM_WRITE, &sfinfo_);
+        if (!sndfile_) {
+            #if LOG_ENABLED
+            logger_.log("WavExporter/wavFileCreate", "error", "Cannot create WAV file: " + fullPath.string() + " - " + sf_strerror(nullptr));
+            #endif
+            std::exit(1);
+        }
+        #if LOG_ENABLED
+        std::string formatStr = (exportFormat_ == ExportFormat::Float) ? "32-bit float" : "16-bit PCM";
+        logger_.log("WavExporter/wavFileCreate", "info", "WAV file created: " + fullPath.string() + " (freq=" + std::to_string(frequency) + " Hz, channels=" + std::to_string(channels_) + ", format=" + formatStr + ")");
+        #endif
+    } else {
+        #if LOG_ENABLED
+        std::string formatStr = (exportFormat_ == ExportFormat::Float) ? "Float" : "Pcm16";
+        logger_.log("WavExporter/wavFileCreate", "info", "Dummy mode (" + formatStr + "): No file created, measuring copy time only");
+        #endif
+    }
+
+    // Alokace float bufferu (vždy float pro vstup)
+    size_t bufferBytes = static_cast<size_t>(bufferSize_) * channels_ * sizeof(float);
+    buffer_ = static_cast<float*>(malloc(bufferBytes));
+    if (!buffer_) {
+        #if LOG_ENABLED
+        logger_.log("WavExporter/wavFileCreate", "error", "Memory allocation failed for float buffer: " + std::to_string(bufferBytes) + " bytes");
+        #endif
+        if (sndfile_) sf_close(sndfile_);
+        std::exit(1);
+    }
+
+    // Pro Pcm16: Alokace temp int16 (interní)
+    if (exportFormat_ == ExportFormat::Pcm16) {
+        size_t pcmBytes = static_cast<size_t>(bufferSize_) * channels_ * sizeof(int16_t);
+        tempPcmBuffer_ = static_cast<int16_t*>(malloc(pcmBytes));
+        if (!tempPcmBuffer_) {
+            #if LOG_ENABLED
+            logger_.log("WavExporter/wavFileCreate", "error", "Memory allocation failed for Pcm16 temp buffer: " + std::to_string(pcmBytes) + " bytes");
+            #endif
+            free(buffer_);
+            if (sndfile_) sf_close(sndfile_);
+            std::exit(1);
+        }
+    }
+
+    memset(buffer_, 0, bufferBytes);
+
+    #if LOG_ENABLED
+    logger_.log("WavExporter/wavFileCreate", "info", "Float buffer allocated: " + std::to_string(bufferSize_) + " samples, " + std::to_string(channels_) + " channels");
+    #endif
+    return buffer_;
+}
+
+// wavFileWriteBuffer: Zapisuje/ konvertuje, měří čas (vždy), loguje (pokud LOG_ENABLED)
+bool WavExporter::wavFileWriteBuffer(float* buffer_ptr, int buffer_size) {
+    if (!buffer_ptr || buffer_size <= 0 || buffer_size > bufferSize_) {
+        #if LOG_ENABLED
+        logger_.log("WavExporter/wavFileWriteBuffer", "error", "Invalid buffer or size: " + std::to_string(buffer_size));
+        #endif
+        return false;
+    }
+
+    auto start = std::chrono::steady_clock::now();
+    sf_count_t framesToWrite = buffer_size;
+
+    if (!dummy_write_) {
+        if (exportFormat_ == ExportFormat::Float) {
+            sf_count_t framesWritten = sf_writef_float(sndfile_, buffer_ptr, framesToWrite);
+            if (framesWritten != framesToWrite) {
+                #if LOG_ENABLED
+                logger_.log("WavExporter/wavFileWriteBuffer", "error", "Float write error: expected " + std::to_string(framesToWrite) + " frames, wrote " + std::to_string(framesWritten));
+                #endif
+                return false;
+            }
+        } else {  // Pcm16 (default)
+            convertFloatToInt16(buffer_ptr, tempPcmBuffer_, static_cast<int>(framesToWrite * channels_));
+            sf_count_t framesWritten = sf_writef_short(sndfile_, tempPcmBuffer_, framesToWrite);
+            if (framesWritten != framesToWrite) {
+                #if LOG_ENABLED
+                logger_.log("WavExporter/wavFileWriteBuffer", "error", "Pcm16 write error: expected " + std::to_string(framesToWrite) + " frames, wrote " + std::to_string(framesWritten));
+                #endif
+                return false;
+            }
+        }
+    } else {
+        // Dummy: Simulace (měření konverze/kopírování)
+        if (exportFormat_ == ExportFormat::Pcm16) {
+            convertFloatToInt16(buffer_ptr, tempPcmBuffer_, static_cast<int>(framesToWrite * channels_));
+        } else {
+            float* temp = static_cast<float*>(malloc(static_cast<size_t>(framesToWrite) * channels_ * sizeof(float)));
+            if (temp) {
+                memcpy(temp, buffer_ptr, static_cast<size_t>(framesToWrite) * channels_ * sizeof(float));
+                free(temp);
+            }
+        }
+    }
+
+    // Log času (pokud LOG_ENABLED)
+    #if LOG_ENABLED
+    std::string op = (exportFormat_ == ExportFormat::Float) ? "wavFileWriteBuffer (float, " : "wavFileWriteBuffer (Pcm16 conversion, ";
+    op += std::to_string(buffer_size) + " samples)";
+    logTime(op, start);
+    #endif
+    return true;
+}
+
+// Destruktor: Uzavře soubor, uvolní paměť, loguje (pokud LOG_ENABLED)
+WavExporter::~WavExporter() {
+    if (buffer_) {
+        free(buffer_);
+        buffer_ = nullptr;
+    }
+    if (tempPcmBuffer_) {
+        free(tempPcmBuffer_);
+        tempPcmBuffer_ = nullptr;
+    }
+    if (sndfile_) {
+        sf_close(sndfile_);
+        sndfile_ = nullptr;
+    }
+
+    auto endTime = std::chrono::steady_clock::now();
+    auto totalMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime_).count();
+    #if LOG_ENABLED
+    std::string formatStr = (exportFormat_ == ExportFormat::Pcm16) ? "Pcm16" : "Float";
+    logger_.log("WavExporter/destructor", "info", "Export completed (" + formatStr + "). Total time: " + std::to_string(totalMs) + " ms");
+    #endif
+}
+
+void WavExporter::logTime(const std::string& operation, std::chrono::steady_clock::time_point start) {
+    auto end = std::chrono::steady_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    logger_.log("WavExporter/" + operation, "info", "Time: " + std::to_string(ms) + " ms");
+}
+
+// convertFloatToInt16: Škáluje a clipuje (bez ditheringu)
+// SKonverze float → int16 s manuálním clippingem (pro kompatibilitu s MSVC)
+void WavExporter::convertFloatToInt16(float* src, int16_t* dst, int numSamples) {
+    static constexpr int16_t MAX_INT16 = 32767;
+    static constexpr int16_t MIN_INT16 = -32768;
+    for (int i = 0; i < numSamples; ++i) {
+        float scaled = src[i] * MAX_INT16;  // Škálování -1.0..1.0 → -32767..32767
+        int32_t temp = static_cast<int32_t>(scaled);  // Dočasný int32_t pro bezpečný cast
+        int16_t clamped;
+        if (temp > MAX_INT16) {
+            clamped = MAX_INT16;  // Clipping nahoru
+        } else if (temp < MIN_INT16) {
+            clamped = MIN_INT16;  // Clipping dolů
+        } else {
+            clamped = static_cast<int16_t>(temp);  // Bez clippingu
+        }
+        dst[i] = clamped;
+    }
+}
+
+
+===== File: wav_file_exporter.h =====
+Path: C:\Users\jindr\IthacaCore\sampler\wav_file_exporter.h
+=====
+#ifndef WAV_FILE_EXPORTER_H
+#define WAV_FILE_EXPORTER_H
+
+#include <string>       // Pro std::string
+#include <chrono>       // Pro měření času (std::chrono)
+#include <sndfile.h>    // Pro SF_INFO, SNDFILE* (zápis WAV)
+#include <cstdint>      // Pro int16_t
+#include "core_logger.h" // Pro Logger
+
+/**
+ * @enum ExportFormat
+ * @brief Formát exportu WAV souboru.
+ * Pcm16: 16-bit PCM (default – konverze float → int16 s clippingem, široká kompatibilita).
+ * Float: 32-bit float (přímý zápis, zachovává přesnost pro JUCE).
+ */
+enum class ExportFormat {
+    Pcm16,  // Default
+    Float
+};
+
+/**
+ * @class WavExporter
+ * @brief Třída pro export WAV souboru po blocích (JUCE-like audio block processing).
+ * 
+ * Používá se pro testování načtených samples: Naplníte buffer float daty ze sample (např. z InstrumentLoader),
+ * pak zapisujete po blocích. Podporuje měření času kopírování do bufferu i zápisu do souboru.
+ * 
+ * Klíčové vlastnosti:
+ * - Inicializuje WAV soubor (libsndfile) s danou frekvencí, stereo/mono a formátem (default Pcm16).
+ * - Vstupní buffer vždy float (interleaved pro stereo: [L,R,L,R...]).
+ * - dummy_write: Pokud false, měří čas, ale nic nezapisuje (pro profilování rychlosti kopírování).
+ * - Zápis po blocích (buffer_size: 32–1024, jako v JUCE processBlock).
+ * - Pro Pcm16: Automatická konverze float → int16 (škálování -1.0..1.0 na -32768..32767 s clippingem).
+ * - Logování: Default zapnuté (přes Logger). Pro vypnutí definuj PERFORMANCE_TEST (makro v CMake) – pak jen měření času bez logů.
+ * 
+ * Příklad použití:
+ * WavExporter exporter("./exports", logger);  // Default Pcm16
+ * float* buffer = exporter.wavFileCreate("test_export.wav", 44100, 512, true, true); // stereo, reálný zápis
+ * // Naplňte buffer daty ze sample (např. memcpy z Instrument bufferu)
+ * exporter.wavFileWriteBuffer(buffer, 512);
+ * // Opakujte pro celý sample... Destruktor uzavře soubor.
+ */
+class WavExporter {
+public:
+    /**
+     * @brief Konstruktor: Inicializuje logger, výstupní adresář a formát exportu (default Pcm16).
+     * Vytvoří složku, pokud neexistuje. Loguje inicializaci (pokud ne PERFORMANCE_TEST).
+     * @param outputDir Cesta k adresáři pro export (např. "./exports").
+     * @param logger Reference na Logger pro logování (ignorován při PERFORMANCE_TEST).
+     * @param exportFormat Formát exportu (default Pcm16).
+     */
+    explicit WavExporter(const std::string& outputDir, Logger& logger, ExportFormat exportFormat = ExportFormat::Pcm16);
+
+    /**
+     * @brief Vytvoří WAV soubor a alokuje float buffer pro zápis.
+     * Nastaví SF_INFO podle formátu (Pcm16/float). Alokuje temp int16 pro Pcm16.
+     * Loguje (pokud ne PERFORMANCE_TEST). Při chybě: exit(1).
+     * @param filename Název souboru (např. "export.wav") – plná cesta: outputDir/filename.
+     * @param frequency Frekvence vzorkování (např. 44100 Hz).
+     * @param bufferSize Velikost bufferu v samples (např. 512 – JUCE-like).
+     * @param stereo True pro stereo (interleaved [L,R,L,R...]), false pro mono.
+     * @param dummy_write True: Reálný zápis; False: Jen měření (nic se nezapisuje).
+     * @return Pointer na alokovaný float buffer (velikost: bufferSize * channels).
+     */
+    float* wavFileCreate(const std::string& filename, int frequency, int bufferSize, bool stereo, bool dummy_write);
+
+    /**
+     * @brief Zapisuje naplněný float buffer do souboru po blocích.
+     * Pro Pcm16: Konvertuje na int16 (s clippingem), zapisuje. Pro Float: Přímý zápis.
+     * Měří čas (vždy). Loguje (pokud ne PERFORMANCE_TEST). Při chybě: return false (log + exit(1)).
+     * @param buffer_ptr Pointer na naplněný float buffer (z wavFileCreate).
+     * @param buffer_size Počet samples (může být menší pro poslední blok).
+     * @return True při úspěchu.
+     */
+    bool wavFileWriteBuffer(float* buffer_ptr, int buffer_size);
+
+    /**
+     * @brief Destruktor: Uzavře soubor (sf_close), uvolní buffery (free).
+     * Zaloguje celkový čas a formát (pokud ne PERFORMANCE_TEST).
+     */
+    ~WavExporter();
+
+private:
+    Logger& logger_;                    // Reference na logger (použit při !PERFORMANCE_TEST)
+    std::string outputDir_;             // Výstupní adresář
+    ExportFormat exportFormat_;         // Formát exportu (default Pcm16)
+    SNDFILE* sndfile_ = nullptr;        // Handle pro libsndfile zápis
+    SF_INFO sfinfo_;                    // Metadata WAV (frekvence, kanály)
+    float* buffer_ = nullptr;           // Alokovaný float buffer (pro uživatele)
+    int16_t* tempPcmBuffer_ = nullptr;  // Temp buffer pro Pcm16 konverzi (interní)
+    int bufferSize_;                    // Velikost bufferu
+    int channels_;                      // Počet kanálů (1=mono, 2=stereo)
+    bool dummy_write_;                  // Režim měření bez zápisu
+    std::chrono::steady_clock::time_point startTime_;  // Pro měření celkového času
+
+    // Pomocná: Měří čas a loguje (jen pokud !PERFORMANCE_TEST)
+    void logTime(const std::string& operation, std::chrono::steady_clock::time_point start);
+
+    // Pomocná: Konverze float → int16 s clippingem (pro Pcm16)
+    void convertFloatToInt16(float* src, int16_t* dst, int numSamples);
+};
+
+// Makro pro vypnutí logování v testech rychlosti (definuj v CMake: add_definitions(-DPERFORMANCE_TEST))
+#ifndef PERFORMANCE_TEST
+#define LOG_ENABLED 1
+#else
+#define LOG_ENABLED 0
+#endif
+
+#endif // WAV_FILE_EXPORTER_H
+
+
+===== File: CMakeLists.txt =====
+Path: C:\Users\jindr\IthacaCore\CMakeLists.txt
+=====
+cmake_minimum_required(VERSION 3.10)
+project(IthacaCore CXX)
+
+# Nastavení C++ standardu
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Informace o projektu
+set(PROJECT_VERSION "1.0.0")
+set(PROJECT_DESCRIPTION "IthacaCore Audio Sampler - Professional Sample Engine")
+
+# Build konfigurace
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug)
+endif()
+
+# Výstupní adresáře
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Debug)
+
+# Přidání externí knihovny libsndfile
+add_subdirectory(libsndfile)
+
+# Hlavní executable
+add_executable(IthacaCore 
+    # Entry point
+    main.cpp
+    
+    # Core Logger module
+    sampler/core_logger.cpp
+    sampler/core_logger.h
+    
+    # SamplerIO module  
+    sampler/sampler_io.cpp
+    
+    # Sampler coordinator module
+    sampler/sampler.cpp
+    sampler/sampler.h
+    
+    # InstrumentLoader module
+    sampler/instrument_loader.cpp
+    sampler/instrument_loader.h
+
+    # Wav exporter
+    sampler/wav_file_exporter.cpp
+    sampler/wav_file_exporter.h
+
+    # Voice module (nové)
+    sampler/voice.cpp
+    sampler/voice.h
+    
+    # VoiceManager module (nové)
+    sampler/voice_manager.cpp
+    sampler/voice_manager.h
+)
+
+# Include directories pro kompilaci a IntelliSense
+target_include_directories(IthacaCore PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}          # Kořenový adresář projektu
+    ${CMAKE_CURRENT_SOURCE_DIR}/sampler  # Sampler moduly
+)
+
+# Linkování externích knihoven
+target_link_libraries(IthacaCore PRIVATE 
+    sndfile  # libsndfile pro WAV operace
+)
+
+# Compiler-specific nastavení
+if(MSVC)
+    # MSVC specifické flagy
+    target_compile_definitions(IthacaCore PRIVATE 
+        _CRT_SECURE_NO_WARNINGS  # Odstranění MSVC warnings pro bezpečné funkce
+        WIN32_LEAN_AND_MEAN      # Rychlejší kompilace na Windows
+    )
+    
+    # Optimalizace pro Debug/Release
+    target_compile_options(IthacaCore PRIVATE
+        $<$<CONFIG:Debug>:/Od /Zi /RTC1>      # Debug: žádná optimalizace, debug info
+        $<$<CONFIG:Release>:/O2 /DNDEBUG>     # Release: optimalizace, bez debug
+    )
+else()
+    # GCC/Clang flagy
+    target_compile_options(IthacaCore PRIVATE
+        -Wall -Wextra -pedantic              # Všechna varování
+        $<$<CONFIG:Debug>:-g -O0>            # Debug: debug info, žádná optimalizace  
+        $<$<CONFIG:Release>:-O3 -DNDEBUG>    # Release: maximální optimalizace
+    )
+endif()
+
+# Výstupní informace
+message(STATUS "=== IthacaCore Build Configuration ===")
+message(STATUS "Project: ${PROJECT_NAME} v${PROJECT_VERSION}")
+message(STATUS "Description: ${PROJECT_DESCRIPTION}")
+message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "C++ Standard: C++${CMAKE_CXX_STANDARD}")
+message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID}")
+message(STATUS "Output directory: ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+message(STATUS "=======================================")
+
+# Post-build informace
+add_custom_command(TARGET IthacaCore POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E echo "=== IthacaCore Build Completed ==="
+    COMMAND ${CMAKE_COMMAND} -E echo "Executable: $<TARGET_FILE:IthacaCore>"
+    COMMAND ${CMAKE_COMMAND} -E echo "Ready to run: ./$<TARGET_FILE_NAME:IthacaCore>"
+    COMMAND ${CMAKE_COMMAND} -E echo "Log output: ./core_logger/core_logger.log"
+    COMMAND ${CMAKE_COMMAND} -E echo "====================================="
+)
+
+# Instalace (volitelné)
+if(WIN32)
+    install(TARGETS IthacaCore
+        RUNTIME DESTINATION bin
+        CONFIGURATIONS Release
+    )
+    
+    # Kopírování libsndfile DLL na Windows
+    install(FILES $<TARGET_FILE:sndfile>
+        DESTINATION bin
+        CONFIGURATIONS Release
+    )
+endif()
+
+# Development targets pro snadnější práci
+
+# Target pro vyčištění log souborů
+add_custom_target(clean-logs
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_CURRENT_SOURCE_DIR}/core_logger
+    COMMENT "Cleaning log files and directories"
+)
+
+# Target pro spuštění s čistými logy
+add_custom_target(run-clean
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_CURRENT_SOURCE_DIR}/core_logger
+    COMMAND $<TARGET_FILE:IthacaCore>
+    DEPENDS IthacaCore
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Running IthacaCore with clean logs"
+)
+
+# Target pro zobrazení logu
+if(WIN32)
+    add_custom_target(show-log
+        COMMAND type ${CMAKE_CURRENT_SOURCE_DIR}/core_logger/core_logger.log
+        COMMENT "Displaying current log file"
+    )
+else()
+    add_custom_target(show-log
+        COMMAND cat ${CMAKE_CURRENT_SOURCE_DIR}/core_logger/core_logger.log
+        COMMENT "Displaying current log file"
+    )
+endif()
+
+# Debug informace pro vývojáře
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    message(STATUS "=== Debug Build Information ===")
+    message(STATUS "Enable detailed logging: YES")
+    message(STATUS "Runtime checks: ENABLED")
+    message(STATUS "Optimization: DISABLED")
+    message(STATUS "Available targets:")
+    message(STATUS "  - IthacaCore: Build main executable")
+    message(STATUS "  - clean-logs: Remove all log files")
+    message(STATUS "  - run-clean: Run with fresh logs")
+    message(STATUS "  - show-log: Display current log")
+    message(STATUS "===============================")
+endif()
+
+
+===== File: main.cpp =====
+Path: C:\Users\jindr\IthacaCore\main.cpp
+=====
+#include <stdio.h>
+#include "sampler/core_logger.h"       // Include pro Logger
+#include "sampler/sampler.h"           // Include pro runSampler
+
+/**
+ * Hlavní funkce programu, která vypíše úvodní zprávu, inicializuje logger
+ * a předá řízení do sampleru.
+ * 
+ * ARCHITEKTURA VÝSTUPŮ:
+ * - main.cpp: Používá pouze printf pro konzolový výstup
+ * - Logger: Vypisuje inicializační zprávy na konzoli + loguje do souboru
+ * - Všechny ostatní moduly: Pouze logování do souboru, žádné konzolové výstupy
+ * 
+ * CHOVÁNÍ PŘI CHYBÁCH:
+ * - Pokud Logger selže při inicializaci, program se ukončí s exit(1)
+ * - Pokud jakýkoliv další modul selže, program se ukončí s exit(1)
+ * - Všechny chyby jsou logovány před ukončením
+ * 
+ * @param argc Počet argumentů (včetně názvu programu).
+ * @param argv Pole argumentů.
+ * @return Vrací 0 při úspěšném ukončení programu.
+ */
+int main(int argc, char *argv[]) {
+    // Úvodní banner - pouze printf na konzoli
+    printf("=====================================\n");
+    printf("      IthacaCore Audio Sampler      \n");
+    printf("      Professional Sample Engine     \n");
+    printf("=====================================\n");
+    printf("[main] Starting IthacaCore application\n");
+
+    // Zpracování parametrů příkazové řádky
+    if (argc > 1) {
+        printf("[main] Command line parameters detected: ");
+        for (int i = 1; i < argc; i++) {
+            printf("%s ", argv[i]);
+        }
+        printf("\n");
+        printf("[main] Parameters will be passed to sampler system\n");
+    } else {
+        printf("[main] No command line parameters provided\n");
+        printf("[main] Using default configuration\n");
+    }
+
+    printf("-------------------------------------\n");
+    printf("[main] Initializing logger subsystem\n");
+    
+    // Inicializace loggeru s cestou "./" (aktuální adresář)
+    // Logger bude vypisovat své vlastní inicializační zprávy na konzoli
+    // Od tohoto bodu bude veškeré logování modulů probíhat pouze přes Logger
+    Logger logger("./");
+    
+    // Logger inicializace dokončena - pokračujeme
+    printf("-------------------------------------\n");
+    printf("[main] Logger initialization completed\n");
+    printf("[main] Transferring control to sampler system\n");
+    printf("[main] All further operations will be logged to: core_logger/core_logger.log\n");
+    printf("[main] Monitor log file for detailed operation progress\n");
+    printf("=====================================\n\n");
+
+    // Předání řízení do sampleru s loggerem
+    // Od tohoto bodu budou všechny operace logovány pouze do souboru
+    // Žádné další konzolové výstupy kromě závěrečných zpráv z main.cpp
+    int result = runSampler(logger);
+    
+    // Závěrečný výstup na konzoli - pouze main.cpp
+    printf("\n=====================================\n");
+    printf("[main] Sampler system execution completed\n");
+    
+    if (result == 0) {
+        printf("[main] SUCCESS: All operations completed successfully\n");
+        printf("[main] Exit code: 0 (success)\n");
+    } else {
+        printf("[main] WARNING: System completed with errors\n");
+        printf("[main] Exit code: %d (check logs for details)\n", result);
+    }
+    
+    printf("[main] Detailed operation log available in the displayed log file path above\n");
+    printf("[main] Thank you for using IthacaCore Audio Sampler\n");
+    printf("=====================================\n");
+    
+    return result;
+}
+
+
+===== File: README.md =====
+Path: C:\Users\jindr\IthacaCore\README.md
+=====
+# IthacaCore: C++ Sampler s Loggerem a InstrumentLoader
+
+## Popis projektu
+IthacaCore je profesionální audio sampler engine napsaný v C++17. Systém je modulární, s podporou logování (Logger), prohledávání WAV sample souborů (SamplerIO), načítání do paměti jako stereo float buffery (InstrumentLoader) a koordinaci celého workflow (runSampler). Navržen pro snadnou integraci do větších projektů, jako je audio plugin nebo standalone aplikace. Používá libsndfile pro práci s WAV soubory a podporuje parsování názvů souborů ve formátu `mXXX-velY-fZZ.wav` (kde XXX je MIDI nota 0-127, Y je velocity 0-7, ZZ je zkrácená frekvence s 'f' prefixem).
+
+Klíčové vlastnosti:
+- Thread-safe logování do souboru
+- Prohledávání metadat (frekvence, MIDI nota, velocity, délka, počet kanálů) z WAV souborů
+- **NOVÉ: Automatické načítání všech samples do paměti jako stereo interleaved float buffery**
+- **NOVÉ: Mono→Stereo konverze s duplikací dat (L=R) pro jednotný formát**
+- **NOVÉ: JUCE-ready buffer layout [L1,R1,L2,R2...] pro optimální audio processing**
+- Detekce audio formátu (interleaved/non-interleaved) a potřeby konverze do float
+- Analýza subformátu (16-bit PCM, 24-bit PCM, 32-bit float, atd.)
+- Validace konzistence frekvence mezi názvem souboru a obsahem
+- Vyhledávání sample podle MIDI noty a velocity
+- Přístup k metadatům přes bezpečné gettery (s kontrolou indexu)
+- **NOVÉ: Automatická validace stereo konzistence všech načtených bufferů**
+- Žádné konzolové výstupy v modulech – vše logováno
+- Detekce mono/stereo formátu a další audio metadata
+
+## Požadavky
+- Visual Studio Code
+- Visual Studio 2022 Build Tools (s C++ komponentami) nebo Community Edition
+- CMake (verze 3.10+, přidejte do PATH)
+- Rozšíření VS Code: CMake Tools a C/C++ od Microsoftu
+- libsndfile (stáhne se automaticky přes `add_subdirectory` v CMakeLists.txt)
+- C++17 kompatibilní kompilátor (MSVC/GCC/Clang)
+
+## Postup nastavení
+1. Uložte všechny soubory do kořenové složky projektu (např. `IthacaCore`)
+2. Vytvořte složku `.vscode` a uložte do ní `tasks.json`, `launch.json` a `settings.json`
+3. Vytvořte složku `libsndfile` a stáhněte do ní zdrojový kód libsndfile (nebo použijte externí build)
+4. Otevřete projekt v VS Code (File → Open Folder)
+5. Spusťte CMake: Configure (Ctrl+Shift+P → CMake: Configure). To vygeneruje build soubory v `build` složce
+
+## Sestavení a spuštění
+- **Sestavení**: Spusťte úlohu "build" (Ctrl+Shift+P → Tasks: Run Task → build). To nastaví prostředí MSVC přes `vcvars64.bat` a spustí `cmake --build .`. Vytvoří `Debug/IthacaCore.exe`
+- **Spuštění**: Klikněte na tlačítko spustit (|> ) nebo stiskněte F5. Program se sestaví a spustí
+- **Výstup**:
+  - Na konzoli: Úvodní zpráva "[i] Starting IthacaCore" a případně parametry
+  - V logu (`core_logger/core_logger.log`): Záznamy o inicializaci loggeru, prohledávání sample, **NOVÝCH operacích InstrumentLoader (načítání do paměti, mono→stereo konverze, validace)**, vyhledávání (např. "Loaded: m108-vel7-f44.wav (MIDI: 108, Vel: 7, Freq: 44100 Hz, Duration: 2.5s, Channels: 2 (stereo), Frames: 110250, Format: interleaved, needs float conversion)")
+- **Čištění**: Smažte složku `build` a `core_logger` pro reset
+
+**Poznámka**: Cesta k `vcvars64.bat` v tasks.json je pro VS 2022 Build Tools. Pokud máte Community, upravte na `C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat`. Pro PowerShell execution policy: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`.
+
+## Použití v vlastním projektu
+Pro integraci do vašeho C++ projektu zahrňte hlavičky a linkujte libsndfile. Příklad minimálního použití (v main.cpp):
+```cpp
+#include "core_logger.h"
+#include "sampler.h"
+#include "instrument_loader.h"
+int main() {
+    Logger logger("./"); // Cesta k logům
+    int result = runSampler(logger); // Spustí celý workflow včetně InstrumentLoader
+    return result;
+}
+```
+Pro vlastní logiku použijte třídu `SamplerIO` (pro IO operace) a **NOVOU třídu `InstrumentLoader`** (pro načítání do paměti). Vždy inicializujte `Logger` pro logování.
+
+### Použití třídy SamplerIO
+`SamplerIO` pro čisté IO operace (prohledávání, vyhledávání, přístup k metadatům). Vytvořte instanci a předejte logger.
+
+| Metoda | Parametry | Příklad | Komentář | Návratový typ | Příklad návratu / Chyba |
+|--------|-----------|---------|----------|---------------|-------------------------|
+| `SamplerIO()` | - | `SamplerIO io;` | Konstruktor: Inicializuje prázdný seznam `sampleList`. Žádné logování v konstruktoru. | `void` (konstruktor) | - (žádný návratový kód, úspěšná inicializace) |
+| `~SamplerIO()` | - | Automatický | Destruktor: Žádné speciální akce (seznam se uvolní automaticky). | `void` (destruktor) | - (automatické uvolnění) |
+| `scanSampleDirectory(const std::string& directoryPath, Logger& logger)` | `directoryPath` – cesta k adresáři se WAV soubory (např. `"./samples"`), `logger` – reference na Logger | `io.scanSampleDirectory(R"(c:\samples)", logger);` | Prohledá adresář. Deleguje parsování názvů (regex), načte metadata (libsndfile). Validuje konzistenci frekvence mezi názvem a souborem. Detekuje formát (interleaved) a potřebu konverze (PCM→float). Loguje info/warn/error. Chyby (neexistující adresář, nekonzistentní frekvence): zaloguje a `std::exit(1)`. | `void` | - (úspěch: načte data; chyba: exit(1) po logu) |
+| `findSampleInSampleList(uint8_t midi_note, uint8_t velocity, int sampleRate) const` | `midi_note` (0-127), `velocity` (0-7), `sampleRate` (frekvence v Hz) | `int idx = io.findSampleInSampleList(60, 5, 44100);` | Vyhledá index sample v interním seznamu. Vrátí -1, pokud nenalezeno. Lineární prohledávání, žádné logování. | `int` | `0` (index první shody); `-1` (nenalezeno, není chyba) |
+| `getLoadedSampleList() const` | - | `const auto& list = io.getLoadedSampleList();` | Vrátí konstantní referenci na vektor `SampleInfo` pro čtení metadat. Žádné logování. | `const std::vector<SampleInfo>&` | Reference na vektor (prázdný, pokud není načteno) |
+
+[Tabulka s gettery zůstává stejná...]
+
+### **NOVÉ: Použití třídy InstrumentLoader**
+`InstrumentLoader` pro načítání WAV samples do paměti jako 32-bit stereo float buffery optimalizované pro JUCE. **Klíčová nová funkcionalita:**
+
+#### **Hlavní vlastnosti:**
+- **Povinná stereo konverze**: Všechny samples (i původně mono) jsou uloženy jako stereo `[L1,R1,L2,R2...]`
+- **Mono→Stereo duplikace**: Mono samples se automaticky duplikují do obou kanálů (L=R)
+- **JUCE-ready formát**: Buffer layout optimalizovaný pro JUCE AudioBuffer de-interleaving
+- **Automatická validace**: Kontrola konzistence všech načtených bufferů
+- **Filtrování frekvence**: Načítá pouze samples s požadovanou frekvencí vzorkování
+
+| Metoda | Parametry | Příklad | Komentář | Návratový typ |
+|--------|-----------|---------|----------|---------------|
+| `InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger)` | `sampler` – reference na SamplerIO, `targetSampleRate` – požadovaná frekvence (např. 44100), `logger` – reference na Logger | `InstrumentLoader loader(sampler, 44100, logger);` | Konstruktor: Inicializuje pole pro všechny MIDI noty 0-127. Loguje inicializaci s targetSampleRate. | `void` (konstruktor) |
+| `loadInstrument()` | - | `loader.loadInstrument();` | **HLAVNÍ METODA**: Načte všechny dostupné samples do paměti jako stereo float buffery. Prochází všechny MIDI noty 0-127 a velocity 0-7. Provádí mono→stereo konverzi. Validuje konzistenci po načtení. Loguje progress a statistiky. | `void` |
+| `getInstrumentNote(uint8_t midi_note)` | `midi_note` (0-127) | `Instrument& inst = loader.getInstrumentNote(108);` | Vrátí referenci na Instrument strukturu pro danou MIDI notu. Kontroluje platnost rozsahu. Při chybě: log error a exit(1). | `Instrument&` |
+| `getTotalLoadedSamples()` | - | `int total = loader.getTotalLoadedSamples();` | Getter pro celkový počet úspěšně načtených samples. | `int` |
+| `getMonoSamplesCount()` | - | `int mono = loader.getMonoSamplesCount();` | Getter pro počet původně mono samples (před konverzí na stereo). | `int` |
+| `getStereoSamplesCount()` | - | `int stereo = loader.getStereoSamplesCount();` | Getter pro počet původně stereo samples. | `int` |
+| `getTargetSampleRate()` | - | `int rate = loader.getTargetSampleRate();` | Getter pro nastavenou target sample rate v Hz. | `int` |
+
+#### **NOVÁ struktura Instrument s API metodami:**
+```cpp
+struct Instrument {
+    // Existující pole
+    SampleInfo* sample_ptr_sampleInfo[8];    // pointery na SampleInfo
+    float* sample_ptr_velocity[8];           // pointery na stereo float buffery
+    bool velocityExists[8];                  // indikátory existence
+    
+    // NOVÁ metadata
+    sf_count_t frame_count_stereo[8];        // počet stereo frame párů
+    sf_count_t total_samples_stereo[8];      // celkový počet float hodnot (frame_count * 2)
+    bool was_originally_mono[8];             // původní formát před konverzí
+    
+    // NOVÉ API metody
+    float* get_sample_begin_pointer(uint8_t velocity);    // pointer na stereo data [L,R,L,R...]
+    sf_count_t get_frame_count(uint8_t velocity);         // počet stereo frame párů
+    sf_count_t get_total_sample_count(uint8_t velocity);  // celkový počet float hodnot
+    bool get_was_originally_mono(uint8_t velocity);       // původní formát info
+};
+```
+
+#### **Příklad kompletního použití s InstrumentLoader:**
+```cpp
+Logger logger("./");
+SamplerIO sampler;
+std::string dir = R"(c:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)";
+
+// 1. Prohledání adresáře
+sampler.scanSampleDirectory(dir, logger);
+
+// 2. NOVÉ: Načtení všech samples do paměti jako stereo buffery
+InstrumentLoader loader(sampler, 44100, logger);
+loader.loadInstrument();  // Automatická mono→stereo konverze a validace
+
+// 3. NOVÉ: Přístup k načteným stereo datům
+Instrument& inst = loader.getInstrumentNote(108);
+if (inst.velocityExists[7]) {
+    // Získání stereo dat ready pro JUCE
+    float* stereoData = inst.get_sample_begin_pointer(7);      // [L1,R1,L2,R2...]
+    sf_count_t frames = inst.get_frame_count(7);               // počet stereo párů
+    sf_count_t totalSamples = inst.get_total_sample_count(7);  // celkový počet float hodnot
+    bool wasMono = inst.get_was_originally_mono(7);            // původní formát
+    
+    // Pro JUCE AudioBuffer de-interleaving:
+    /*
+    AudioBuffer<float> juceBuffer(2, frames); // 2 kanály
+    float* leftChannel = juceBuffer.getWritePointer(0);
+    float* rightChannel = juceBuffer.getWritePointer(1);
+    
+    for (int frame = 0; frame < frames; frame++) {
+        leftChannel[frame] = stereoData[frame * 2];     // L kanál
+        rightChannel[frame] = stereoData[frame * 2 + 1]; // R kanál
+    }
+    */
+}
+
+// 4. NOVÉ: Statistiky načítání
+logger.log("demo", "info", "Total loaded: " + std::to_string(loader.getTotalLoadedSamples()));
+logger.log("demo", "info", "Originally mono: " + std::to_string(loader.getMonoSamplesCount()));
+logger.log("demo", "info", "Originally stereo: " + std::to_string(loader.getStereoSamplesCount()));
+```
+
+### Funkce runSampler
+- **Signatura**: `int runSampler(Logger& logger)`
+- **Příklad**: `runSampler(logger);`
+- **Komentář**: **AKTUALIZOVÁNO**: Spustí kompletní workflow včetně nového InstrumentLoader. Deleguje prohledávání do SamplerIO, **inicializuje InstrumentLoader, načte všechny samples do paměti jako stereo buffery**, vyhledá příklad MIDI 108/vel 7, použije gettery pro metadata včetně nových stereo informací. **Testuje nové API metody get_sample_begin_pointer(), get_frame_count() atd.** Loguje všechny kroky včetně detailních informací o stereo konverzi a JUCE-ready formátu. Vrátí 0 při úspěchu (chyby končí `std::exit(1)`). Použijte pro standalone test s plnou funkcionalitou.
+
+## Struktura projektu
+### Klíčové soubory
+- **CMakeLists.txt**: Definuje projekt, přidává libsndfile, linkuje soubory (`main.cpp`, `sampler/*.cpp`) a include cesty. **AKTUALIZOVÁNO**: Přidány `instrument_loader.h/cpp` soubory.
+- **main.cpp**: Hlavní vstup – inicializuje logger, zpracuje argumenty a volá `runSampler`.
+- **sampler/core_logger.h/cpp**: Implementace třídy `Logger`.
+- **sampler/sampler.h/cpp**: Deklarace a implementace funkce `runSampler` a třídy `SamplerIO`.
+- **sampler/sampler_io.cpp**: Implementace SamplerIO metod.
+- **sampler/instrument_loader.h/cpp**: **NOVÉ**: Implementace třídy `InstrumentLoader` pro načítání do paměti.
+- **.vscode/**: Konfigurace pro VS Code (build tasky, launch, settings pro terminal a file associations).
+- **README.md**: Tento soubor.
+
+### **NOVÉ: Struktury a třídy**
+#### Struktura `SampleInfo` (v `sampler.h`) - NEZMĚNĚNO
+Uchovává metadata o WAV samplu - bez změn, podle freeze requirement.
+
+#### **NOVÁ struktura `Instrument` (v `instrument_loader.h`)**
+Reprezentuje jeden MIDI note s velocity vrstvami a **novými stereo metadaty**:
+```cpp
+struct Instrument {
+    SampleInfo* sample_ptr_sampleInfo[8];    // pointery na původní metadata
+    float* sample_ptr_velocity[8];           // pointery na STEREO float buffery
+    bool velocityExists[8];                  // indikátory existence
+    
+    // NOVÁ stereo metadata (nezávislá na SampleInfo)
+    sf_count_t frame_count_stereo[8];        // počet stereo frame párů
+    sf_count_t total_samples_stereo[8];      // celkový počet float hodnot (frame_count * 2)
+    bool was_originally_mono[8];             // true = byl mono před konverzí
+    
+    // NOVÉ API metody pro přístup k stereo datům
+    float* get_sample_begin_pointer(uint8_t velocity);
+    sf_count_t get_frame_count(uint8_t velocity);
+    sf_count_t get_total_sample_count(uint8_t velocity);
+    bool get_was_originally_mono(uint8_t velocity);
+};
+```
+
+#### **NOVÁ třída `InstrumentLoader` (v `instrument_loader.h/cpp`)**
+Centralizuje načítání WAV samples do paměti s klíčovými vlastnostmi:
+- **Konstruktor**: `InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger)`
+- **Hlavní metoda**: `loadInstrument()` - načte všechny MIDI noty 0-127 jako stereo buffery
+- **Automatická konverze**: Mono→Stereo duplikace (L=R), PCM→Float konverze, Non-interleaved→Interleaved
+- **Validace**: `validateStereoConsistency()` - kontrola integrity všech bufferů
+- **Paměťová správa**: Malloc/free pro buffery, automatické uvolnění v destruktoru
+- **Gettery**: `getTotalLoadedSamples()`, `getMonoSamplesCount()`, `getStereoSamplesCount()`
+
+#### Třída `Logger` (v `core_logger.h/cpp`) - NEZMĚNĚNO
+Zůstává stejná jako před aktualizací.
+
+## Řešení problémů
+- **Execution Policy**: Spusťte `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` v PowerShell.
+- **libsndfile chybí**: Stáhněte z [libsndfile GitHub](https://github.com/libsndfile/libsndfile) a upravte CMakeLists.txt.
+- **Linkovací chyba LNK1104**: Ukončete všechny procesy IthacaCore.exe, smažte build složku a sestavte znovu.
+- **Logy**: Sledujte `core_logger/core_logger.log`. Pro real-time: `Get-Content -Path "core_logger/core_logger.log" -Tail 10 -Wait`.
+- **Rozšíření**: Upravte cestu v `sampler.cpp` pro jiné samples. **NOVÉ: Pro práci s načtenými buffery použijte InstrumentLoader API**.
+- **Chyba - nekonzistence frekvence**: Program se ukončí s chybou, pokud frekvence v názvu souboru neodpovídá frekvenci v WAV headeru.
+- **Nepodporovaný subformát**: Program končí s chybou při detekci nepodporovaného audio formátu.
+- **NOVÉ - Validace stereo**: Program končí s chybou při selhání validace stereo konzistence v InstrumentLoader.
+
+## Poznámky
+- **Názvosloví souborů**: Samples musí mít formát `mXXX-velY-fZZ.wav` (XXX = MIDI nota 0-127, Y = velocity 0-7, ZZ = zkrácená frekvence s 'f' prefixem: f8, f11, f16, f22, f44, f48, f88, f96, f176, f192). Jinak se ignorují s warningem.
+- **Validace**: Frekvence v názvu (fZZ) musí odpovídat frekvenci v WAV headeru, jinak program končí s chybou.
+- **NOVÉ - Stereo formát**: **Všechny buffery jsou vždy uloženy jako stereo interleaved [L,R,L,R...] bez ohledu na původní formát**.
+- **NOVÉ - Mono konverze**: **Mono samples se automaticky duplikují do stereo formátu (L=R)** pro jednotnost.
+- **NOVÉ - JUCE optimalizace**: **Buffer layout je optimalizovaný pro JUCE AudioBuffer de-interleaving**.
+- **Detekce formátu**: Program analyzuje, zda je WAV interleaved (standard) a jaký má subformát (16-bit PCM, float, atd.).
+- **Podporované formáty**: 16-bit PCM, 24-bit PCM, 32-bit PCM, 32-bit float, 64-bit double.
+- **Optimální formát**: 32-bit float (žádná konverze potřebná).
+- **NOVÉ - Paměťové nároky**: **Paměťové nároky jsou vyšší - všechny samples jsou uloženy jako stereo float buffery**.
+- **Chyby**: Selhání inicializace (adresář, přístup, neplatný index v gettech, nekonzistentní frekvence, nepodporovaný formát, **validace stereo**) vede k logu a `std::exit(1)`.
+- **Thread-safety**: Pouze logování je chráněno mutexem; sampler není navržen pro multi-threading.
+- **NOVÉ - Rozšířená metadata**: Program nyní prohledává a poskytuje přístup k délce, počtu kanálů, stereo detekci, počtu vzorků, formátu, potřebě konverze a **novým stereo metadatům**.
+- **NOVÉ - Validace integrity**: **Automatická validace konzistence všech načtených stereo bufferů**.
+- **Projekt je přenositelný**: Pro složitější aplikace přidejte JUCE nebo další knihovny.
+
+## **NOVÉ: JUCE Integrace**
+InstrumentLoader poskytuje perfektní integraci s JUCE AudioBuffer:
+
+```cpp
+// Získání stereo dat z InstrumentLoader
+Instrument& inst = loader.getInstrumentNote(midiNote);
+if (inst.velocityExists[velocity]) {
+    float* stereoData = inst.get_sample_begin_pointer(velocity);  // [L,R,L,R...]
+    sf_count_t frameCount = inst.get_frame_count(velocity);
+    
+    // De-interleaving pro JUCE AudioBuffer
+    AudioBuffer<float> juceBuffer(2, frameCount);
+    float* leftChannel = juceBuffer.getWritePointer(0);
+    float* rightChannel = juceBuffer.getWritePointer(1);
+    
+    for (int frame = 0; frame < frameCount; frame++) {
+        leftChannel[frame] = stereoData[frame * 2];         // L kanál
+        rightChannel[frame] = stereoData[frame * 2 + 1];    // R kanál
+    }
+}
+```
+
+---
+
+# Vysvětlení frames, samples a bytes v audio kontextu
+
+V audio zpracování (např. v JUCE nebo libsndfile) se tyto termíny používají pro popis velikosti a struktury audio dat. Vysvětlení v kontextu stereo interleaved formát [L,R,L,R...]:
+
+- **Frames**: Časová jednotka audio signálu, která obsahuje data pro **všechny kanály v jednom okamžiku**. Pro mono = 1 frame = 1 sample. Pro stereo (2 kanály) = 1 frame = 2 samples (levý + pravý). V logu: **529200 frames** znamená délku zvuku v časových bodech (např. při 44.1 kHz sample rate = ~12 sekund).
+
+- **Samples**: Nejmenší jednotka daty – jedna hodnota pro jeden kanál v jednom časovém bodě. V multi-kanálovém audio (stereo) se "total samples" sčítá přes všechny kanály. V logu: **1058400 total samples** = 2 kanály × 529200 frames (každý frame má 2 samples).
+
+- **Bytes**: Celková velikost dat v paměti (v bytech). Závisí na bitové hloubce (např. float = 4 bytes na sample). V logu: **4233600 bytes** = 1058400 samples × 4 bytes (pravděpodobně 32-bit float). To je pro interleaved formát, kde data jsou propletená (L,R,L,R...), takže buffer zabere tolik místa.
+
+---
+
+# Helper commands
+
+## Grab-Files
+```
+PowerShell.exe -ExecutionPolicy Bypass -File .\Grab-Files.ps1
+```
+
+## Watch log
+```
+Get-Content -Path "./core_logger/core_logger.log" -Tail 10 -Wait
+```
+
+## Git submodule init
+```
+git submodule update --init --recursive
+```
+
+## Pridani submodulu rucne
+```
+git submodule add https://github.com/libsndfile/libsndfile libsndfile
+```
+
+
