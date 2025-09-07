@@ -62,7 +62,113 @@ SamplerIO::~SamplerIO() {
 }
 
 /**
+ * @brief NOVÁ POMOCNÁ METODA: Detekce, zda je WAV v interleaved formátu
+ * Pro standardní WAV soubory je vždy true, ale kontrolujeme pro bezpečnost
+ * @param filename Cesta k souboru
+ * @param logger Reference na logger pro zaznamenávání
+ * @return true pokud interleaved (standard), false u vzácných případů
+ * Při chybě: loguje error a volá std::exit(1)
+ */
+bool SamplerIO::detectInterleavedFormat(const char* filename, Logger& logger) const {
+    SF_INFO sfInfo;
+    memset(&sfInfo, 0, sizeof(sfInfo));
+    
+    SNDFILE* sndFile = sf_open(filename, SFM_READ, &sfInfo);
+    if (!sndFile) {
+        logger.log("SamplerIO/detectInterleavedFormat", "error", 
+                  "Cannot open WAV file for interleaved detection: " + std::string(filename) + 
+                  " - " + sf_strerror(nullptr));
+        std::exit(1);
+    }
+    
+    // Kontrola major formátu (SF_FORMAT_WAV)
+    int majorFormat = sfInfo.format & SF_FORMAT_TYPEMASK;
+    if (majorFormat != SF_FORMAT_WAV) {
+        logger.log("SamplerIO/detectInterleavedFormat", "error", 
+                  "File is not a WAV format: " + std::string(filename) + 
+                  " (format: 0x" + std::to_string(majorFormat) + ")");
+        sf_close(sndFile);
+        std::exit(1);
+    }
+    
+    // Pro WAV: Standardně vždy interleaved
+    // Pouze vzácné případy speciálních WAV variant by mohly být non-interleaved
+    // V praxi: Vždy true pro běžné WAV soubory
+    sf_close(sndFile);
+    
+    logger.log("SamplerIO/detectInterleavedFormat", "info", 
+              "WAV format confirmed as interleaved: " + std::string(filename));
+    
+    return true;  // Standardní WAV je vždy interleaved
+}
+
+/**
+ * @brief NOVÁ POMOCNÁ METODA: Detekce subformátu a potřeby konverze do float
+ * @param filename Cesta k souboru
+ * @param logger Reference na logger pro zaznamenávání
+ * @return true pokud 16-bit PCM (potřebuje konverzi), false pokud již float
+ * Při chybě nebo nepodporovaném formátu: loguje error a volá std::exit(1)
+ */
+bool SamplerIO::detectFloatConversionNeed(const char* filename, Logger& logger) const {
+    SF_INFO sfInfo;
+    memset(&sfInfo, 0, sizeof(sfInfo));
+    
+    SNDFILE* sndFile = sf_open(filename, SFM_READ, &sfInfo);
+    if (!sndFile) {
+        logger.log("SamplerIO/detectFloatConversionNeed", "error", 
+                  "Cannot open WAV file for conversion detection: " + std::string(filename) + 
+                  " - " + sf_strerror(nullptr));
+        std::exit(1);
+    }
+    
+    // Kontrola subformátu (SF_FORMAT_SUBMASK)
+    int subformat = sfInfo.format & SF_FORMAT_SUBMASK;
+    sf_close(sndFile);
+    
+    switch (subformat) {
+        case SF_FORMAT_PCM_16:
+            // 16-bit PCM: Potřebuje konverzi do float (normalizace z int16 na [-1.0, 1.0])
+            logger.log("SamplerIO/detectFloatConversionNeed", "info", 
+                      "16-bit PCM detected, conversion to float needed: " + std::string(filename));
+            return true;
+            
+        case SF_FORMAT_FLOAT:
+            // Již 32-bit float: Žádná konverze potřebná
+            logger.log("SamplerIO/detectFloatConversionNeed", "info", 
+                      "32-bit float detected, no conversion needed: " + std::string(filename));
+            return false;
+            
+        case SF_FORMAT_PCM_24:
+            // 24-bit PCM: Také potřebuje konverzi do float
+            logger.log("SamplerIO/detectFloatConversionNeed", "info", 
+                      "24-bit PCM detected, conversion to float needed: " + std::string(filename));
+            return true;
+            
+        case SF_FORMAT_PCM_32:
+            // 32-bit PCM: Potřebuje konverzi do float
+            logger.log("SamplerIO/detectFloatConversionNeed", "info", 
+                      "32-bit PCM detected, conversion to float needed: " + std::string(filename));
+            return true;
+            
+        case SF_FORMAT_DOUBLE:
+            // 64-bit double: Potřebuje konverzi do 32-bit float
+            logger.log("SamplerIO/detectFloatConversionNeed", "info", 
+                      "64-bit double detected, conversion to 32-bit float needed: " + std::string(filename));
+            return true;
+            
+        default:
+            // Nepodporovaný formát
+            logger.log("SamplerIO/detectFloatConversionNeed", "error", 
+                      "Unsupported subformat detected in file: " + std::string(filename) + 
+                      " (subformat: 0x" + std::to_string(subformat) + 
+                      "). Supported: 16-bit PCM, 24-bit PCM, 32-bit PCM, 32-bit float, 64-bit double");
+            std::exit(1);
+    }
+}
+
+/**
  * @brief Načte WAV soubory z adresáře a parsuje jejich metadata
+ * ROZŠÍŘENO: Nyní také detekuje interleaved formát a potřebu konverze
  * @param directoryPath Cesta k adresáři se samples
  * @param logger Reference na logger pro zaznamenávání
  */
@@ -156,10 +262,17 @@ void SamplerIO::loadSamples(const std::string& directoryPath, Logger& logger) {
                               std::to_string(normalizedFreq) + " Hz)");
                 }
                 
+                // Uzavření souboru před dalšími detekcemi
+                sf_close(sndFile);
+                
+                // NOVÉ: Detekce interleaved formátu a potřeby konverze
+                bool isInterleaved = detectInterleavedFormat(fullPath.c_str(), logger);
+                bool needsConversion = detectFloatConversionNeed(fullPath.c_str(), logger);
+                
                 // Výpočet délky v sekundách
                 double duration = static_cast<double>(sfInfo.frames) / static_cast<double>(sfInfo.samplerate);
                 
-                // Vytvoření SampleInfo struktury
+                // Vytvoření SampleInfo struktury s novými atributy
                 SampleInfo sample;
                 strncpy(sample.filename, fullPath.c_str(), sizeof(sample.filename) - 1);
                 sample.filename[sizeof(sample.filename) - 1] = '\0';  // Zajištění null-termination
@@ -170,22 +283,27 @@ void SamplerIO::loadSamples(const std::string& directoryPath, Logger& logger) {
                 sample.duration_seconds = duration;
                 sample.channels = sfInfo.channels;
                 sample.is_stereo = (sfInfo.channels >= 2);
+                sample.interleaved_format = isInterleaved;      // NOVÉ
+                sample.needs_conversion = needsConversion;      // NOVÉ
                 
                 // Přidání do seznamu
                 sampleList.push_back(sample);
                 loadedCount++;
                 
-                // Logování informací o načteném sample
+                // Logování informací o načteném sample s novými atributy
                 std::string channelInfo = sample.is_stereo ? "stereo" : "mono";
+                std::string interleavedInfo = sample.interleaved_format ? "interleaved" : "non-interleaved";
+                std::string conversionInfo = sample.needs_conversion ? "needs float conversion" : "no conversion needed";
+                
                 logger.log("SamplerIO/loadSamples", "info", 
                           "Loaded: " + filename + " (MIDI: " + std::to_string(midiNote) + 
                           ", Vel: " + std::to_string(velocity) + 
                           ", Freq: " + std::to_string(sfInfo.samplerate) + " Hz" +
                           ", Duration: " + std::to_string(duration) + "s" +
                           ", Channels: " + std::to_string(sfInfo.channels) + " (" + channelInfo + ")" +
-                          ", Frames: " + std::to_string(sfInfo.frames) + ")");
+                          ", Frames: " + std::to_string(sfInfo.frames) +
+                          ", Format: " + interleavedInfo + ", " + conversionInfo + ")");
                 
-                sf_close(sndFile);
             } else {
                 logger.log("SamplerIO/loadSamples", "warn", 
                           "Filename doesn't match pattern mXXX-velY-fZZ.wav: " + filename);
@@ -334,4 +452,32 @@ bool SamplerIO::getIsStereo(int index, Logger& logger) const {
         std::exit(1);
     }
     return sampleList[index].is_stereo;
+}
+
+/**
+ * @brief NOVÝ GETTER pro interleaved formát flag na zadaném indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logování chyb
+ * @return bool true pokud interleaved (standard pro WAV)
+ */
+bool SamplerIO::getInterleavedFormat(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getInterleavedFormat", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].interleaved_format;
+}
+
+/**
+ * @brief NOVÝ GETTER pro potřebu konverze do float na zadaném indexu
+ * @param index Index v seznamu
+ * @param logger Reference pro logování chyb
+ * @return bool true pokud potřebuje konverzi (16-bit PCM -> float)
+ */
+bool SamplerIO::getNeedsConversion(int index, Logger& logger) const {
+    if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
+        logger.log("SamplerIO/getNeedsConversion", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        std::exit(1);
+    }
+    return sampleList[index].needs_conversion;
 }

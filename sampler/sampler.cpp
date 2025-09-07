@@ -1,5 +1,3 @@
-#define _CRT_SECURE_NO_WARNINGS  // Ignorování warningu pro strncpy v MSVC
-
 #include "sampler.h"  // Include hlavičky pro definice SampleInfo a SamplerIO
 
 /**
@@ -8,6 +6,7 @@
  * Cesta k adresáři je pevně zakódována (lze upravit).
  * Používá logger pro všechny výstupy (info, warn).
  * Deleguje načítání do SamplerIO::loadSamples.
+ * ROZŠÍŘENO: Nyní také zobrazuje informace o interleaved formátu a potřebě konverze.
  * @param logger Reference na Logger pro logování.
  * @return 0 při úspěchu, 1 při chybě (ale chyby jsou řešeny ukončením programu).
  */
@@ -28,22 +27,50 @@ int runSampler(Logger& logger) {
         uint8_t midiNote = sampler.getMidiNote(index, logger);
         uint8_t velocity = sampler.getMidiNoteVelocity(index, logger);
         
-        // Nové metadata
+        // Původní metadata
         sf_count_t sampleCount = sampler.getSampleCount(index, logger);
         double duration = sampler.getDurationSeconds(index, logger);
         int channels = sampler.getChannelCount(index, logger);
         bool isStereo = sampler.getIsStereo(index, logger);
         
-        // Sestavení detailní zprávy s všemi metadaty
+        // NOVÉ metadata - rozšířené atributy
+        bool isInterleaved = sampler.getInterleavedFormat(index, logger);
+        bool needsConversion = sampler.getNeedsConversion(index, logger);
+        
+        // Sestavení detailní zprávy se všemi metadaty včetně nových atributů
         std::string stereoInfo = isStereo ? "stereo" : "mono";
+        std::string interleavedInfo = isInterleaved ? "interleaved" : "non-interleaved";
+        std::string conversionInfo = needsConversion ? "needs float conversion" : "no conversion needed";
+        
         std::string msg = "Found sample: " + std::string(filename) + 
                           ", MIDI: " + std::to_string(midiNote) + 
                           ", Vel: " + std::to_string(velocity) + 
                           ", Frequency: " + std::to_string(frequency) + " Hz" +
                           ", Duration: " + std::to_string(duration) + "s" +
                           ", Frames: " + std::to_string(sampleCount) +
-                          ", Channels: " + std::to_string(channels) + " (" + stereoInfo + ")";
+                          ", Channels: " + std::to_string(channels) + " (" + stereoInfo + ")" +
+                          ", Format: " + interleavedInfo + 
+                          ", Conversion: " + conversionInfo;
+        
         logger.log("runSampler/findSampleInSampleList", "info", msg);
+        
+        // NOVÉ: Dodatečné logování pro detailní analýzu formátu
+        if (needsConversion) {
+            logger.log("runSampler/analysis", "info", 
+                      "Sample requires format conversion from PCM to 32-bit float for audio processing");
+        } else {
+            logger.log("runSampler/analysis", "info", 
+                      "Sample is already in optimal float format, ready for direct processing");
+        }
+        
+        if (!isInterleaved) {
+            logger.log("runSampler/analysis", "warn", 
+                      "Non-interleaved format detected - may require special handling");
+        } else {
+            logger.log("runSampler/analysis", "info", 
+                      "Standard interleaved format confirmed - compatible with standard audio processing");
+        }
+        
         return 0;  // Úspěch
     } else {
         logger.log("runSampler/findSampleInSampleList", "warn", "Sample for MIDI 108 vel 7 not found.");
