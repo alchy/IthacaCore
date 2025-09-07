@@ -1,3 +1,4 @@
-build\*
-libsndfile\*
-core_logger\*
+build/*
+libsndfile/*
+core_logger/*
+build/Debug/Debug/core_logger/core_logger.log
