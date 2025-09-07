@@ -84,7 +84,7 @@ Pro vlastní logiku použijte třídu `SamplerIO` (pro IO operace) a **NOVOU tř
 |--------|-----------|---------|----------|---------------|
 | `InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger)` | `sampler` – reference na SamplerIO, `targetSampleRate` – požadovaná frekvence (např. 44100), `logger` – reference na Logger | `InstrumentLoader loader(sampler, 44100, logger);` | Konstruktor: Inicializuje pole pro všechny MIDI noty 0-127. Loguje inicializaci s targetSampleRate. | `void` (konstruktor) |
 | `loadInstrument()` | - | `loader.loadInstrument();` | **HLAVNÍ METODA**: Načte všechny dostupné samples do paměti jako stereo float buffery. Prochází všechny MIDI noty 0-127 a velocity 0-7. Provádí mono→stereo konverzi. Validuje konzistenci po načtení. Loguje progress a statistiky. | `void` |
-| `getInstrument(uint8_t midi_note)` | `midi_note` (0-127) | `Instrument& inst = loader.getInstrument(108);` | Vrátí referenci na Instrument strukturu pro danou MIDI notu. Kontroluje platnost rozsahu. Při chybě: log error a exit(1). | `Instrument&` |
+| `getInstrumentNote(uint8_t midi_note)` | `midi_note` (0-127) | `Instrument& inst = loader.getInstrumentNote(108);` | Vrátí referenci na Instrument strukturu pro danou MIDI notu. Kontroluje platnost rozsahu. Při chybě: log error a exit(1). | `Instrument&` |
 | `getTotalLoadedSamples()` | - | `int total = loader.getTotalLoadedSamples();` | Getter pro celkový počet úspěšně načtených samples. | `int` |
 | `getMonoSamplesCount()` | - | `int mono = loader.getMonoSamplesCount();` | Getter pro počet původně mono samples (před konverzí na stereo). | `int` |
 | `getStereoSamplesCount()` | - | `int stereo = loader.getStereoSamplesCount();` | Getter pro počet původně stereo samples. | `int` |
@@ -125,7 +125,7 @@ InstrumentLoader loader(sampler, 44100, logger);
 loader.loadInstrument();  // Automatická mono→stereo konverze a validace
 
 // 3. NOVÉ: Přístup k načteným stereo datům
-Instrument& inst = loader.getInstrument(108);
+Instrument& inst = loader.getInstrumentNote(108);
 if (inst.velocityExists[7]) {
     // Získání stereo dat ready pro JUCE
     float* stereoData = inst.get_sample_begin_pointer(7);      // [L1,R1,L2,R2...]
@@ -236,7 +236,7 @@ InstrumentLoader poskytuje perfektní integraci s JUCE AudioBuffer:
 
 ```cpp
 // Získání stereo dat z InstrumentLoader
-Instrument& inst = loader.getInstrument(midiNote);
+Instrument& inst = loader.getInstrumentNote(midiNote);
 if (inst.velocityExists[velocity]) {
     float* stereoData = inst.get_sample_begin_pointer(velocity);  // [L,R,L,R...]
     sf_count_t frameCount = inst.get_frame_count(velocity);
@@ -252,6 +252,22 @@ if (inst.velocityExists[velocity]) {
     }
 }
 ```
+
+---
+
+# Vysvětlení frames, samples a bytes v audio kontextu
+
+V audio zpracování (např. v JUCE nebo libsndfile) se tyto termíny používají pro popis velikosti a struktury audio dat. Vysvětlení v kontextu stereo interleaved formát [L,R,L,R...]:
+
+- **Frames**: Časová jednotka audio signálu, která obsahuje data pro **všechny kanály v jednom okamžiku**. Pro mono = 1 frame = 1 sample. Pro stereo (2 kanály) = 1 frame = 2 samples (levý + pravý). V logu: **529200 frames** znamená délku zvuku v časových bodech (např. při 44.1 kHz sample rate = ~12 sekund).
+
+- **Samples**: Nejmenší jednotka daty – jedna hodnota pro jeden kanál v jednom časovém bodě. V multi-kanálovém audio (stereo) se "total samples" sčítá přes všechny kanály. V logu: **1058400 total samples** = 2 kanály × 529200 frames (každý frame má 2 samples).
+
+- **Bytes**: Celková velikost dat v paměti (v bytech). Závisí na bitové hloubce (např. float = 4 bytes na sample). V logu: **4233600 bytes** = 1058400 samples × 4 bytes (pravděpodobně 32-bit float). To je pro interleaved formát, kde data jsou propletená (L,R,L,R...), takže buffer zabere tolik místa.
+
+---
+
+# Helper commands
 
 ## Grab-Files
 ```

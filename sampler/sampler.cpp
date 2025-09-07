@@ -47,7 +47,7 @@ int runSampler(Logger& logger) {
         /* ======= Konец parametrů pro retrieve ====== */
         
         // Krok 3: Test přístupu k jednomu instrumentu (příklad: MIDI 108, vel 7)
-        Instrument& testInst = loader.getInstrument(testMidi);
+        Instrument& testInst = loader.getInstrumentNote(testMidi);
         if (testInst.velocityExists[testVel]) {
             logger.log("runSampler", "info", "Test access OK: MIDI " + std::to_string(testMidi) + "/vel " + std::to_string(testVel) + 
                        " exists. Frames: " + std::to_string(testInst.get_frame_count(testVel)) + 

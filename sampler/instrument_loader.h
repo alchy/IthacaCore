@@ -189,14 +189,14 @@ public:
      * Kontroluje platnost rozsahu MIDI noty.
      * Při neplatném rozsahu: log error a std::exit(1).
      */
-    Instrument& getInstrument(uint8_t midi_note);
+    Instrument& getInstrumentNote(uint8_t midi_note);
 
     /**
      * @brief Const getter pro read-only přístup k Instrument struktuře
      * @param midi_note MIDI nota (0-127)
      * @return Const reference na Instrument strukturu
      */
-    const Instrument& getInstrument(uint8_t midi_note) const;
+    const Instrument& getInstrumentNote(uint8_t midi_note) const;
 
     /**
      * @brief Getter pro získání target sample rate

@@ -350,8 +350,8 @@ bool InstrumentLoader::openSampleFile(int sampleIndex, SNDFILE*& sndfile, SF_INF
  * @param midi_note MIDI nota (0-127)
  * @return Reference na Instrument strukturu
  */
-Instrument& InstrumentLoader::getInstrument(uint8_t midi_note) {
-    validateMidiNote(midi_note, "getInstrument");
+Instrument& InstrumentLoader::getInstrumentNote(uint8_t midi_note) {
+    validateMidiNote(midi_note, "getInstrumentNote");
     return instruments_[midi_note];
 }
 
@@ -360,8 +360,8 @@ Instrument& InstrumentLoader::getInstrument(uint8_t midi_note) {
  * @param midi_note MIDI nota (0-127)
  * @return Const reference na Instrument strukturu
  */
-const Instrument& InstrumentLoader::getInstrument(uint8_t midi_note) const {
-    validateMidiNote(midi_note, "getInstrument const");
+const Instrument& InstrumentLoader::getInstrumentNote(uint8_t midi_note) const {
+    validateMidiNote(midi_note, "getInstrumentNote const");
     return instruments_[midi_note];
 }
 
