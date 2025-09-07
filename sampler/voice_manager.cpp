@@ -1,17 +1,29 @@
+/*
+THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
+EXCEPT FOR REQUIRED UPDATES LIKE SAMPLEDIR PROPAGATION
+*/
+
 #include "voice_manager.h"
 #include <algorithm>  // Pro případné výpočty (např. clamp gainu v mixu, ale zde ne)
 
 /**
- * @brief Konstruktor: Vytvoří fixní pool 128 voice, uloží sampleRate.
+ * @brief Konstruktor: Vytvoří fixní pool 128 voice, uloží sampleDir, sampleRate.
  * Každý hlas je inicializován s midiNote_ = index (0-127) pro přímý přístup.
+ * @param sampleDir Cesta k adresáři se samples.
  * @param sampleRate Frekvence vzorkování (Hz).
  * @param logger Reference na Logger.
  */
-VoiceManager::VoiceManager(int sampleRate, Logger& logger)
-    : logger_(logger), sampleRate_(sampleRate) {
+VoiceManager::VoiceManager(const std::string& sampleDir, int sampleRate, Logger& logger)
+    : logger_(logger), sampleRate_(sampleRate), sampleDir_(sampleDir) {
     if (sampleRate_ <= 0) {
         logger.log("VoiceManager/constructor", "error", 
                    "Invalid sampleRate " + std::to_string(sampleRate_) + " - must be > 0. Terminating.");
+        std::exit(1);
+    }
+    
+    if (sampleDir_.empty()) {
+        logger.log("VoiceManager/constructor", "error", 
+                   "Invalid sampleDir - cannot be empty. Terminating.");
         std::exit(1);
     }
     
@@ -22,21 +34,28 @@ VoiceManager::VoiceManager(int sampleRate, Logger& logger)
     }
     
     logger_.log("VoiceManager/constructor", "info", 
-                "VoiceManager created with fixed 128 voices (one per MIDI note) and sampleRate " + 
-                std::to_string(sampleRate_));
+                "VoiceManager created with fixed 128 voices (one per MIDI note), sampleDir '" + sampleDir_ + 
+                "' and sampleRate " + std::to_string(sampleRate_));
 }
 
 /**
  * @brief Inicializuje všechny 128 voices s instrumenty z Loaderu.
+ * Lokálně vytvoří SamplerIO a InstrumentLoader s sampleDir, sampleRate.
  * Pro každou voice (index = midiNote): Nastaví instrument z loader.getInstrumentNote(index).
- * Propaguje sampleRate_ do každé Voice::initialize.
- * @param loader Reference na InstrumentLoader.
  */
-void VoiceManager::initializeAll(InstrumentLoader& loader) {
-    if (sampleRate_ <= 0) {
-        logger_.log("VoiceManager/initializeAll", "error", "SampleRate not set - cannot initialize");
+void VoiceManager::initializeAll() {
+    if (sampleRate_ <= 0 || sampleDir_.empty()) {
+        logger_.log("VoiceManager/initializeAll", "error", "SampleRate or sampleDir not set - cannot initialize");
         std::exit(1);
     }
+    
+    // Lokální vytvoření SamplerIO pro prohledání sampleDir
+    SamplerIO samplerIO;
+    samplerIO.scanSampleDirectory(sampleDir_, logger_);
+    
+    // Lokální vytvoření InstrumentLoader pro načtení do bufferů
+    InstrumentLoader loader(samplerIO, sampleRate_, logger_);
+    loader.loadInstrument();
     
     int initialized = 0;
     for (int i = 0; i < 128; ++i) {
@@ -48,8 +67,8 @@ void VoiceManager::initializeAll(InstrumentLoader& loader) {
     }
     
     logger_.log("VoiceManager/initializeAll", "info", 
-                "Initialized all 128 voices with instruments from loader and sampleRate " + 
-                std::to_string(sampleRate_));
+                "Initialized all 128 voices with instruments from sampleDir '" + sampleDir_ + 
+                "' and sampleRate " + std::to_string(sampleRate_));
 }
 
 /**
