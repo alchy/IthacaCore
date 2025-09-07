@@ -83,7 +83,7 @@ Pro vlastní logiku použijte třídu `SamplerIO` (pro IO operace) a **NOVOU tř
 | Metoda | Parametry | Příklad | Komentář | Návratový typ |
 |--------|-----------|---------|----------|---------------|
 | `InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger)` | `sampler` – reference na SamplerIO, `targetSampleRate` – požadovaná frekvence (např. 44100), `logger` – reference na Logger | `InstrumentLoader loader(sampler, 44100, logger);` | Konstruktor: Inicializuje pole pro všechny MIDI noty 0-127. Loguje inicializaci s targetSampleRate. | `void` (konstruktor) |
-| `loadAllInstruments()` | - | `loader.loadAllInstruments();` | **HLAVNÍ METODA**: Načte všechny dostupné samples do paměti jako stereo float buffery. Prochází všechny MIDI noty 0-127 a velocity 0-7. Provádí mono→stereo konverzi. Validuje konzistenci po načtení. Loguje progress a statistiky. | `void` |
+| `loadInstrument()` | - | `loader.loadInstrument();` | **HLAVNÍ METODA**: Načte všechny dostupné samples do paměti jako stereo float buffery. Prochází všechny MIDI noty 0-127 a velocity 0-7. Provádí mono→stereo konverzi. Validuje konzistenci po načtení. Loguje progress a statistiky. | `void` |
 | `getInstrument(uint8_t midi_note)` | `midi_note` (0-127) | `Instrument& inst = loader.getInstrument(108);` | Vrátí referenci na Instrument strukturu pro danou MIDI notu. Kontroluje platnost rozsahu. Při chybě: log error a exit(1). | `Instrument&` |
 | `getTotalLoadedSamples()` | - | `int total = loader.getTotalLoadedSamples();` | Getter pro celkový počet úspěšně načtených samples. | `int` |
 | `getMonoSamplesCount()` | - | `int mono = loader.getMonoSamplesCount();` | Getter pro počet původně mono samples (před konverzí na stereo). | `int` |
@@ -122,7 +122,7 @@ sampler.scanSampleDirectory(dir, logger);
 
 // 2. NOVÉ: Načtení všech samples do paměti jako stereo buffery
 InstrumentLoader loader(sampler, 44100, logger);
-loader.loadAllInstruments();  // Automatická mono→stereo konverze a validace
+loader.loadInstrument();  // Automatická mono→stereo konverze a validace
 
 // 3. NOVÉ: Přístup k načteným stereo datům
 Instrument& inst = loader.getInstrument(108);
@@ -196,7 +196,7 @@ struct Instrument {
 #### **NOVÁ třída `InstrumentLoader` (v `instrument_loader.h/cpp`)**
 Centralizuje načítání WAV samples do paměti s klíčovými vlastnostmi:
 - **Konstruktor**: `InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger)`
-- **Hlavní metoda**: `loadAllInstruments()` - načte všechny MIDI noty 0-127 jako stereo buffery
+- **Hlavní metoda**: `loadInstrument()` - načte všechny MIDI noty 0-127 jako stereo buffery
 - **Automatická konverze**: Mono→Stereo duplikace (L=R), PCM→Float konverze, Non-interleaved→Interleaved
 - **Validace**: `validateStereoConsistency()` - kontrola integrity všech bufferů
 - **Paměťová správa**: Malloc/free pro buffery, automatické uvolnění v destruktoru
