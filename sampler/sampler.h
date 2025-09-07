@@ -20,8 +20,8 @@ struct SampleInfo {
     double duration_seconds;        // Délka v sekundách
     int channels;                   // Počet kanálů (1=mono, 2=stereo, atd.)
     bool is_stereo;                 // True pokud stereo (channels >= 2)
-    bool interleaved_format;        // NOVÉ: True pokud je WAV v interleaved formátu (standard)
-    bool needs_conversion;          // NOVÉ: True pokud potřebuje konverzi do float (16-bit PCM -> float)
+    bool interleaved_format;        // True pokud je WAV v interleaved formátu (standard)
+    bool needs_conversion;          // True pokud potřebuje konverzi do float (16-bit PCM -> float)
 };
 
 // Hlavní třída pro IO operace se WAV samplami
@@ -34,26 +34,26 @@ public:
     // Destruktor: Loguje ukončení instance
     ~SamplerIO();
 
-    // REF: Metoda pro prohledání adresáře s WAV soubory a naplnění seznamu metadat
+    // Metoda pro prohledání adresáře s WAV soubory a naplnění seznamu metadat
     // Vstup: Cesta k adresáři (string), reference na Logger pro logování
     // Chování: Prochází adresář, parsuje názvy podle patternu mXXX-velY-fZZ.wav,
     // načte freq z WAV headeru pomocí libsndfile; loguje info/warn/error
-    // NOVÉ: Detekuje interleaved formát a potřebu konverze do float
+    // Detekuje interleaved formát a potřebu konverze do float
     // Validace konzistence: Kontroluje, zda frekvence v názvu odpovídá frekvenci v souboru
     // Při chybě (např. neexistující adresář, nekonzistentní frekvence): Zaloguje error a volá std::exit(1)
     void scanSampleDirectory(const std::string& directoryPath, Logger& logger);
 
-    // REF: Metoda pro vyhledání indexu sample v interním seznamu podle MIDI noty a velocity
-    // Vstup: uint8_t midi_note, uint8_t velocity
+    // Metoda pro vyhledání indexu sample v interním seznamu podle MIDI noty, velocity a požadované frekvence vzorkování
+    // Vstup: uint8_t midi_note, uint8_t velocity, int sampleRate (frekvence v Hz, např. 44100)
     // Výstup: Index v seznamu (int, -1 pokud nenalezeno)
-    // Chování: Lineární prohledávání, vrací první shodu
-    int findSampleInSampleList(uint8_t midi_note, uint8_t velocity) const;
+    // Chování: Lineární prohledávání, vrací první shodu kde odpovídají všechny tři kritéria (MIDI + velocity + frequency == sampleRate)
+    int findSampleInSampleList(uint8_t midi_note, uint8_t velocity, int sampleRate) const;
 
-    // REF: Getter pro přístup k načtenému seznamu (volitelný)
+    // Getter pro přístup k načtenému seznamu (volitelný)
     // Vrátí konstantní referenci na vektor SampleInfo pro čtení dat
     const std::vector<SampleInfo>& getLoadedSampleList() const;
 
-    // REF: Gettery pro přístup k metadatům na základě indexu
+    // Gettery pro přístup k metadatům na základě indexu
     // Tyto metody kontrolují platnost indexu; při neplatném: logují error a exit(1)
     // Vstup: int index (musí být >=0 a < velikost seznamu)
     // Výstup: Hodnota z SampleInfo na daném indexu
@@ -75,7 +75,7 @@ public:
     // Getter pro počet vzorků (frames)
     sf_count_t getSampleCount(int index, Logger& logger) const;
 
-    // Getter pro délku v sekundách (přejmenováno pro jasnost)
+    // Getter pro délku v sekundách
     double getDurationInSeconds(int index, Logger& logger) const;
 
     // Getter pro počet kanálů
@@ -84,9 +84,7 @@ public:
     // Getter pro stereo flag (true pokud channels >= 2)
     bool getIsStereo(int index, Logger& logger) const;
 
-    // NOVÉ gettery pro rozšířené atributy
-    
-    // Getter pro interleaved formát flag (přejmenováno pro konzistenci s bool konvencí)
+    // Getter pro interleaved formát flag
     bool getIsInterleavedFormat(int index, Logger& logger) const;
 
     // Getter pro potřebu konverze do float
@@ -95,7 +93,7 @@ public:
 private:
     std::vector<SampleInfo> sampleList;  // Interní seznam načtených sample
 
-    // NOVÉ pomocné metody pro detekci formátu
+    // Pomocné metody pro detekci formátu
     
     // Detekce, zda je WAV v interleaved formátu (pro standardní WAV vždy true)
     // Parametry: cesta k souboru, reference na logger
@@ -110,7 +108,7 @@ private:
     bool detectFloatConversionNeed(const char* filename, Logger& logger) const;
 };
 
-// REF: Deklarace funkce pro řízení sampleru
+// Deklarace funkce pro řízení sampleru
 // Volána z main.cpp; obsahuje logiku načítání a vyhledávání s loggerem
 // @param logger Reference na Logger pro logování
 // @return 0 při úspěchu, 1 při chybě (chyby jsou řešeny ukončením programu)

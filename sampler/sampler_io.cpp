@@ -319,15 +319,20 @@ void SamplerIO::scanSampleDirectory(const std::string& directoryPath, Logger& lo
 }
 
 /**
- * @brief Vyhledá index sample v interním seznamu podle MIDI noty a velocity
+ * @brief Vyhledá index sample v interním seznamu podle MIDI noty, velocity a požadované frekvence vzorkování
  * @param midi_note MIDI nota (0-127)
  * @param velocity Velocity (0-7)
+ * @param sampleRate Požadovaná frekvence vzorkování v Hz (např. 44100)
  * @return Index v seznamu nebo -1 pokud nenalezeno
+ * Chování: Lineární prohledávání, vrací první shodu kde odpovídají všechny tři kritéria.
+ * Pokud sampleRate je 0 nebo -1, ignoruje se (pro zpětnou kompatibilitu, ale nedoporučeno).
  */
-int SamplerIO::findSampleInSampleList(uint8_t midi_note, uint8_t velocity) const {
+int SamplerIO::findSampleInSampleList(uint8_t midi_note, uint8_t velocity, int sampleRate) const {
     for (size_t i = 0; i < sampleList.size(); ++i) {
+        bool frequencyMatch = (sampleRate <= 0) ? true : (sampleList[i].frequency == sampleRate);  // Ignoruj frekvenci při neplatné hodnotě
         if (sampleList[i].midi_note == midi_note && 
-            sampleList[i].midi_note_velocity == velocity) {
+            sampleList[i].midi_note_velocity == velocity &&
+            frequencyMatch) {
             return static_cast<int>(i);
         }
     }

@@ -6,7 +6,7 @@
  * Cesta k adresáři je pevně zakódována (lze upravit).
  * Používá logger pro všechny výstupy (info, warn).
  * Deleguje prohledávání do SamplerIO::scanSampleDirectory.
- * ROZŠÍŘENO: Nyní také zobrazuje informace o interleaved formátu a potřebě konverze.
+ * Zobrazuje informace o interleaved formátu a potřebě konverze.
  * @param logger Reference na Logger pro logování.
  * @return 0 při úspěchu, 1 při chybě (ale chyby jsou řešeny ukončením programu).
  */
@@ -18,8 +18,8 @@ int runSampler(Logger& logger) {
     std::string sampleDir = R"(c:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)";
     sampler.scanSampleDirectory(sampleDir, logger);  // Delegace prohledávání (obsahuje logování a exit při chybě)
     
-    // REF: Příklad vyhledávání (MIDI 108, velocity 7) – použití nového jména a getterů
-    int index = sampler.findSampleInSampleList(108, 7);
+    // REF: Příklad vyhledávání (MIDI 108, velocity 7, sample rate 44100 Hz) – použití rozšířeného vyhledávání
+    int index = sampler.findSampleInSampleList(108, 7, 44100);
     if (index != -1) {
         // Použití getterů pro přístup k metadatům (předá logger pro kontrolu)
         std::string filename = sampler.getFilename(index, logger);
@@ -29,15 +29,15 @@ int runSampler(Logger& logger) {
         
         // Původní metadata
         sf_count_t sampleCount = sampler.getSampleCount(index, logger);
-        double duration = sampler.getDurationInSeconds(index, logger);  // Upravené volání
+        double duration = sampler.getDurationInSeconds(index, logger);
         int channels = sampler.getChannelCount(index, logger);
         bool isStereo = sampler.getIsStereo(index, logger);
         
-        // NOVÉ metadata - rozšířené atributy
-        bool isInterleaved = sampler.getIsInterleavedFormat(index, logger);  // Upravené volání
+        // Metadata - rozšířené atributy
+        bool isInterleaved = sampler.getIsInterleavedFormat(index, logger);
         bool needsConversion = sampler.getNeedsConversion(index, logger);
         
-        // Sestavení detailní zprávy se všemi metadaty včetně nových atributů
+        // Sestavení detailní zprávy se všemi metadaty
         std::string stereoInfo = isStereo ? "stereo" : "mono";
         std::string interleavedInfo = isInterleaved ? "interleaved" : "non-interleaved";
         std::string conversionInfo = needsConversion ? "needs float conversion" : "no conversion needed";
@@ -54,7 +54,7 @@ int runSampler(Logger& logger) {
         
         logger.log("runSampler/findSampleInSampleList", "info", msg);
         
-        // NOVÉ: Dodatečné logování pro detailní analýzu formátu
+        // Dodatečné logování pro detailní analýzu formátu
         if (needsConversion) {
             logger.log("runSampler/analysis", "info", 
                       "Sample requires format conversion from PCM to 32-bit float for audio processing");
@@ -73,7 +73,7 @@ int runSampler(Logger& logger) {
         
         return 0;  // Úspěch
     } else {
-        logger.log("runSampler/findSampleInSampleList", "warn", "Sample for MIDI 108 vel 7 not found.");
+        logger.log("runSampler/findSampleInSampleList", "warn", "Sample for MIDI 108 vel 7 at 44100 Hz not found.");
         return 0;  // Žádná chyba, jen nenalezeno
     }
 }
