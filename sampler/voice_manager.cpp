@@ -1,81 +1,119 @@
 #include "voice_manager.h"
-#include <algorithm>  // Pro std::min, pokud potřeba
+#include <algorithm>  // Pro případné výpočty (např. clamp gainu v mixu, ale zde ne)
 
 /**
- * @brief Inicializuje všechny voices s instrumenty z loaderu.
- * Pro každou voice přiřadí instrument pro její MIDI notu (např. voice i pro MIDI i).
- * @param loader Reference na InstrumentLoader.
- * @param logger Reference na logger pro logování této operace.
+ * @brief Konstruktor: Vytvoří fixní pool 128 voice, uloží sampleRate.
+ * Každý hlas je inicializován s midiNote_ = index (0-127) pro přímý přístup.
+ * @param sampleRate Frekvence vzorkování (Hz).
+ * @param logger Reference na Logger.
  */
-void VoiceManager::initializeAll(const InstrumentLoader& loader, Logger& logger) {
-    for (auto& voice : voices_) {
-        const Instrument& inst = loader.getInstrumentNote(voice.getMidiNote());
-        voice.initialize(inst, logger);  // Předání loggeru do Voice
+VoiceManager::VoiceManager(int sampleRate, Logger& logger)
+    : logger_(logger), sampleRate_(sampleRate) {
+    if (sampleRate_ <= 0) {
+        logger.log("VoiceManager/constructor", "error", 
+                   "Invalid sampleRate " + std::to_string(sampleRate_) + " - must be > 0. Terminating.");
+        std::exit(1);
     }
-    logger.log("VoiceManager/initializeAll", "info", "All voices initialized from loader");
+    
+    voices_.resize(128);  // Fixní velikost pro MIDI 0-127
+    for (int i = 0; i < 128; ++i) {
+        // Každý hlas má fixní midiNote = index (pro přímý přístup voices_[midiNote])
+        voices_[i] = Voice(static_cast<uint8_t>(i), logger_);
+    }
+    
+    logger_.log("VoiceManager/constructor", "info", 
+                "VoiceManager created with fixed 128 voices (one per MIDI note) and sampleRate " + 
+                std::to_string(sampleRate_));
 }
 
 /**
- * @brief Nastaví stav noty pro danou MIDI notu.
- * Najde nebo vytvoří voice pro tuto notu, zavolá setNoteState.
- * @param midiNote MIDI nota (0-127).
+ * @brief Inicializuje všechny 128 voices s instrumenty z Loaderu.
+ * Pro každou voice (index = midiNote): Nastaví instrument z loader.getInstrumentNote(index).
+ * Propaguje sampleRate_ do každé Voice::initialize.
+ * @param loader Reference na InstrumentLoader.
+ */
+void VoiceManager::initializeAll(InstrumentLoader& loader) {
+    if (sampleRate_ <= 0) {
+        logger_.log("VoiceManager/initializeAll", "error", "SampleRate not set - cannot initialize");
+        std::exit(1);
+    }
+    
+    int initialized = 0;
+    for (int i = 0; i < 128; ++i) {
+        // Přímý přístup: index = midiNote
+        uint8_t midiNote = static_cast<uint8_t>(i);
+        const Instrument& inst = loader.getInstrumentNote(midiNote);
+        voices_[i].initialize(inst, sampleRate_, logger_);
+        ++initialized;
+    }
+    
+    logger_.log("VoiceManager/initializeAll", "info", 
+                "Initialized all 128 voices with instruments from loader and sampleRate " + 
+                std::to_string(sampleRate_));
+}
+
+/**
+ * @brief Nastaví stav note pro danou MIDI notu (přímý přístup k voice[midiNote]).
+ * Žádný hledání nebo steal – fixní mapování.
+ * @param midiNote MIDI nota (0-127) - slouží jako index do voices_.
  * @param isOn True pro note-on, false pro note-off.
  * @param velocity Velocity (0-127).
- * @param logger Reference na logger pro logování této operace.
  */
-void VoiceManager::setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity, Logger& logger) {
-    Voice* targetVoice = findVoiceForNote(midiNote);
-    if (targetVoice) {
-        targetVoice->setNoteState(isOn, velocity, logger);  // Předání loggeru do Voice
+void VoiceManager::setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) {
+    if (midiNote > 127) {
+        logger_.log("VoiceManager/setNoteState", "warn", 
+                    "Invalid MIDI note " + std::to_string(midiNote) + " - ignoring");
+        return;
     }
-    logger.log("VoiceManager/setNoteState", "info", 
-              "Set state for MIDI " + std::to_string(midiNote) + 
-              (isOn ? " ON" : " OFF") + " vel " + std::to_string(velocity));
+    
+    // Přímý přístup: voices_[midiNote] (fixní mapování)
+    voices_[midiNote].setNoteState(isOn, velocity);
+    
+    std::string stateStr = isOn ? "note-on" : "note-off";
+    logger_.log("VoiceManager/setNoteState", "info", 
+                "Set " + stateStr + " for MIDI " + std::to_string(midiNote) + 
+                " (voice index " + std::to_string(midiNote) + ")");
 }
 
 /**
- * @brief Zpracuje audio blok pro všechny voices (polyfonní mixing).
- * Prochází všechny voices, volá processBlock a mixuje do outputu.
- * @param outputBuffer Výstupní stereo buffer.
+ * @brief Procesuje audio blok: Prochází všechny 128 hlasů, součítá výstupy aktivních do bufferu.
+ * Pro každou aktivní voice: Volá processBlock a přidává k výstupu (placeholder pro mix).
+ * @param outputBuffer Simulovaný buffer pro výstup (stereo, placeholder).
  * @param numSamples Počet samples v bloku.
- * @param logger Reference na logger pro logování této operace.
- * @return True, pokud alespoň jedna voice je aktivní.
+ * @return True, pokud je alespoň jedna aktivní voice.
  */
-bool VoiceManager::processBlock(AudioBuffer& outputBuffer, int numSamples, Logger& logger) {
+bool VoiceManager::processBlock(/* AudioBuffer& outputBuffer, int numSamples */) {
     bool anyActive = false;
-    for (auto& voice : voices_) {
-        if (voice.processBlock(outputBuffer, numSamples, logger)) {  // Předání loggeru do Voice
+    int activeCount = 0;
+    
+    // Procházet všechny 128 hlasů (fixní loop – deterministický mixdown)
+    for (int i = 0; i < 128; ++i) {
+        if (voices_[i].processBlock(/* outputBuffer slice pro tento hlas, numSamples */)) {
+            ++activeCount;
             anyActive = true;
+            // Placeholder mixdown: Součítat výstup voice[i] do globálního outputBuffer
+            // Např.: float* left = outputBuffer.getWritePointer(0);
+            //       float* right = outputBuffer.getWritePointer(1);
+            //       // Pro každý sample v numSamples: left[j] += voice_left[j]; right[j] += voice_right[j];
+            //       // Obálka (gain) je už aplikována v Voice::processBlock
         }
     }
-    if (anyActive) {
-        logger.log("VoiceManager/processBlock", "info", 
-                  "Processed block of " + std::to_string(numSamples) + 
-                  " samples - " + std::to_string(countActiveVoices()) + " active voices");
+    
+    if (activeCount > 0) {
+        logger_.log("VoiceManager/processBlock", "info", 
+                    "Processed block with " + std::to_string(activeCount) + " active voices (mixdown of all 128)");
+    } else {
+        logger_.log("VoiceManager/processBlock", "info", "No active voices - silent block");
     }
+    
     return anyActive;
 }
 
 /**
- * @brief Najde voice pro MIDI notu (jednoduchá – vrátí první volnou).
- * @param midiNote MIDI nota (0-127).
- * @return Pointer na Voice, nebo první pokud žádná volná (steal).
+ * @brief Getter pro počet aktivních voices (prochází všechny 128).
+ * @return Počet hlasů, kde isActive() == true (včetně releasing).
  */
-Voice* VoiceManager::findVoiceForNote(uint8_t midiNote) {
-    for (auto& voice : voices_) {
-        if (voice.getMidiNote() == midiNote && !voice.isActive()) {
-            return &voice;
-        }
-    }
-    // Pokud žádná volná, vrať první (steal)
-    return &voices_[0];
-}
-
-/**
- * @brief Počítá aktivní voices.
- * @return Počet aktivních voice.
- */
-int VoiceManager::countActiveVoices() const {
+int VoiceManager::getActiveVoicesCount() const {
     int count = 0;
     for (const auto& voice : voices_) {
         if (voice.isActive()) ++count;

@@ -297,6 +297,21 @@ AudioBuffer simBuf(512);  // Simulace pro test
 voice.processBlock(simBuf, 512);  // Aplikován gain, výstup v simBuf
 // Převeď simBuf do JUCE bufferu
 ```
+---
+
+```mermaid
+graph TD
+    A[main.cpp: Inicializace Loggeru] --> B[runSampler: SamplerIO scanSampleDirectory]
+    B --> C[InstrumentLoader: loadInstrument - Načtení do stereo bufferů]
+    C --> D[VoiceManager: Konstruktor s sampleRate]
+    D --> E[VoiceManager.initializeAll: Pro každou Voice initialize s Instrumentem]
+    E --> F[Voice.initialize: Uložení sampleRate, Instrument pointer]
+    F --> G[Voice.setNoteState: Nastavení stavu, obálka na sampleRate]
+    G --> H[Voice.processBlock: Posun position, aplikace gain z releaseSamples]
+    H --> I[Instrument.get_sample_begin_pointer: Stereo data [L,R...]]
+    I --> J[Mixdown v VoiceManager.processBlock: Součet aktivních hlasů]
+    J --> K[Výstup: Stereo audio buffer]
+```
 
 ---
 

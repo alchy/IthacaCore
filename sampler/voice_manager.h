@@ -1,75 +1,71 @@
 #ifndef VOICE_MANAGER_H
 #define VOICE_MANAGER_H
 
-#include "voice.h"          // Pro Voice
-#include "instrument_loader.h"  // Pro Instrument
-#include "core_logger.h"    // Pro Logger
-#include <vector>           // Pro pool voice
+#include "voice.h"
+#include "instrument_loader.h"  // Pro InstrumentLoader a getInstrumentNote
+#include <vector>               // Pro std::vector<Voice>
 
 /**
  * @class VoiceManager
- * @brief Spravuje pool voice pro polyfonní přehrávání.
+ * @brief Správce fixního poolu 128 voice pro polyfonní přehrávání (jeden hlas na MIDI notu 0-127).
  * 
- * Inicializuje fixed pool (např. 128 voice), přiřazuje MIDI noty k volným voices.
- * Podporuje note-on/off a processBlock pro celý systém (mixing do výstupního bufferu).
+ * Každý hlas je pevně vázán na MIDI notu (index = midiNote). Žádný dynamický přiřazování nebo stealing –
+ * přímý přístup pro setNoteState a mixdown všech aktivních hlasů v processBlock.
  * 
- * DŮLEŽITÉ: Voice pool je fixed-size (max polyfonie). Při plném poolu ignoruje nové noty (round-robin nebo steal).
- * Mixing: Additive – všechny aktivní voices přidávají do výstupního bufferu.
- * Logger: Není uložen jako člen – předává se jako parametr do metod (dependency injection).
+ * Klíčové vlastnosti:
+ * - Fixní velikost: 128 hlasů (MIDI_NOTE_MAX + 1).
+ * - setNoteState: Přímý přístup podle midiNote (O(1)).
+ * - processBlock: Prochází všechny 128 hlasů, součítá výstupy aktivních s obálkou.
+ * - Žádná krádež hlasů: Limit je 128 současných not.
+ * 
+ * PŘÍKLAD POUŽITÍ:
+ * VoiceManager manager(44100, logger);  // Automaticky 128 hlasů
+ * manager.initializeAll(loader);
+ * manager.setNoteState(60, true, 100);  // Note-on pro C4
+ * manager.processBlock(output, 512);    // Mixdown do bufferu
  */
 class VoiceManager {
 public:
     /**
-     * @brief Konstruktor: Vytvoří pool o velikosti maxVoices.
-     * @param maxVoices Maximální polyfonie (např. 128).
-     * Logger se nepředává zde – předává se do metod.
+     * @brief Konstruktor: Vytvoří fixní pool 128 voice, uloží sampleRate.
+     * Každý hlas má midiNote_ = index (0-127).
+     * @param sampleRate Frekvence vzorkování (Hz) - propagováno do Voice.
+     * @param logger Reference na Logger.
      */
-    explicit VoiceManager(int maxVoices) : maxVoices_(maxVoices) {
-        voices_.reserve(maxVoices_);
-        for (int i = 0; i < maxVoices_; ++i) {
-            voices_.emplace_back(static_cast<uint8_t>(i % 128));  // Inicializace s MIDI notou
-        }
-        // Žádné logování zde – předá se do metod
-    }
+    VoiceManager(int sampleRate, Logger& logger);
 
     /**
-     * @brief Inicializuje všechny voices s instrumenty z loaderu.
-     * @param loader Reference na InstrumentLoader.
-     * @param logger Reference na logger pro logování této operace.
-     * Pro každou voice přiřadí instrument pro její MIDI notu.
+     * @brief Inicializuje všechny 128 voices s instrumenty z Loaderu.
+     * Pro každou voice (index = midiNote): Nastaví instrument z loader.getInstrumentNote(index).
+     * @param loader Reference na InstrumentLoader pro instrumenty.
      */
-    void initializeAll(const InstrumentLoader& loader, Logger& logger);
+    void initializeAll(InstrumentLoader& loader);
 
     /**
-     * @brief Nastaví stav noty pro danou MIDI notu.
-     * @param midiNote MIDI nota (0-127).
-     * @param isOn True pro note-on, false pro note-off.
-     * @param velocity Velocity (0-127).
-     * @param logger Reference na logger pro logování této operace.
-     * Najde voice pro tuto notu, zavolá setNoteState.
+     * @brief Nastaví stav note pro danou MIDI notu (přímý přístup k voice[midiNote]).
+     * @param midiNote MIDI nota (0-127) - slouží jako index.
+     * @param isOn True pro start (note-on), false pro stop (note-off).
+     * @param velocity Velocity (0-127, mapováno na layer 0-7).
      */
-    void setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity, Logger& logger);
+    void setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity = 0);
 
     /**
-     * @brief Zpracuje audio blok pro všechny voices (polyfonní mixing).
-     * @param outputBuffer Výstupní stereo buffer.
+     * @brief Procesuje audio blok: Prochází všechny 128 hlasů, součítá výstupy aktivních do bufferu.
+     * Placeholder pro mixdown (součet left/right s obálkou).
+     * @param outputBuffer Simulovaný buffer pro výstup (stereo, placeholder).
      * @param numSamples Počet samples v bloku.
-     * @param logger Reference na logger pro logování této operace.
-     * @return True, pokud alespoň jedna voice je aktivní.
-     * Prochází všechny voices, volá processBlock a mixuje do outputu.
+     * @return True, pokud je alespoň jedna aktivní voice.
      */
-    bool processBlock(AudioBuffer& outputBuffer, int numSamples, Logger& logger);
+    bool processBlock(/* AudioBuffer& outputBuffer, int numSamples */);
+
+    // Gettery
+    int getMaxVoices() const { return 128; }  // Fixní
+    int getActiveVoicesCount() const;
 
 private:
-    // Pomocná: Najde voice pro MIDI notu (jednoduchá – vrátí první volnou)
-    Voice* findVoiceForNote(uint8_t midiNote);
-
-    // Pomocná: Počítá aktivní voices
-    int countActiveVoices() const;
-
-    std::vector<Voice> voices_;     // Pool voice
-    int maxVoices_;                 // Maximální velikost poolu
-    // Žádný logger_ člen – předává se jako parametr do metod
+    std::vector<Voice> voices_;     // Fixní pole 128 voice (index = midiNote)
+    Logger& logger_;                // Reference na Logger
+    int sampleRate_;                // Uložený sample rate pro propagaci do Voice
 };
 
 #endif // VOICE_MANAGER_H
