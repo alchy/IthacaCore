@@ -18,9 +18,6 @@
     <ClInclude Include="C:\Users\jindr\IthacaCore\sampler\core_logger.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="C:\Users\jindr\IthacaCore\sampler\sampler_io.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="C:\Users\jindr\IthacaCore\sampler\sampler.h">
       <Filter>Header Files</Filter>
     </ClInclude>

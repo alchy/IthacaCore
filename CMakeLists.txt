@@ -31,7 +31,6 @@ add_executable(IthacaCore
     
     # SamplerIO module  
     sampler/sampler_io.cpp
-    sampler/sampler_io.h
     
     # Sampler coordinator module
     sampler/sampler.cpp

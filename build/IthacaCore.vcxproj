@@ -444,7 +444,6 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="C:\Users\jindr\IthacaCore\sampler\core_logger.cpp" />
     <ClInclude Include="C:\Users\jindr\IthacaCore\sampler\core_logger.h" />
     <ClCompile Include="C:\Users\jindr\IthacaCore\sampler\sampler_io.cpp" />
-    <ClInclude Include="C:\Users\jindr\IthacaCore\sampler\sampler_io.h" />
     <ClCompile Include="C:\Users\jindr\IthacaCore\sampler\sampler.cpp" />
     <ClInclude Include="C:\Users\jindr\IthacaCore\sampler\sampler.h" />
   </ItemGroup>

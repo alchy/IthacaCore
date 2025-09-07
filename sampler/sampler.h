@@ -34,14 +34,14 @@ public:
     // Destruktor: Loguje ukončení instance
     ~SamplerIO();
 
-    // REF: Metoda pro načtení seznamu WAV souborů z adresáře a naplnění seznamu
+    // REF: Metoda pro prohledání adresáře s WAV soubory a naplnění seznamu metadat
     // Vstup: Cesta k adresáři (string), reference na Logger pro logování
-    // Chování: Prochází adresář, parsuje názvy podle patternu mXXX-velY-ZZ.wav,
+    // Chování: Prochází adresář, parsuje názvy podle patternu mXXX-velY-fZZ.wav,
     // načte freq z WAV headeru pomocí libsndfile; loguje info/warn/error
     // NOVÉ: Detekuje interleaved formát a potřebu konverze do float
     // Validace konzistence: Kontroluje, zda frekvence v názvu odpovídá frekvenci v souboru
     // Při chybě (např. neexistující adresář, nekonzistentní frekvence): Zaloguje error a volá std::exit(1)
-    void loadSamples(const std::string& directoryPath, Logger& logger);
+    void scanSampleDirectory(const std::string& directoryPath, Logger& logger);
 
     // REF: Metoda pro vyhledání indexu sample v interním seznamu podle MIDI noty a velocity
     // Vstup: uint8_t midi_note, uint8_t velocity
@@ -75,8 +75,8 @@ public:
     // Getter pro počet vzorků (frames)
     sf_count_t getSampleCount(int index, Logger& logger) const;
 
-    // Getter pro délku v sekundách
-    double getDurationSeconds(int index, Logger& logger) const;
+    // Getter pro délku v sekundách (přejmenováno pro jasnost)
+    double getDurationInSeconds(int index, Logger& logger) const;
 
     // Getter pro počet kanálů
     int getChannelCount(int index, Logger& logger) const;
@@ -86,8 +86,8 @@ public:
 
     // NOVÉ gettery pro rozšířené atributy
     
-    // Getter pro interleaved formát flag
-    bool getInterleavedFormat(int index, Logger& logger) const;
+    // Getter pro interleaved formát flag (přejmenováno pro konzistenci s bool konvencí)
+    bool getIsInterleavedFormat(int index, Logger& logger) const;
 
     // Getter pro potřebu konverze do float
     bool getNeedsConversion(int index, Logger& logger) const;
@@ -99,13 +99,13 @@ private:
     
     // Detekce, zda je WAV v interleaved formátu (pro standardní WAV vždy true)
     // Parametry: cesta k souboru, reference na logger
-    // Vrací: true pokud interleaved, false jinak (vzácné případy)
+    // Vrácí: true pokud interleaved, false jinak (vzácné případy)
     // Při chybě: loguje error a volá std::exit(1)
     bool detectInterleavedFormat(const char* filename, Logger& logger) const;
 
     // Detekce subformátu a potřeby konverze do float
     // Parametry: cesta k souboru, reference na logger  
-    // Vrací: true pokud 16-bit PCM (potřebuje konverzi), false pokud již float
+    // Vrácí: true pokud 16-bit PCM (potřebuje konverzi), false pokud již float
     // Při chybě nebo nepodporovaném formátu: loguje error a volá std::exit(1)
     bool detectFloatConversionNeed(const char* filename, Logger& logger) const;
 };

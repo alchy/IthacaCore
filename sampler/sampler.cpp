@@ -1,11 +1,11 @@
 #include "sampler.h"  // Include hlavičky pro definice SampleInfo a SamplerIO
 
 /**
- * @brief Funkce pro řízení sampleru – načte WAV soubory z adresáře, vyhledá příklad a loguje výsledky.
+ * @brief Funkce pro řízení sampleru – prohledá adresář s WAV soubory, vyhledá příklad a loguje výsledky.
  * Tato funkce je volána z main.cpp a obsahuje celou logiku sampleru.
  * Cesta k adresáři je pevně zakódována (lze upravit).
  * Používá logger pro všechny výstupy (info, warn).
- * Deleguje načítání do SamplerIO::loadSamples.
+ * Deleguje prohledávání do SamplerIO::scanSampleDirectory.
  * ROZŠÍŘENO: Nyní také zobrazuje informace o interleaved formátu a potřebě konverze.
  * @param logger Reference na Logger pro logování.
  * @return 0 při úspěchu, 1 při chybě (ale chyby jsou řešeny ukončením programu).
@@ -13,10 +13,10 @@
 int runSampler(Logger& logger) {
     logger.log("runSampler", "info", "Starting sampler.");
 
-    // REF: Načtení a test sampleru – delegace do SamplerIO
+    // REF: Prohledání a test sampleru – delegace do SamplerIO
     SamplerIO sampler;
     std::string sampleDir = R"(c:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)";
-    sampler.loadSamples(sampleDir, logger);  // Delegace načítání (obsahuje logování a exit při chybě)
+    sampler.scanSampleDirectory(sampleDir, logger);  // Delegace prohledávání (obsahuje logování a exit při chybě)
     
     // REF: Příklad vyhledávání (MIDI 108, velocity 7) – použití nového jména a getterů
     int index = sampler.findSampleInSampleList(108, 7);
@@ -29,12 +29,12 @@ int runSampler(Logger& logger) {
         
         // Původní metadata
         sf_count_t sampleCount = sampler.getSampleCount(index, logger);
-        double duration = sampler.getDurationSeconds(index, logger);
+        double duration = sampler.getDurationInSeconds(index, logger);  // Upravené volání
         int channels = sampler.getChannelCount(index, logger);
         bool isStereo = sampler.getIsStereo(index, logger);
         
         // NOVÉ metadata - rozšířené atributy
-        bool isInterleaved = sampler.getInterleavedFormat(index, logger);
+        bool isInterleaved = sampler.getIsInterleavedFormat(index, logger);  // Upravené volání
         bool needsConversion = sampler.getNeedsConversion(index, logger);
         
         // Sestavení detailní zprávy se všemi metadaty včetně nových atributů

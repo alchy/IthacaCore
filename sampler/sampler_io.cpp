@@ -167,22 +167,22 @@ bool SamplerIO::detectFloatConversionNeed(const char* filename, Logger& logger) 
 }
 
 /**
- * @brief Načte WAV soubory z adresáře a parsuje jejich metadata
+ * @brief Prohledá adresář s WAV soubory a naplní seznam metadat (přejmenováno z loadSamples)
  * ROZŠÍŘENO: Nyní také detekuje interleaved formát a potřebu konverze
  * @param directoryPath Cesta k adresáři se samples
  * @param logger Reference na logger pro zaznamenávání
  */
-void SamplerIO::loadSamples(const std::string& directoryPath, Logger& logger) {
-    logger.log("SamplerIO/loadSamples", "info", "Loading samples from: " + directoryPath);
+void SamplerIO::scanSampleDirectory(const std::string& directoryPath, Logger& logger) {
+    logger.log("SamplerIO/scanSampleDirectory", "info", "Scanning sample directory: " + directoryPath);
     
     // Kontrola existence adresáře
     if (!std::filesystem::exists(directoryPath)) {
-        logger.log("SamplerIO/loadSamples", "error", "Directory does not exist: " + directoryPath);
+        logger.log("SamplerIO/scanSampleDirectory", "error", "Directory does not exist: " + directoryPath);
         std::exit(1);
     }
     
     if (!std::filesystem::is_directory(directoryPath)) {
-        logger.log("SamplerIO/loadSamples", "error", "Path is not a directory: " + directoryPath);
+        logger.log("SamplerIO/scanSampleDirectory", "error", "Path is not a directory: " + directoryPath);
         std::exit(1);
     }
     
@@ -210,13 +210,13 @@ void SamplerIO::loadSamples(const std::string& directoryPath, Logger& logger) {
                 
                 // Validace rozsahů
                 if (midiNote < 0 || midiNote > 127) {
-                    logger.log("SamplerIO/loadSamples", "warn", 
+                    logger.log("SamplerIO/scanSampleDirectory", "warn", 
                               "Invalid MIDI note " + std::to_string(midiNote) + " in file: " + filename);
                     continue;
                 }
                 
                 if (velocity < 0 || velocity > 7) {
-                    logger.log("SamplerIO/loadSamples", "warn", 
+                    logger.log("SamplerIO/scanSampleDirectory", "warn", 
                               "Invalid velocity " + std::to_string(velocity) + " in file: " + filename);
                     continue;
                 }
@@ -230,7 +230,7 @@ void SamplerIO::loadSamples(const std::string& directoryPath, Logger& logger) {
                 
                 SNDFILE* sndFile = sf_open(fullPath.c_str(), SFM_READ, &sfInfo);
                 if (!sndFile) {
-                    logger.log("SamplerIO/loadSamples", "error", 
+                    logger.log("SamplerIO/scanSampleDirectory", "error", 
                               "Cannot open WAV file: " + fullPath + " - " + sf_strerror(nullptr));
                     std::exit(1);
                 }
@@ -239,14 +239,14 @@ void SamplerIO::loadSamples(const std::string& directoryPath, Logger& logger) {
                 if (filenameFreq != -1) {
                     int normalizedFreq = normalizeFrequency(filenameFreq);
                     if (normalizedFreq == -1) {
-                        logger.log("SamplerIO/loadSamples", "error", 
+                        logger.log("SamplerIO/scanSampleDirectory", "error", 
                                   "Unsupported frequency format in filename: " + filename + 
                                   " (frequency: " + std::to_string(filenameFreq) + 
                                   "). Supported: 8, 11, 16, 22, 44, 48, 88, 96, 176, 192");
                         sf_close(sndFile);
                         std::exit(1);
                     } else if (normalizedFreq != sfInfo.samplerate) {
-                        logger.log("SamplerIO/loadSamples", "error", 
+                        logger.log("SamplerIO/scanSampleDirectory", "error", 
                                   "Frequency mismatch in file: " + filename + 
                                   " (filename: " + std::to_string(filenameFreq) + 
                                   " -> " + std::to_string(normalizedFreq) + 
@@ -256,7 +256,7 @@ void SamplerIO::loadSamples(const std::string& directoryPath, Logger& logger) {
                     }
                     
                     // Logování úspěšné validace
-                    logger.log("SamplerIO/loadSamples", "info", 
+                    logger.log("SamplerIO/scanSampleDirectory", "info", 
                               "Frequency validation passed: " + filename + 
                               " (" + std::to_string(filenameFreq) + " -> " + 
                               std::to_string(normalizedFreq) + " Hz)");
@@ -295,7 +295,7 @@ void SamplerIO::loadSamples(const std::string& directoryPath, Logger& logger) {
                 std::string interleavedInfo = sample.interleaved_format ? "interleaved" : "non-interleaved";
                 std::string conversionInfo = sample.needs_conversion ? "needs float conversion" : "no conversion needed";
                 
-                logger.log("SamplerIO/loadSamples", "info", 
+                logger.log("SamplerIO/scanSampleDirectory", "info", 
                           "Loaded: " + filename + " (MIDI: " + std::to_string(midiNote) + 
                           ", Vel: " + std::to_string(velocity) + 
                           ", Freq: " + std::to_string(sfInfo.samplerate) + " Hz" +
@@ -305,17 +305,17 @@ void SamplerIO::loadSamples(const std::string& directoryPath, Logger& logger) {
                           ", Format: " + interleavedInfo + ", " + conversionInfo + ")");
                 
             } else {
-                logger.log("SamplerIO/loadSamples", "warn", 
+                logger.log("SamplerIO/scanSampleDirectory", "warn", 
                           "Filename doesn't match pattern mXXX-velY-fZZ.wav: " + filename);
             }
         }
     } catch (const std::filesystem::filesystem_error& e) {
-        logger.log("SamplerIO/loadSamples", "error", "Filesystem error: " + std::string(e.what()));
+        logger.log("SamplerIO/scanSampleDirectory", "error", "Filesystem error: " + std::string(e.what()));
         std::exit(1);
     }
     
-    logger.log("SamplerIO/loadSamples", "info", 
-              "Loading complete. Total samples loaded: " + std::to_string(loadedCount));
+    logger.log("SamplerIO/scanSampleDirectory", "info", 
+              "Scanning complete. Total samples indexed: " + std::to_string(loadedCount));
 }
 
 /**
@@ -413,14 +413,14 @@ sf_count_t SamplerIO::getSampleCount(int index, Logger& logger) const {
 }
 
 /**
- * @brief Getter pro délku v sekundách na zadaném indexu
+ * @brief Getter pro délku v sekundách na zadaném indexu (přejmenováno pro jasnost)
  * @param index Index v seznamu
  * @param logger Reference pro logování chyb
  * @return double délka v sekundách
  */
-double SamplerIO::getDurationSeconds(int index, Logger& logger) const {
+double SamplerIO::getDurationInSeconds(int index, Logger& logger) const {
     if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
-        logger.log("SamplerIO/getDurationSeconds", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        logger.log("SamplerIO/getDurationInSeconds", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
         std::exit(1);
     }
     return sampleList[index].duration_seconds;
@@ -455,14 +455,14 @@ bool SamplerIO::getIsStereo(int index, Logger& logger) const {
 }
 
 /**
- * @brief NOVÝ GETTER pro interleaved formát flag na zadaném indexu
+ * @brief NOVÝ GETTER pro interleaved formát flag na zadaném indexu (přejmenováno pro konzistenci)
  * @param index Index v seznamu
  * @param logger Reference pro logování chyb
  * @return bool true pokud interleaved (standard pro WAV)
  */
-bool SamplerIO::getInterleavedFormat(int index, Logger& logger) const {
+bool SamplerIO::getIsInterleavedFormat(int index, Logger& logger) const {
     if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
-        logger.log("SamplerIO/getInterleavedFormat", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
+        logger.log("SamplerIO/getIsInterleavedFormat", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
         std::exit(1);
     }
     return sampleList[index].interleaved_format;
