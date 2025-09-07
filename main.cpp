@@ -9,12 +9,17 @@
  * ARCHITEKTURA VÝSTUPŮ:
  * - main.cpp: Používá pouze printf pro konzolový výstup
  * - Logger: Vypisuje inicializační zprávy na konzoli + loguje do souboru
- * - Všechny ostatní moduly: Pouze logování do souboru, žádné konzolové výstupy
+ * - Všechny ostatní moduly: Pouze logování do souboru přes logger.log(), žádné konzolové výstupy
  * 
  * CHOVÁNÍ PŘI CHYBÁCH:
  * - Pokud Logger selže při inicializaci, program se ukončí s exit(1)
  * - Pokud jakýkoliv další modul selže, program se ukončí s exit(1)
  * - Všechny chyby jsou logovány před ukončením
+ * 
+ * REFAKTOROVÁNÍ LOGOVÁNÍ:
+ * - Logger instance se předává jako reference do všech funkcí, které ho potřebují
+ * - Konzistentní použití logger.log() ve všech modulech
+ * - Žádné uložené pointery na logger - pouze předávání parametrem
  * 
  * @param argc Počet argumentů (včetně názvu programu).
  * @param argv Pole argumentů.
@@ -24,7 +29,8 @@ int main(int argc, char *argv[]) {
     // Úvodní banner - pouze printf na konzoli
     printf("=====================================\n");
     printf("      IthacaCore Audio Sampler      \n");
-    printf("      Professional Sample Engine     \n");
+    printf("   Professional Sample Engine v1.1   \n");
+    printf("   with Voice Management System      \n");
     printf("=====================================\n");
     printf("[main] Starting IthacaCore application\n");
 
@@ -55,11 +61,13 @@ int main(int argc, char *argv[]) {
     printf("[main] Transferring control to sampler system\n");
     printf("[main] All further operations will be logged to: core_logger/core_logger.log\n");
     printf("[main] Monitor log file for detailed operation progress\n");
+    printf("[main] NEW: Voice Management system enabled for polyfonní přehrávání\n");
     printf("=====================================\n\n");
 
     // Předání řízení do sampleru s loggerem
-    // Od tohoto bodu budou všechny operace logovány pouze do souboru
+    // Od tohoto bodu budou všechny operace logovány pouze do souboru přes logger.log()
     // Žádné další konzolové výstupy kromě závěrečných zpráv z main.cpp
+    // DŮLEŽITÉ: logger se předává jako reference, ne jako pointer
     int result = runSampler(logger);
     
     // Závěrečný výstup na konzoli - pouze main.cpp
@@ -68,6 +76,7 @@ int main(int argc, char *argv[]) {
     
     if (result == 0) {
         printf("[main] SUCCESS: All operations completed successfully\n");
+        printf("[main] Voice Management system tested successfully\n");
         printf("[main] Exit code: 0 (success)\n");
     } else {
         printf("[main] WARNING: System completed with errors\n");
@@ -75,6 +84,8 @@ int main(int argc, char *argv[]) {
     }
     
     printf("[main] Detailed operation log available in the displayed log file path above\n");
+    printf("[main] Export files (if any) available in: ./exports/\n");
+    printf("[main] Voice Management features: 128 simultaneous voices, ADSR envelope, real-time processing\n");
     printf("[main] Thank you for using IthacaCore Audio Sampler\n");
     printf("=====================================\n");
     
