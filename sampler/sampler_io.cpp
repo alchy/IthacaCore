@@ -1,3 +1,7 @@
+/*
+THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
+*/
+
 #include "sampler.h"  // Include hlavičky pro definice SampleInfo a SamplerIO (nyní v sampler.h)
 #include <filesystem>   // Pro procházení adresáře
 #include <regex>        // Pro parsování názvů souborů

@@ -1,3 +1,7 @@
+/*
+THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
+*/
+
 #include "core_logger.h"
 #include <fstream>      // Pro std::ofstream a zápis do souboru
 #include <filesystem>   // Pro kontrolu adresáře, vytvoření složky a smazání souboru (C++17)

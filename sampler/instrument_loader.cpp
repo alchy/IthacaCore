@@ -1,3 +1,7 @@
+/*
+THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
+*/
+
 #include "instrument_loader.h"
 #include <cstdlib>      // Pro malloc, free, std::exit
 #include <cstring>      // Pro memcpy

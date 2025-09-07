@@ -1,3 +1,7 @@
+/*
+THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
+*/
+
 #include "wav_file_exporter.h"
 #include <filesystem>   // Pro cestu k souboru
 #include <cstdlib>      // Pro std::exit

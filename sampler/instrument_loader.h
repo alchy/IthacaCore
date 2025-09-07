@@ -1,3 +1,7 @@
+/*
+THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
+*/
+
 #ifndef INSTRUMENT_LOADER_H  // Include guard pro prevenci duplikátního includu
 #define INSTRUMENT_LOADER_H
 

@@ -1,32 +1,21 @@
 #ifndef VOICE_H
 #define VOICE_H
 
-#include <cstdint>          // Pro uint8_t
-#include <chrono>           // Pro časové výpočty (std::chrono)
-#include <algorithm>        // Pro std::min, std::max
-#include <limits>           // Pro numerické limity
-#include "instrument_loader.h"  // Pro Instrument a Logger
-#include "core_logger.h"    // Pro Logger
+#include <cstdint>      // Pro uint8_t
+#include "instrument_loader.h"  // Pro Instrument
+#include "core_logger.h"        // Pro Logger
+#include <chrono>               // Pro měření času obálky (attack/release)
 
-// Enum pro stavy voice (idle, attacking, sustaining, releasing)
-enum class VoiceState {
-    idle,       // Voice neaktivní
-    attacking,  // Attack fáze (obálka stoupá)
-    sustaining, // Sustain fáze (drží)
-    releasing   // Release fáze (obálka klesá)
-};
-
-// Jednoduchá simulace JUCE AudioBuffer pro stereo výstup (bez JUCE závislosti)
+// Simulace JUCE AudioBuffer pro stereo výstup (bez závislosti na JUCE)
 struct AudioBuffer {
-    float* leftChannel;     // Pointer na levý kanál (numSamples float hodnot)
-    float* rightChannel;    // Pointer na pravý kanál (numSamples float hodnot)
-    int numSamples;         // Počet samples v bufferu
+    float* leftChannel;   // Pointer na levý kanál [L0, L1, L2...]
+    float* rightChannel;  // Pointer na pravý kanál [R0, R1, R2...]
+    int numSamples;       // Počet samples v bufferu
 
-    // Konstruktor pro alokaci (příklad použití: AudioBuffer buf(numSamples);)
-    AudioBuffer(int samples) : numSamples(samples), leftChannel(new float[samples]), rightChannel(new float[samples]) {
-        // Inicializace nulami (volitelně)
-        std::fill(leftChannel, leftChannel + samples, 0.0f);
-        std::fill(rightChannel, rightChannel + samples, 0.0f);
+    // Konstruktor pro alokaci (příklad: stereo buffer o velikosti numSamples)
+    AudioBuffer(int numSamples) : numSamples(numSamples) {
+        leftChannel = new float[numSamples]();  // Inicializace na 0
+        rightChannel = new float[numSamples]();
     }
 
     // Destruktor pro uvolnění paměti
@@ -35,172 +24,147 @@ struct AudioBuffer {
         delete[] rightChannel;
     }
 
-    // Zakázané kopírování (pro jednoduchost)
+    // Zakázané kopírování (RAII)
     AudioBuffer(const AudioBuffer&) = delete;
     AudioBuffer& operator=(const AudioBuffer&) = delete;
 };
 
-// Jednoduchá struktura pro audio data jednoho sample (stereo)
+// Simulace JUCE AudioData pro jeden stereo sample (float left, float right)
 struct AudioData {
-    float left;   // Levý kanál
-    float right;  // Pravý kanál
+    float left;
+    float right;
+
+    AudioData() : left(0.0f), right(0.0f) {}
+    AudioData(float l, float r) : left(l), right(r) {}
+};
+
+/**
+ * @enum VoiceState
+ * @brief Stav hlasové jednotky (voice) pro řízení lifecycle.
+ */
+enum class VoiceState {
+    idle,      // Neaktivní, čeká na note-on
+    attacking, // Attack fáze obálky (gain stoupá)
+    sustaining,// Sustain (plný gain, přehrává se)
+    releasing  // Release fáze (gain klesá po note-off)
 };
 
 /**
  * @class Voice
- * @brief Jedna hlasová jednotka (voice) pro sampler engine.
+ * @brief Reprezentuje jednu hlasovou jednotku (voice) pro přehrávání sample s obálkou.
  * 
- * Spravuje stav MIDI noty: start/stop, obálku (envelope) a čtení z sample bufferu.
- * Používá stereo interleaved float buffery z InstrumentLoader.
- * Thread-safe: Žádný sdílený stav mezi voices – každý Voice je nezávislý.
+ * Spravuje stav, pozici v bufferu, obálku (jednoduchá time-based gain) a výstup do AudioBuffer.
+ * Inicializuje se s MIDI notou a instrumentem. Podporuje polyfonii přes VoiceManager.
  * 
- * Klíčové vlastnosti:
- * - Mapování velocity 0-127 na vrstvy 0-7.
- * - Jednoduchá ADSR obálka (zde jen attack/release, bez full ADSR pro jednoduchost).
- * - Pozice v sample: `currentPosition_` v framech (stereo párech).
- * - Gate: `isGateOn_` pro detekci note-on/off.
- * 
- * PŘEDPOKLAD: InstrumentLoader poskytuje stereo buffery [L,R,L,R...].
- * 
- * Sdílené (statické) členy:
- * - targetSampleRate: Sdílená frekvence (např. 44100 Hz).
- * - sharedLogger: Sdílený logger pro logování (nyní public pro přístup z VoiceManager).
- * 
- * Opravy: Přidán getter pro midiNote_ (pro bezpečný přístup zvenčí). sharedLogger_ udělán public.
+ * DŮLEŽITÉ: Vstupní data z Instrument jsou stereo interleaved [L,R,L,R...].
+ * Obálka: Attack (okamžitý), Sustain (plný), Release (200 ms lineární klesání).
+ * Thread-safety: Neimplementováno (single-threaded design).
+ * Logger: Není uložen jako člen – předává se jako parametr do metod (dependency injection).
  */
 class Voice {
 public:
-    /**
-     * @brief Default konstruktor: Inicializuje na idle stav.
-     * Používá se pro VoiceManager před inicializací.
-     */
-    Voice();
+    static constexpr int RELEASE_TIME_MS = 200;  // Konstanta pro délku release (ms)
+    static int targetSampleRate_;                // Statický target sample rate (inicializován v .cpp)
 
     /**
-     * @brief Konstruktor s 2 argumenty (pro VoiceManager: midiNote, logger).
-     * Instrument se nastaví později přes initialize.
-     * @param midiNote MIDI nota (0-127) pro tuto voice.
-     * @param logger Reference na sdílený Logger.
+     * @brief Default konstruktor pro pool v VoiceManager.
+     * Inicializuje idle stav, MIDI note na 0, instrument na nullptr.
      */
-    Voice(uint8_t midiNote, Logger& logger);
+    Voice() : midiNote_(0), instrument_(nullptr), currentState_(VoiceState::idle), currentPosition_(0), 
+              isGateOn_(false), activeVelocityLayer_(0), noteOffTime_(std::chrono::steady_clock::now()) {
+        // Prázdný – čeká na initialize
+    }
 
     /**
-     * @brief Plný konstruktor.
-     * Inicializuje stav na idle, pozici na 0, velocity na 0.
-     * @param midiNote MIDI nota (0-127) pro tuto voice.
-     * @param instrument Reference na načtený Instrument z InstrumentLoader.
-     * @param logger Reference na sdílený Logger.
+     * @brief Konstruktor pro VoiceManager: Nastaví MIDI notu.
+     * @param midiNote MIDI nota (0-127).
+     * Logger se nepředává zde – předává se do metod.
      */
-    Voice(uint8_t midiNote, const Instrument& instrument, Logger& logger);
+    explicit Voice(uint8_t midiNote) : midiNote_(midiNote), instrument_(nullptr), currentState_(VoiceState::idle), 
+                                       currentPosition_(0), isGateOn_(false), activeVelocityLayer_(0), 
+                                       noteOffTime_(std::chrono::steady_clock::now()) {
+        // Inicializace s midiNote
+    }
 
     /**
-     * @brief Destruktor: Zaloguje ukončení voice.
-     */
-    ~Voice();
-
-    /**
-     * @brief Inicializuje voice s instrumentem (pro VoiceManager).
+     * @brief Inicializuje voice s instrumentem (pro pool v VoiceManager).
      * @param instrument Reference na Instrument.
+     * @param logger Reference na logger pro logování této operace.
+     * Resetuje pozici a gain na 0.
      */
-    void initialize(const Instrument& instrument);
+    void initialize(const Instrument& instrument, Logger& logger);
 
     /**
-     * @brief Vyčistí voice (reset na idle).
+     * @brief Reinicializuje s novým instrumentem (pro dynamickou změnu).
+     * @param instrument Nový Instrument.
+     * @param logger Reference na logger pro logování této operace.
      */
-    void cleanup();
+    void reinitialize(const Instrument& instrument, Logger& logger);
 
     /**
-     * @brief Reinicializuje voice s novým instrumentem.
-     * @param instrument Reference na nový Instrument.
+     * @brief Resetuje voice na idle stav (pro vrácení do poolu).
+     * @param logger Reference na logger pro logování této operace.
      */
-    void reinitialize(const Instrument& instrument);
+    void cleanup(Logger& logger);
 
     /**
-     * @brief Nastaví stav noty (start/stop).
-     * @param isOn true pro start, false pro stop.
-     * @param velocity MIDI velocity (0-127) pro start.
+     * @brief Nastaví stav noty (note-on/note-off).
+     * @param isOn True pro start (note-on), false pro stop (note-off).
+     * @param velocity Velocity (0-127) pro výběr vrstvy.
+     * @param logger Reference na logger pro logování této operace.
      */
-    void setNoteState(bool isOn, uint8_t velocity = 0);
+    void setNoteState(bool isOn, uint8_t velocity, Logger& logger);
 
     /**
-     * @brief Posune pozici v sample (advance pro jeden frame).
+     * @brief Posune pozici v sample o 1 frame (pro non-real-time).
+     * Žádný log – čistá metoda.
      */
     void advancePosition();
 
     /**
-     * @brief Získává aktuální audio data (stereo sample na aktuální pozici).
-     * @return AudioData struktura (left, right) s aplikovanou obálkou.
+     * @brief Získává aktuální stereo audio data na pozici.
+     * @return AudioData s aplikovaným gainem.
+     * Žádný log – const metoda.
      */
     AudioData getCurrentAudioData() const;
 
     /**
-     * @brief Spustí notu (note-on event).
-     * Nastaví gate on, vybere velocity layer, resetuje pozici a stav na attacking.
-     * @param velocity MIDI velocity (0-127).
-     * Non-const: Mění stav (isGateOn_, currentState_, activeVelocityLayer_).
+     * @brief Zpracuje audio blok (simulace JUCE processBlock).
+     * @param outputBuffer Reference na výstupní AudioBuffer (stereo).
+     * @param numSamples Počet samples k zpracování.
+     * @param logger Reference na logger pro logování této operace.
+     * @return True, pokud voice je aktivní.
      */
-    void startNote(uint8_t velocity);
+    bool processBlock(AudioBuffer& outputBuffer, int numSamples, Logger& logger);
 
     /**
-     * @brief Zastaví notu (note-off event).
-     * Nastaví čas note-off pro release fázi.
-     * Non-const: Mění stav (isGateOn_, currentState_, noteOffTime_).
-     */
-    void stopNote();
-
-    /**
-     * @brief Hlavní processing metoda (jako JUCE processBlock).
-     * Čte z sample bufferu podle aktuální pozice, aplikuje obálku (gain), zapisuje do výstupního bufferu.
-     * Pokud je idle nebo end of sample, vrací false (deaktivovat voice).
-     * @param outputBuffer Výstupní stereo buffer (simulace JUCE: AudioBuffer, 2 kanály).
-     * @param numSamples Počet samples k zpracování v tomto bloku.
-     * @return true, pokud voice stále aktivní; false pro deaktivaci (end of sample nebo released).
-     * Non-const: Mění stav (currentState_, currentPosition_, isGateOn_).
-     * Používá std::min pro omezení pozice – přetypováno na sf_count_t pro kompatibilitu.
-     */
-    bool processBlock(AudioBuffer& outputBuffer, int numSamples);
-
-    /**
-     * @brief Získává aktuální gain obálky (time-based).
-     * @return Gain faktor (0.0f - 1.0f) pro multiplikaci sample dat.
-     * Const: Pouze čte stav, ne mění.
-     */
-    float getEnvelopeGain() const;
-
-    /**
-     * @brief Kontroluje, zda je voice aktivní.
-     * @return true, pokud isGateOn_ nebo v release fázi.
-     * Const: Bezpečná pro query.
-     */
-    bool isActive() const { return isGateOn_ || (currentState_ == VoiceState::releasing); }
-
-    /**
-     * @brief Getter pro MIDI notu (pro přístup z VoiceManager).
+     * @brief Getter pro MIDI notu.
      * @return MIDI nota (0-127).
      */
     uint8_t getMidiNote() const { return midiNote_; }
 
-    // Sdílené (statické) členy – nyní public pro přístup z VoiceManager
-    static int targetSampleRate_;                   // Sdílená target sample rate
-    static Logger* sharedLogger_;                   // Sdílený logger (public pro jednoduchý přístup)
+    /**
+     * @brief Kontroluje, zda je voice aktivní.
+     * @return True, pokud gate on nebo releasing.
+     */
+    bool isActive() const {
+        return currentState_ != VoiceState::idle;
+    }
 
 private:
-    // Instance-specific
-    uint8_t midiNote_;                          // Tato MIDI nota (0-127)
-    bool isGateOn_ = false;                     // Gate stav (non-const, mění se v process)
-    uint8_t activeVelocityLayer_ = 0;           // Aktivní velocity vrstva (0-7)
-    VoiceState currentState_ = VoiceState::idle; // Současný stav (non-const)
-    sf_count_t currentPosition_ = 0;            // Aktuální pozice v framech (stereo)
+    uint8_t midiNote_;                          // MIDI nota (0-127)
+    const Instrument* instrument_;              // Pointer na instrument buffery (nullptr pokud není nastaveno)
+    VoiceState currentState_;                   // Aktuální stav
+    sf_count_t currentPosition_;                // Pozice v sample bufferu (frames)
+    bool isGateOn_;                             // Flag pro gate (note on/off)
+    uint8_t activeVelocityLayer_;               // Aktivní velocity vrstva (0-7)
+    std::chrono::steady_clock::time_point noteOffTime_;  // Čas note-off pro release
 
-    // Obálka parametry (sdílené, konstanty)
-    static constexpr float RELEASE_TIME_MS = 200.0f; // Doba release v ms
-    std::chrono::steady_clock::time_point noteOffTime_; // Čas note-off pro release
-
-    // Reference na instrument (načtené buffery) – nastavuje se v initialize
-    const Instrument* instrument_ = nullptr;    // Pointer na stereo buffery (pro flexibilitu)
-
-    // Pomocné metody (interní)
-    uint8_t mapVelocityToLayer(uint8_t midiVelocity) const;  // Mapování 0-127 → 0-7
+    // Pomocné metody (privátní)
+    void startNote(uint8_t velocity, Logger& logger);  // Note-on logika
+    void stopNote(Logger& logger);                     // Note-off logika
+    float getEnvelopeGain() const;                     // Výpočet gainu z obálky
+    uint8_t mapVelocityToLayer(uint8_t midiVelocity) const;  // Mapování velocity na layer (0-7)
 };
 
 #endif // VOICE_H

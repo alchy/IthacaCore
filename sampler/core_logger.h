@@ -1,3 +1,7 @@
+/*
+THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
+*/
+
 #ifndef CORE_LOGGER_H  // Include guard pro prevenci duplikátního includu
 #define CORE_LOGGER_H
 
