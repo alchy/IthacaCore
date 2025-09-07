@@ -1,4 +1,8 @@
-build/*
-libsndfile/*
-core_logger/*
-build/Debug/Debug/core_logger/core_logger.log
+# Ignoruj celý build adresář a vše pod ním (včetně logů)
+build/
+
+# Ignoruj libsndfile a vše pod ním
+libsndfile/
+
+# Ignoruj core_logger a vše pod ním
+core_logger/
