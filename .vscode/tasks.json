@@ -7,14 +7,14 @@
             "command": "cmd.exe",
             "args": [
                 "/C",
-                "\"\"C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Auxiliary\\Build\\vcvars64.bat\" && cmake --build . --parallel 1\""
+                "\"\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat\" && cmake --build build --parallel 1\""
             ],
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
             "problemMatcher": ["$msCompile"],
-            "detail": "Kompilace projektu pomocí CMake a MSVC."
+            "detail": "Kompilace projektu pomocí CMake a MSVC. Používá složku 'build' pro CMake cache."
         }
     ]
 }

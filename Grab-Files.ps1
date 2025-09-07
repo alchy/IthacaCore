@@ -26,7 +26,7 @@ Param(
 $extensions = @('*.py', '*.json', '*.md', '*.cpp', '*.h', '*.txt')
 
 # Získání názvu aktuálního adresáře
-$currentDir = (Get-Item -Path .).Name
+$currentDir = (Get-Item -Path .).Nam
 
 # Generování časové značky
 $timestamp = Get-Date -Format "yyyyMMddHHmm"

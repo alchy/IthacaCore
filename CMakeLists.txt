@@ -39,6 +39,10 @@ add_executable(IthacaCore
     # InstrumentLoader module
     sampler/instrument_loader.cpp
     sampler/instrument_loader.h
+
+    # Wav exporter
+    sampler/wav_file_exporter.cpp
+    sampler/wav_file_exporter.h
 )
 
 # Include directories pro kompilaci a IntelliSense
