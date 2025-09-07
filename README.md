@@ -267,3 +267,8 @@ Get-Content -Path "./core_logger/core_logger.log" -Tail 10 -Wait
 ```
 git submodule update --init --recursive
 ```
+
+## Pridani submodulu rucne
+```
+git submodule add https://github.com/libsndfile/libsndfile libsndfile
+```
