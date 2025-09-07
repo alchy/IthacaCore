@@ -301,9 +301,25 @@ voice.processBlock(simBuf, 512);  // Aplikován gain, výstup v simBuf
 
 ```mermaid
 graph TD
-    A[VoiceManager<br/>- Pool 128 Voice<br/>- Konstruktor: sampleRate, Logger<br/>- initializeAll: Prochází 128x, volá Voice.initialize s Instrument + sampleRate] --> B[Voice<br/>- Fixní midiNote = index<br/>- initialize: Uloží sampleRate, Instrument pointer, vypočítá releaseSamples = 0.2 * sampleRate<br/>- setNoteState: Mapuje velocity na layer, nastaví stav (Sustaining/Releasing), gain=1.0 nebo spustí útlum<br/>- processBlock: Posouvá position, aplikuje gain (lineární release), vrací stereo data s obálkou]
-    B --> C[Instrument (struktura)<br/>- Pole pro velocity 0-7: sample_ptr_velocity [stereo float buffer [L,R,L,R...]]<br/>- sample_ptr_sampleInfo [pointer na SampleInfo]<br/>- get_sample_begin_pointer(velocity): Vrátí pointer na buffer<br/>- get_frame_count(velocity): Počet stereo frameů<br/>- was_originally_mono: Flag pro původní formát (duplikace L=R v Loaderu)]
-    C --> D[SampleInfo (z SamplerIO)<br/>- Metadata: filename, sampleRate, channels (1=mono, 2=stereo), sample_count (frames)<br/>- findSampleInSampleList: Vyhledá index v seznamu podle midi/vel/rate<br/>- getChannelCount, getSampleCount: Poskytne data pro validaci v Loaderu<br/>- Žádné buffery – jen info pro načtení v InstrumentLoader]
+    A["VoiceManager
+- Pool 128 Voice
+- Konstruktor: sampleRate | Logger
+- initializeAll: Prochází 128x | volá Voice.initialize s Instrument + sampleRate"] --> B["Voice
+- Fixní midiNote = index
+- initialize: Uloží sampleRate | Instrument pointer | vypočítá releaseSamples = 0.2 * sampleRate
+- setNoteState: Mapuje velocity na layer | nastaví stav (Sustaining|Releasing) | gain=1.0 nebo spustí útlum
+- processBlock: Posouvá position | aplikuje gain (lineární release) | vrací stereo data s obálkou"]
+    B --> C["Instrument (struktura)
+- Pole pro velocity 0-7: sample_ptr_velocity (stereo float buffer L|R|L|R...)
+- sample_ptr_sampleInfo (pointer na SampleInfo)
+- get_sample_begin_pointer(velocity): Vrátí pointer na buffer
+- get_frame_count(velocity): Počet stereo frameů
+- was_originally_mono: Flag pro původní formát (duplikace L=R v Loaderu)"]
+    C --> D["SampleInfo (z SamplerIO)
+- Metadata: filename | sampleRate | channels (1=mono | 2=stereo) | sample_count (frames)
+- findSampleInSampleList: Vyhledá index v seznamu podle midi|vel|rate
+- getChannelCount | getSampleCount: Poskytne data pro validaci v Loaderu
+- Žádné buffery – jen info pro načtení v InstrumentLoader"]
 
     style A fill:#e1f5fe
     style B fill:#f3e5f5
