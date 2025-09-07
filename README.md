@@ -262,3 +262,8 @@ PowerShell.exe -ExecutionPolicy Bypass -File .\Grab-Files.ps1
 ```
 Get-Content -Path "./core_logger/core_logger.log" -Tail 10 -Wait
 ```
+
+## Git submodule init
+```
+git submodule update --init --recursive
+```
