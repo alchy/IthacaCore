@@ -29,7 +29,10 @@ int runSampler(Logger& logger) {
     int targetSampleRate = 44100;  // Typická frekvence pro audio plugin
     /* ======= Konec globálního nastavení ====== */
 
-    /* ======= Hlavní workflow: Inicializace a načtení samples ====== */
+    /* 
+       ======= Hlavní workflow: Inicializace a načtení samples ====== 
+    */
+
     // Krok 1: Inicializace SamplerIO a prohledání adresáře
     SamplerIO sampler; // prázdný konstruktor
     logger.log("runSampler", "info", "Scanning sample directory: " + sampleDir);
@@ -37,6 +40,7 @@ int runSampler(Logger& logger) {
 
     // Krok 2: Načtení do paměti jako stereo buffery
     InstrumentLoader instrument;  // prázdný konstruktor
+    logger.log("runSampler", "info", "Loading instrument data with InstrumentLoader: " + sampleDir);
     instrument.loadInstrumentData(sampler, targetSampleRate, logger);  // načtení dat
 
     /* ======= PŘESUNUTÉ A OPRAVENÉ: Voice Management testy PŘED destrukcí InstrumentLoader ====== */
