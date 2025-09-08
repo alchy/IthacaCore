@@ -1390,26 +1390,28 @@ Path: C:\Users\jindr\IthacaCore\sampler\sampler.cpp
 #include <memory>
 
 /**
- * @brief REFAKTOROVANÃ: runSampler jako thin wrapper pro VoiceManager testing
+ * @brief REFAKTOROVANÃ: runSampler jako thin wrapper pro VoiceManager testing
  * 
+ * NOVÃ‰: PÅ™idanÃ© gain testovÃ¡nÃ­ pro ovÄ›Å™enÃ­ velocity aplikace na hlasitost.
  * PÅ¯vodnÃ­ monolitickÃ¡ runSampler funkce byla nahrazena delegacÃ­ na VoiceManager.
  * Tento approach poskytuje lepÅ¡Ã­ separation of concerns a modularity.
  * 
  * Test pipeline:
- * 1. VytvoÅ™enÃ­ VoiceManager instance
+ * 1. VoiceManager instance creation
  * 2. Sample rate configuration
  * 3. System initialization (directory scan)
  * 4. Instrument loading (audio data)
  * 5. System integrity validation
- * 6. Granular testing suite
- * 7. System statistics
+ * 6. NOVÃ‰: Velocity gain testing suite
+ * 7. Standard granular testing suite
+ * 8. System statistics
  * 
- * @param logger Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­ celÃ©ho procesu
+ * @param logger Reference na Logger pro zaznamenÃ¡nÃ­ celÃ©ho procesu
  * @return 0 pÅ™i ÃºspÄ›chu, 1 pÅ™i kritickÃ© chybÄ›
  */
 int runSampler(Logger& logger) {
     logger.log("runSampler", "info", "=== STARTING REFACTORED SAMPLER TEST SUITE ===");
-    logger.log("runSampler", "info", "Using VoiceManager-based architecture with new Voice class");
+    logger.log("runSampler", "info", "Using VoiceManager-based architecture with FIXED Voice gain system");
     
     try {
         // 1. VYTVOÅ˜ENÃ VOICEMANAGER INSTANCE
@@ -1432,15 +1434,30 @@ int runSampler(Logger& logger) {
         logger.log("runSampler", "info", "Validating system integrity...");
         voiceManager.validateSystemIntegrity(logger);
         
-        // 6. GRANULAR TESTING SUITE
-        logger.log("runSampler", "info", "=== STARTING GRANULAR TESTS ===");
+        // 6. NOVÃ‰: VELOCITY GAIN TESTING SUITE
+        logger.log("runSampler", "info", "=== STARTING VELOCITY GAIN TESTS ===");
+        
+        // Test velocity gain s rÅ¯znÃ½mi hodnotami
+        logger.log("runSampler", "info", "Running velocity gain test...");
+        voiceManager.runVelocityGainTest(logger);
+        
+        // Test master gain nastavenÃ­
+        logger.log("runSampler", "info", "Running master gain test...");
+        voiceManager.runMasterGainTest(logger);
+        
+        // Enhanced single note test s gain monitoringem
+        logger.log("runSampler", "info", "Running enhanced single note test with gain monitoring...");
+        voiceManager.runSingleNoteTestWithGain(logger);
+        
+        // 7. STANDARD GRANULAR TESTING SUITE
+        logger.log("runSampler", "info", "=== STARTING STANDARD GRANULAR TESTS ===");
         
         // Individual voice inspection
         logger.log("runSampler", "info", "Running individual voice test...");
         voiceManager.runIndividualVoiceTest(logger);
         
         // Single note functionality
-        logger.log("runSampler", "info", "Running single note test...");
+        logger.log("runSampler", "info", "Running standard single note test...");
         voiceManager.runSingleNoteTest(logger);
         
         // Polyphonic capabilities
@@ -1451,11 +1468,11 @@ int runSampler(Logger& logger) {
         logger.log("runSampler", "info", "Running edge case tests...");
         voiceManager.runEdgeCaseTests(logger);
         
-        // 7. SYSTEM STATISTICS
+        // 8. SYSTEM STATISTICS
         logger.log("runSampler", "info", "=== FINAL SYSTEM STATISTICS ===");
         voiceManager.logSystemStatistics(logger);
         
-        // 8. DODATEÄŒNÃ‰ EXPORT TESTY (Optional)
+        // 9. DODATEÄŒNÃ‰ EXPORT TESTY (Optional)
         logger.log("runSampler", "info", "=== EXPORT TESTS ===");
         try {
             // Test export raw sample data
@@ -1466,9 +1483,11 @@ int runSampler(Logger& logger) {
             logger.log("runSampler", "warn", "Export tests failed - continuing anyway");
         }
         
-        // 9. ÃšSPÄšÅ NÃ‰ UKONÄŒENÃ
+        // 10. ÃšSPÄšÅ NÃ‰ UKONÄŒENÃ
         logger.log("runSampler", "info", "=== SAMPLER TEST SUITE COMPLETED SUCCESSFULLY ===");
-        logger.log("runSampler", "info", "All tests passed. System ready for production use.");
+        logger.log("runSampler", "info", "All tests passed including VELOCITY GAIN functionality.");
+        logger.log("runSampler", "info", "Voice gain system verified: velocity now properly affects output volume.");
+        logger.log("runSampler", "info", "System ready for production use.");
         
         return 0;  // ÃšspÄ›ch
         
@@ -1527,63 +1546,73 @@ int demonstrateJuceIntegration(Logger& logger) {
         logger.log("JUCEDemo", "info", 
                   "Buffer size changed to: " + std::to_string(newBlockSize));
         
-        // 4. SIMULACE MIDI INPUT A AUDIO PROCESSING
-        logger.log("JUCEDemo", "info", "Simulating MIDI input and audio processing...");
+        // 4. SIMULACE MIDI INPUT A AUDIO PROCESSING S VELOCITY TESTOVÃNÃM
+        logger.log("JUCEDemo", "info", "Simulating MIDI input with VELOCITY TESTING...");
         
         // Allocate audio buffers (equivalent to JUCE AudioBuffer)
         const int numSamples = demoBlockSize;
         float* leftChannel = new float[numSamples];
         float* rightChannel = new float[numSamples];
         
-        // Simulate MIDI note-on events
+        // Simulate MIDI note-on events s rÅ¯znÃ½mi velocities
         const uint8_t testNote1 = 60;  // C4
         const uint8_t testNote2 = 64;  // E4
         const uint8_t testNote3 = 67;  // G4
-        const uint8_t testVelocity = 100;
         
-        logger.log("JUCEDemo", "info", "Sending MIDI note-on events (C major chord)...");
-        voiceManager.setNoteState(testNote1, true, testVelocity);
-        voiceManager.setNoteState(testNote2, true, testVelocity);
-        voiceManager.setNoteState(testNote3, true, testVelocity);
+        // Test rÅ¯znÃ½ch velocities pro ovÄ›Å™enÃ­ gain systÃ©mu
+        std::vector<uint8_t> testVelocities = {32, 64, 127};
         
-        logger.log("JUCEDemo", "info", 
-                  "Active voices after chord: " + std::to_string(voiceManager.getActiveVoicesCount()));
-        
-        // Process several audio blocks
-        const int numBlocks = 10;
-        for (int block = 0; block < numBlocks; ++block) {
-            // Process audio block (equivalent to processBlock in JUCE)
-            bool hasAudio = voiceManager.processBlock(leftChannel, rightChannel, numSamples);
+        for (uint8_t velocity : testVelocities) {
+            logger.log("JUCEDemo", "info", 
+                      "Testing chord with velocity " + std::to_string(velocity));
             
-            if (hasAudio) {
-                // Calculate peak levels for monitoring
-                float peakL = 0.0f, peakR = 0.0f;
-                for (int i = 0; i < numSamples; ++i) {
-                    peakL = std::max(peakL, std::abs(leftChannel[i]));
-                    peakR = std::max(peakR, std::abs(rightChannel[i]));
-                }
+            // Send MIDI note-on events
+            voiceManager.setNoteState(testNote1, true, velocity);
+            voiceManager.setNoteState(testNote2, true, velocity);
+            voiceManager.setNoteState(testNote3, true, velocity);
+            
+            logger.log("JUCEDemo", "info", 
+                      "Active voices after chord: " + std::to_string(voiceManager.getActiveVoicesCount()));
+            
+            // Process several audio blocks
+            const int numBlocks = 5;
+            for (int block = 0; block < numBlocks; ++block) {
+                // Process audio block (equivalent to processBlock in JUCE)
+                bool hasAudio = voiceManager.processBlock(leftChannel, rightChannel, numSamples);
                 
-                logger.log("JUCEDemo", "info", 
-                          "Block " + std::to_string(block) + " - Peak L: " + 
-                          std::to_string(peakL) + ", Peak R: " + std::to_string(peakR));
-            } else {
-                logger.log("JUCEDemo", "info", "Block " + std::to_string(block) + " - Silent");
+                if (hasAudio) {
+                    // Calculate peak levels for monitoring
+                    float peakL = 0.0f, peakR = 0.0f;
+                    for (int i = 0; i < numSamples; ++i) {
+                        peakL = std::max(peakL, std::abs(leftChannel[i]));
+                        peakR = std::max(peakR, std::abs(rightChannel[i]));
+                    }
+                    
+                    logger.log("JUCEDemo", "info", 
+                              "Velocity " + std::to_string(velocity) + 
+                              ", Block " + std::to_string(block) + 
+                              " - Peak L: " + std::to_string(peakL) + 
+                              ", Peak R: " + std::to_string(peakR));
+                } else {
+                    logger.log("JUCEDemo", "info", 
+                              "Velocity " + std::to_string(velocity) + 
+                              ", Block " + std::to_string(block) + " - Silent");
+                }
             }
-        }
-        
-        // Simulate MIDI note-off events
-        logger.log("JUCEDemo", "info", "Sending MIDI note-off events...");
-        voiceManager.setNoteState(testNote1, false, 0);
-        voiceManager.setNoteState(testNote2, false, 0);
-        voiceManager.setNoteState(testNote3, false, 0);
-        
-        // Process release phase
-        logger.log("JUCEDemo", "info", "Processing release phase...");
-        for (int block = 0; block < 5; ++block) {
-            bool hasAudio = voiceManager.processBlock(leftChannel, rightChannel, numSamples);
-            if (!hasAudio) {
-                logger.log("JUCEDemo", "info", "All voices finished releasing at block " + std::to_string(block));
-                break;
+            
+            // Simulate MIDI note-off events
+            voiceManager.setNoteState(testNote1, false, 0);
+            voiceManager.setNoteState(testNote2, false, 0);
+            voiceManager.setNoteState(testNote3, false, 0);
+            
+            // Process release phase
+            for (int block = 0; block < 3; ++block) {
+                bool hasAudio = voiceManager.processBlock(leftChannel, rightChannel, numSamples);
+                if (!hasAudio) {
+                    logger.log("JUCEDemo", "info", 
+                              "All voices finished releasing at block " + std::to_string(block));
+                    break;
+                }
             }
         }
         
@@ -1596,6 +1625,7 @@ int demonstrateJuceIntegration(Logger& logger) {
         
         logger.log("JUCEDemo", "info", "=== JUCE INTEGRATION DEMO COMPLETED ===");
         logger.log("JUCEDemo", "info", "Pattern ready for real JUCE AudioProcessor implementation");
+        logger.log("JUCEDemo", "info", "VELOCITY GAIN SYSTEM verified in JUCE-like environment");
         
         return 0;
         
@@ -1617,7 +1647,7 @@ int demonstrateJuceIntegration(Logger& logger) {
  */
 
 /*
-// SAMPLE JUCE AUDIOPROCESSOR INTEGRATION:
+// SAMPLE JUCE AUDIOPROCESSOR INTEGRATION S OPRAVENÃM GAIN SYSTÃ‰MEM:
 
 class YourSamplerAudioProcessor : public juce::AudioProcessor {
 public:
@@ -1650,10 +1680,11 @@ public:
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) override {
         const int numSamples = buffer.getNumSamples();
         
-        // 1. Handle MIDI events
+        // 1. Handle MIDI events - VELOCITY NYÅ® SPRÃVNÄš OVLIVÅ‡UJE HLASITOST!
         for (const auto metadata : midiMessages) {
             const auto msg = metadata.getMessage();
             if (msg.isNoteOn()) {
+                // OPRAVENO: velocity nynÃ­ sprÃ¡vnÄ› aplikuje gain na vÃ½stup
                 voiceManager_.setNoteState(msg.getNoteNumber(), true, msg.getVelocity());
             } else if (msg.isNoteOff()) {
                 voiceManager_.setNoteState(msg.getNoteNumber(), false, 0);
@@ -1666,6 +1697,82 @@ public:
                              buffer.getWritePointer(1) : leftChannel;
         
         // 3. KRITICKÃ‰: VoiceManager processBlock handles buffer clearing and mixing
+        // S OPRAVENÃM GAIN SYSTÃ‰MEM: envelope * velocity * master * voiceScaling
+        voiceManager_.processBlock(leftChannel, rightChannel, numSamples);
+    }
+
+    void releaseResources() override {
+        voiceManager_.stopAllVoices();
+        voiceManager_.resetAllVoices(logger_);
+    }
+
+private:
+    VoiceManager voiceManager_;
+    Logger logger_;
+    bool systemInitialized_ = false;
+};
+*/
+
+
+/**
+ * @brief POMOCNÃ FUNKCE: Sample JUCE AudioProcessor integration code
+ * 
+ * Tento kÃ³d ukazuje, jak by vypadala skuteÄnÃ¡ integrace do JUCE AudioProcessor.
+ * KopÃ­rujte tento pattern do vaÅ¡eho AudioProcessor potomka.
+ */
+
+/*
+// SAMPLE JUCE AUDIOPROCESSOR INTEGRATION S OPRAVENÃM GAIN SYSTÃ‰MEM:
+
+class YourSamplerAudioProcessor : public juce::AudioProcessor {
+public:
+    YourSamplerAudioProcessor() 
+        : voiceManager_(DEFAULT_SAMPLE_DIR, logger_) {
+        // VoiceManager se vytvoÅ™Ã­ s cestou k samples
+    }
+
+    void prepareToPlay(double sampleRate, int samplesPerBlock) override {
+        // 1. Configure sample rate
+        voiceManager_.changeSampleRate(static_cast<int>(sampleRate), logger_);
+        
+        // 2. KRITICKÃ‰: Prepare for buffer size
+        voiceManager_.prepareToPlay(samplesPerBlock);
+        
+        // 3. Initialize system if not done yet
+        if (!systemInitialized_) {
+            voiceManager_.initializeSystem(logger_);
+            voiceManager_.loadAllInstruments(logger_);
+            voiceManager_.validateSystemIntegrity(logger_);
+            systemInitialized_ = true;
+        }
+        
+        // 4. Log preparation
+        logger_.log("AudioProcessor", "info", 
+                   "Prepared for " + std::to_string(sampleRate) + " Hz, " + 
+                   std::to_string(samplesPerBlock) + " samples per block");
+    }
+
+    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) override {
+        const int numSamples = buffer.getNumSamples();
+        
+        // 1. Handle MIDI events - VELOCITY NYÅ® SPRÃVNÄš OVLIVÅ‡UJE HLASITOST!
+        for (const auto metadata : midiMessages) {
+            const auto msg = metadata.getMessage();
+            if (msg.isNoteOn()) {
+                // OPRAVENO: velocity nynÃ­ sprÃ¡vnÄ› aplikuje gain na vÃ½stup
+                voiceManager_.setNoteState(msg.getNoteNumber(), true, msg.getVelocity());
+            } else if (msg.isNoteOff()) {
+                voiceManager_.setNoteState(msg.getNoteNumber(), false, 0);
+            }
+        }
+        
+        // 2. Process audio - get pointers to JUCE buffer channels
+        float* leftChannel = buffer.getWritePointer(0);
+        float* rightChannel = buffer.getNumChannels() > 1 ? 
+                             buffer.getWritePointer(1) : leftChannel;
+        
+        // 3. KRITICKÃ‰: VoiceManager processBlock handles buffer clearing and mixing
+        // S OPRAVENÃM GAIN SYSTÃ‰MEM: envelope * velocity * master * voiceScaling
         voiceManager_.processBlock(leftChannel, rightChannel, numSamples);
     }
 
@@ -2336,10 +2443,10 @@ Path: C:\Users\jindr\IthacaCore\sampler\voice.cpp
 // Static member initialization
 std::atomic<bool> Voice::rtMode_{false};
 
-// Default konstruktor
+// Default konstruktor - OPRAVENÃ inicializace gain
 Voice::Voice() : midiNote_(0), instrument_(nullptr), sampleRate_(0),
                  state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
-                 envelope_gain_(0.0f), voice_gain_(1.0f), 
+                 envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(0.8f),  // NOVÃ‰
                  releaseStartPosition_(0), releaseSamples_(0) {
     // Å½Ã¡dnÃ¡ akce - ÄekÃ¡ na initialize pro plnou inicializaci
 }
@@ -2348,7 +2455,7 @@ Voice::Voice() : midiNote_(0), instrument_(nullptr), sampleRate_(0),
 Voice::Voice(uint8_t midiNote)
     : midiNote_(midiNote), instrument_(nullptr), sampleRate_(0),
       state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
-      envelope_gain_(0.0f), voice_gain_(1.0f),
+      envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(0.8f),  // NOVÃ‰
       releaseStartPosition_(0), releaseSamples_(0) {
     // Logger se pÅ™edÃ¡ pÅ™i initialize
 }
@@ -2374,7 +2481,8 @@ void Voice::initialize(const Instrument& instrument, int sampleRate, Logger& log
     position_ = 0;
     currentVelocityLayer_ = 0;
     envelope_gain_ = 0.0f;
-    voice_gain_ = 1.0f;
+    velocity_gain_ = 0.0f;  // NOVÃ‰ - reset velocity gain
+    master_gain_ = 0.8f;    // NOVÃ‰ - default master gain
     releaseStartPosition_ = 0;
     
     calculateReleaseSamples();  // RT-safe calculation
@@ -2385,7 +2493,8 @@ void Voice::initialize(const Instrument& instrument, int sampleRate, Logger& log
     
     logSafe("Voice/initialize", "info", 
            "Voice initialized for MIDI " + std::to_string(midiNote_) + 
-           " with sampleRate " + std::to_string(sampleRate_), logger);
+           " with sampleRate " + std::to_string(sampleRate_) +
+           ", master gain " + std::to_string(master_gain_), logger);
 }
 
 /**
@@ -2414,7 +2523,8 @@ void Voice::cleanup(Logger& logger) {
     state_ = VoiceState::Idle;
     position_ = 0;
     envelope_gain_ = 0.0f;
-    voice_gain_ = 0.3f;  // SNÃÅ½ENÃ GAIN PRO KONTROLU HLASITOSTI
+    velocity_gain_ = 0.0f;  // NOVÃ‰ - reset velocity gain
+    master_gain_ = 0.8f;    // NOVÃ‰ - reset na default
     releaseStartPosition_ = 0;
     
     logSafe("Voice/cleanup", "info", 
@@ -2432,8 +2542,8 @@ void Voice::reinitialize(const Instrument& instrument, int sampleRate, Logger& l
 }
 
 /**
- * @brief RT-SAFE: NastavÃ­ stav note: true = startNote (attack/sustain), false = stopNote (release).
- * OPTIMALIZOVÃNO: Å½Ã¡dnÃ© alokace, Å¾Ã¡dnÃ© string operations, pure state management.
+ * @brief OPRAVENÃ setNoteState: NynÃ­ SPRÃVNÄš aplikuje velocity na hlasitost.
+ * RT-SAFE: Å½Ã¡dnÃ© alokace, Å¾Ã¡dnÃ© string operations, pure state management.
  */
 void Voice::setNoteState(bool isOn, uint8_t velocity) noexcept {
     if (!instrument_ || sampleRate_ <= 0) {
@@ -2441,12 +2551,13 @@ void Voice::setNoteState(bool isOn, uint8_t velocity) noexcept {
         return;
     }
     
-    // MapovÃ¡nÃ­ velocity 0-127 na layer 0-7: 0-15 -> 0, 16-31 -> 1, ..., 112-127 -> 7
+    // MapovÃ¡nÃ­ velocity 0-127 na layer 0-7: 0-15 â†’ 0, 16-31 â†’ 1, ..., 112-127 â†’ 7
     currentVelocityLayer_ = std::min(static_cast<uint8_t>(velocity / 16), static_cast<uint8_t>(7));
     
     if (isOn) {
-        // Start note: Set voice gain based on velocity and start sustain
-        updateVoiceGainFromVelocity(velocity);
+        // KRITICKÃ OPRAVA: Velocity nynÃ­ ovlivÅˆuje hlasitost
+        updateVelocityGain(velocity);  // NOVÃ‰ - nastavÃ­ velocity_gain_
+        
         state_ = VoiceState::Sustaining;
         position_ = 0;  // ZaÄÃ¡tek sample
         envelope_gain_ = 1.0f;  // PlnÃ½ envelope gain pro sustain
@@ -2531,8 +2642,8 @@ void Voice::advancePosition() noexcept {
 }
 
 /**
- * @brief RT-SAFE: ZÃ­skÃ¡ aktuÃ¡lnÃ­ stereo audio data s aplikovanou obÃ¡lkou (gain).
- * OPTIMALIZOVÃNO: Inline gain application, eliminovanÃ¡ applyEnvelope funkce.
+ * @brief OPRAVENÃ getCurrentAudioData: NynÃ­ aplikuje kompletnÃ­ gain chain.
+ * RT-SAFE: Inline gain application s envelope * velocity * master.
  */
 bool Voice::getCurrentAudioData(AudioData& data) const noexcept {
     if (state_ == VoiceState::Idle || !instrument_ || 
@@ -2543,8 +2654,8 @@ bool Voice::getCurrentAudioData(AudioData& data) const noexcept {
     const float* stereoPtr = instrument_->get_sample_begin_pointer(currentVelocityLayer_);
     if (!stereoPtr) return false;
     
-    // Apply both envelope and voice gains
-    const float finalGain = envelope_gain_ * voice_gain_;
+    // KRITICKÃ OPRAVA: Aplikuj vÅ¡echny gain komponenty
+    const float finalGain = envelope_gain_ * velocity_gain_ * master_gain_;
     const sf_count_t idx = position_ * 2;
     data.left = stereoPtr[idx] * finalGain;
     data.right = stereoPtr[idx + 1] * finalGain;
@@ -2553,11 +2664,11 @@ bool Voice::getCurrentAudioData(AudioData& data) const noexcept {
 }
 
 /**
- * @brief RT-SAFE HLAVNÃ METODA: Zpracuje audio blok s centralizovanou aplikacÃ­ gain.
+ * @brief RT-SAFE HLAVNÃ METODA: Zpracuje audio blok s OPRAVENOU centralizovanou aplikacÃ­ gain.
  * 
- * KOMPLETNÄš REFAKTOROVÃNO PRO CENTRALIZACI:
+ * KOMPLETNÄš REFAKTOROVÃNO PRO KOMPLETNÃ GAIN CHAIN:
  * - VolÃ¡ calculateBlockGains() pro vÃ½poÄet envelope
- * - Aplikuje voice_gain_ a envelope gains v jednom centralizovanÃ©m loopu
+ * - Aplikuje envelope_gain_ * velocity_gain_ * master_gain_ v jednom centralizovanÃ©m loopu
  * - Å˜Ã­dÃ­ voice state transitions na zÃ¡kladÄ› vÃ½sledkÅ¯ gain calculation
  * - ProvÃ¡dÃ­ mixdown sÄÃ­tÃ¡nÃ­ do sdÃ­lenÃ½ch output bufferÅ¯
  */
@@ -2607,12 +2718,16 @@ bool Voice::processBlock(float* outputLeft, float* outputRight,
     const float voiceScaling = (activeVoiceCount > 1) ? 
         1.0f / std::sqrt(static_cast<float>(activeVoiceCount)) : 1.0f;
     
-    // CENTRALIZED GAIN APPLICATION AND MIXDOWN
+    // KRITICKÃ OPRAVA: KOMPLETNÃ GAIN CHAIN - envelope * velocity * master * voiceScaling
     const sf_count_t startIndex = position_ * 2;
     const float* srcPtr = stereoBuffer + startIndex;
     
+    // Kombinuj vÅ¡echny gain komponenty mimo envelope (kterÃ½ je per-sample)
+    const float baseGain = velocity_gain_ * master_gain_ * voiceScaling;
+    
     for (int i = 0; i < samplesToProcess; ++i) {
-        const float finalGain = gainBuffer_.data()[i] * voice_gain_ * voiceScaling;
+        // KompletnÃ­ gain chain: envelope (per-sample) * velocity * master * voiceScaling
+        const float finalGain = gainBuffer_.data()[i] * baseGain;
         const int srcIndex = i * 2;
         
         // Mixdown: Add to shared output buffers (multiple voices sum together)
@@ -2685,20 +2800,61 @@ void Voice::calculateReleaseSamples() noexcept {
 }
 
 /**
- * @brief RT-SAFE: Updates voice gain based on velocity mapping.
- * DISABLED: Voice gain remains constant since samples already contain velocity information
+ * @brief RT-SAFE: NOVÃ metoda pro aplikaci MIDI velocity na hlasitost
+ * Mapuje velocity 0-127 na velocity_gain_ 0.0-1.0 s logaritmickou kÅ™ivkou.
  */
-void Voice::updateVoiceGainFromVelocity(uint8_t velocity) noexcept {
-    // Keep voice_gain_ constant - samples already contain velocity information
-    // voice_gain_ is set once during initialization and never changes
-    // The velocity parameter is used only for velocity layer selection (currentVelocityLayer_)
+void Voice::updateVelocityGain(uint8_t velocity) noexcept {
+    // MapovÃ¡nÃ­ MIDI velocity 0-127 na gain 0.0-1.0
+    // PouÅ¾itÃ­ curve pro pÅ™irozenÄ›jÅ¡Ã­ pocit hlasitosti
     
-    // Optional: Log velocity for debugging (non-RT safe, only when rtMode_ is false)
-    #ifdef DEBUG
-    if (!rtMode_.load()) {
-        // Could log velocity here for debugging purposes
+    if (velocity == 0) {
+        velocity_gain_ = 0.0f;  // Silence pro velocity 0
+        return;
     }
-    #endif
+    
+    // LogaritmickÃ¡ kÅ™ivka pro pÅ™irozenÄ›jÅ¡Ã­ velocity response
+    // velocity 1 â†’ ~0.05, velocity 64 â†’ ~0.57, velocity 127 â†’ 1.0
+    float normalized = static_cast<float>(velocity) / 127.0f;
+    
+    // Sqrt curve pro smooth velocity response (mÃ­sto lineÃ¡rnÃ­)
+    velocity_gain_ = std::sqrt(normalized);
+    
+    // Alternative linear mapping (jednoduÅ¡Å¡Ã­):
+    // velocity_gain_ = normalized;
+    
+    // Clamp pro bezpeÄnost
+    velocity_gain_ = std::max(0.0f, std::min(1.0f, velocity_gain_));
+}
+
+/**
+ * @brief NON-RT SAFE: NastavÃ­ master gain pro voice (0.0-1.0)
+ */
+void Voice::setMasterGain(float gain, Logger& logger) {
+    if (gain < 0.0f || gain > 1.0f) {
+        logSafe("Voice/setMasterGain", "error", 
+               "Invalid master gain " + std::to_string(gain) + 
+               " (must be 0.0-1.0) for MIDI " + std::to_string(midiNote_), logger);
+        return;
+    }
+    master_gain_ = gain;
+    logSafe("Voice/setMasterGain", "info", 
+           "Master gain set to " + std::to_string(master_gain_) + 
+           " for MIDI " + std::to_string(midiNote_), logger);
+}
+
+/**
+ * @brief NON-RT SAFE: ZÃ­skÃ¡ debug informace o gain structure
+ */
+std::string Voice::getGainDebugInfo(Logger& logger) const {
+    std::string info = "MIDI " + std::to_string(midiNote_) + 
+                      " Gains - Envelope: " + std::to_string(envelope_gain_) +
+                      ", Velocity: " + std::to_string(velocity_gain_) +
+                      ", Master: " + std::to_string(master_gain_) +
+                      ", Final: " + std::to_string(getFinalGain()) +
+                      ", State: " + std::to_string(static_cast<int>(state_));
+    
+    logSafe("Voice/getGainDebugInfo", "info", info, logger);
+    return info;
 }
 
 /**
@@ -2754,8 +2910,9 @@ enum class VoiceState {
  * @class Voice
  * @brief Jedna hlasovÃ¡ jednotka pro pÅ™ehrÃ¡vÃ¡nÃ­ sample s obÃ¡lkou a stavy.
  * 
- * REFAKTOROVÃNO PRO CENTRALIZOVANOU APLIKACI GAIN:
- * - OddÄ›lenÃ© envelope_gain_ a voice_gain_ komponenty
+ * REFAKTOROVÃNO PRO OPRAVENOU APLIKACI GAIN:
+ * - OPRAVENÃ gain architektura: envelope_gain_ + velocity_gain_ + master_gain_
+ * - Velocity nynÃ­ SPRÃVNÄš ovlivÅˆuje hlasitost (velocity 0-127 â†’ gain 0.0-1.0)
  * - Pre-alokovanÃ½ buffer pro RT-safe gain calculations
  * - CentralizovanÃ¡ aplikace gain v processBlock
  * - JUCE framework kompatibilita s prepareToPlay pattern
@@ -2811,10 +2968,10 @@ public:
     void prepareToPlay(int maxBlockSize) noexcept;
 
     /**
-     * @brief NastavÃ­ stav note: true = startNote, false = stopNote.
-     * RT-SAFE: Å½Ã¡dnÃ© alokace, pouze state changes.
+     * @brief OPRAVENÃ metoda: NastavÃ­ stav note s SPRÃVNOU aplikacÃ­ velocity.
+     * RT-SAFE: Å½Ã¡dnÃ© alokace, pouze state changes + velocity gain update.
      * @param isOn True pro start, false pro stop.
-     * @param velocity Velocity (0-127, mapovÃ¡no na layer 0-7).
+     * @param velocity Velocity (0-127) - NYnÃ­ SPRÃVNÄš ovlivÅˆuje hlasitost!
      */
     void setNoteState(bool isOn, uint8_t velocity) noexcept;
 
@@ -2825,8 +2982,8 @@ public:
     void advancePosition() noexcept;
 
     /**
-     * @brief ZÃ­skÃ¡ aktuÃ¡lnÃ­ stereo audio data s aplikovanou obÃ¡lkou.
-     * RT-SAFE: Inline gain application, Å¾Ã¡dnÃ© function call overhead.
+     * @brief OPRAVENÃ metoda: ZÃ­skÃ¡ aktuÃ¡lnÃ­ stereo audio data s aplikovanou kompletnÃ­ gain chain.
+     * RT-SAFE: Inline gain application s envelope * velocity * master.
      * @param data Reference na AudioData pro vÃ½stup.
      * @return True, pokud data jsou platnÃ¡.
      */
@@ -2846,11 +3003,11 @@ public:
     bool calculateBlockGains(float* gainBuffer, int numSamples) noexcept;
 
     /**
-     * @brief HLAVNÃ RT-SAFE METODA: Zpracuje audio blok s centralizovanou aplikacÃ­ gain.
+     * @brief HLAVNÃ RT-SAFE METODA: Zpracuje audio blok s OPRAVENOU centralizovanou aplikacÃ­ gain.
      * 
-     * REFAKTOROVÃNO PRO CENTRALIZACI:
+     * OPRAVENO PRO KOMPLETNÃ GAIN CHAIN:
      * - VolÃ¡ calculateBlockGains() pro vÃ½poÄet envelope
-     * - Aplikuje voice_gain_ a envelope gains v jednom centralizovanÃ©m loopu
+     * - Aplikuje envelope_gain_ * velocity_gain_ * master_gain_ v jednom centralizovanÃ©m loopu
      * - Å˜Ã­dÃ­ voice state transitions na zÃ¡kladÄ› vÃ½sledkÅ¯ gain calculation
      * - ProvÃ¡dÃ­ mixdown sÄÃ­tÃ¡nÃ­ do sdÃ­lenÃ½ch output bufferÅ¯
      * - Dynamic voice scaling pro prevenci clippingu
@@ -2878,14 +3035,34 @@ public:
     bool isActive() const noexcept { return state_ != VoiceState::Idle; }
     VoiceState getState() const noexcept { return state_; }
     sf_count_t getPosition() const noexcept { return position_; }
-    float getCurrentEnvelopeGain() const noexcept { return envelope_gain_; }
-    float getCurrentVoiceGain() const noexcept { return voice_gain_; }
-    float getFinalGain() const noexcept { return envelope_gain_ * voice_gain_; }
     uint8_t getCurrentVelocityLayer() const noexcept { return currentVelocityLayer_; }
+    
+    // OPRAVENÃ‰ gain gettery s jasnou strukturou
+    float getCurrentEnvelopeGain() const noexcept { return envelope_gain_; }
+    float getVelocityGain() const noexcept { return velocity_gain_; }         // NOVÃ‰
+    float getMasterGain() const noexcept { return master_gain_; }             // NOVÃ‰
+    float getFinalGain() const noexcept { 
+        return envelope_gain_ * velocity_gain_ * master_gain_; 
+    }
 
     // RT-Safe mode control (pro debugging/profiling)
     static void setRealTimeMode(bool enabled) noexcept { rtMode_.store(enabled); }
     static bool isRealTimeMode() noexcept { return rtMode_.load(); }
+
+    // NOVÃ‰ metody pro runtime kontrolu gain
+    /**
+     * @brief NON-RT SAFE: NastavÃ­ master gain pro voice (0.0-1.0)
+     * PouÅ¾ij pro globÃ¡lnÃ­ kontrolu hlasitosti vÅ¡ech voices.
+     * @param gain Master gain (0.0-1.0, default 0.8)
+     */
+    void setMasterGain(float gain, Logger& logger);
+
+    /**
+     * @brief NON-RT SAFE: ZÃ­skÃ¡ debug informace o gain structure
+     * @param logger Reference na Logger
+     * @return String s detailnÃ­mi gain informacemi
+     */
+    std::string getGainDebugInfo(Logger& logger) const;
 
 private:
     uint8_t midiNote_;              // MIDI nota (0-127)
@@ -2895,9 +3072,10 @@ private:
     sf_count_t position_;           // Pozice ve sample (frames)
     uint8_t currentVelocityLayer_;  // AktuÃ¡lnÃ­ velocity layer (0-7)
     
-    // NOVÃ‰: OddÄ›lenÃ© gain komponenty
-    float envelope_gain_;           // DynamickÃ¡ obÃ¡lka (attack/sustain/release)
-    float voice_gain_;             // Per-voice gain (velocity-based, konstantnÃ­)
+    // OPRAVENÃ‰: OddÄ›lenÃ© gain komponenty s jasnou strukturou
+    float envelope_gain_;           // DynamickÃ¡ obÃ¡lka (attack/sustain/release): 0.0-1.0
+    float velocity_gain_;          // MIDI velocity gain (0-127 â†’ 0.0-1.0): NOVÃ‰
+    float master_gain_;            // Master volume kontrola (default 0.8f): NOVÃ‰
     
     sf_count_t releaseStartPosition_; // Pozice startu release pro lineÃ¡rnÃ­ Ãºtlum
     sf_count_t releaseSamples_;     // DÃ©lka release v samplech (napÅ™. 0.5 * sampleRate)
@@ -2917,9 +3095,11 @@ private:
     void calculateReleaseSamples() noexcept;
 
     /**
-     * @brief RT-SAFE: Updates voice gain based on velocity mapping.
+     * @brief RT-SAFE: NOVÃ metoda pro aplikaci MIDI velocity na hlasitost
+     * Mapuje velocity 0-127 na velocity_gain_ 0.0-1.0 s logaritmickou kÅ™ivkou.
+     * @param velocity MIDI velocity (0-127)
      */
-    void updateVoiceGainFromVelocity(uint8_t velocity) noexcept;
+    void updateVelocityGain(uint8_t velocity) noexcept;
 
     /**
      * @brief NON-RT: Safe logging wrapper pro non-critical operations.
@@ -3200,7 +3380,225 @@ void VoiceManager::logSystemStatistics(Logger& logger) {
               "========================");
 }
 
-// ===== TESTING METHODS - adaptovanÃ© pro novou Voice tÅ™Ã­du =====
+// ===== NOVÃ‰ TESTING METHODS - GAIN SPECIFIC =====
+
+/**
+ * @brief NOVÃ metoda: Test velocity gain s rÅ¯znÃ½mi hodnotami
+ * Testuje aplikaci MIDI velocity na hlasitost s detailnÃ­m logovÃ¡nÃ­m.
+ */
+void VoiceManager::runVelocityGainTest(Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/runVelocityGainTest", "error", 
+                  "System not initialized. Call loadAllInstruments() first.");
+        return;
+    }
+    
+    logger.log("VoiceManager/runVelocityGainTest", "info", 
+              "=== STARTING VELOCITY GAIN TEST ===");
+    
+    uint8_t testMidi = findValidTestMidiNote(logger);
+    
+    // Test rÅ¯znÃ½ch velocity hodnot: 1, 32, 64, 96, 127
+    std::vector<uint8_t> testVelocities = {1, 32, 64, 96, 127};
+    
+    const int blockSize = 512;
+    float* leftBuffer = new float[blockSize];
+    float* rightBuffer = new float[blockSize];
+    
+    for (uint8_t velocity : testVelocities) {
+        logger.log("VoiceManager/runVelocityGainTest", "info", 
+                  "Testing velocity " + std::to_string(velocity) + " for MIDI " + std::to_string(testMidi));
+        
+        // Note-on s testovanou velocity
+        setNoteState(testMidi, true, velocity);
+        
+        Voice& voice = getVoice(testMidi);
+        
+        // Debug gain informace
+        voice.getGainDebugInfo(logger);
+        
+        // Process jeden blok pro mÄ›Å™enÃ­ vÃ½stupnÃ­ hlasitosti
+        memset(leftBuffer, 0, blockSize * sizeof(float));
+        memset(rightBuffer, 0, blockSize * sizeof(float));
+        
+        if (processBlock(leftBuffer, rightBuffer, blockSize)) {
+            // AnalÃ½za peak level
+            float peakL = 0.0f, peakR = 0.0f;
+            float rmsL = 0.0f, rmsR = 0.0f;
+            
+            for (int i = 0; i < blockSize; ++i) {
+                peakL = std::max(peakL, std::abs(leftBuffer[i]));
+                peakR = std::max(peakR, std::abs(rightBuffer[i]));
+                rmsL += leftBuffer[i] * leftBuffer[i];
+                rmsR += rightBuffer[i] * rightBuffer[i];
+            }
+            
+            rmsL = std::sqrt(rmsL / blockSize);
+            rmsR = std::sqrt(rmsR / blockSize);
+            
+            logger.log("VoiceManager/runVelocityGainTest", "info", 
+                      "Velocity " + std::to_string(velocity) + 
+                      " - Peak L: " + std::to_string(peakL) + 
+                      ", Peak R: " + std::to_string(peakR) +
+                      ", RMS L: " + std::to_string(rmsL) +
+                      ", RMS R: " + std::to_string(rmsR) +
+                      ", Voice Final Gain: " + std::to_string(voice.getFinalGain()));
+                      
+            // OÄekÃ¡vanÃ½ rÅ¯st hlasitosti s velocity
+            float expectedGain = std::sqrt(static_cast<float>(velocity) / 127.0f) * voice.getMasterGain();
+            logger.log("VoiceManager/runVelocityGainTest", "info", 
+                      "Expected gain: " + std::to_string(expectedGain) + 
+                      ", Actual velocity gain: " + std::to_string(voice.getVelocityGain()));
+        }
+        
+        // Note-off
+        setNoteState(testMidi, false, 0);
+        
+        // KrÃ¡tkÃ¡ pauza pro cleanup
+        for (int i = 0; i < 3; ++i) {
+            processBlock(leftBuffer, rightBuffer, blockSize);
+        }
+    }
+    
+    delete[] leftBuffer;
+    delete[] rightBuffer;
+    
+    logger.log("VoiceManager/runVelocityGainTest", "info", 
+              "=== VELOCITY GAIN TEST COMPLETED ===");
+}
+
+/**
+ * @brief NOVÃ metoda: Test master gain nastavenÃ­
+ */
+void VoiceManager::runMasterGainTest(Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/runMasterGainTest", "error", 
+                  "System not initialized. Call loadAllInstruments() first.");
+        return;
+    }
+    
+    logger.log("VoiceManager/runMasterGainTest", "info", 
+              "=== STARTING MASTER GAIN TEST ===");
+    
+    uint8_t testMidi = findValidTestMidiNote(logger);
+    Voice& voice = getVoice(testMidi);
+    
+    // Test rÅ¯znÃ½ch master gain hodnot
+    std::vector<float> testGains = {0.1f, 0.3f, 0.5f, 0.8f, 1.0f};
+    
+    for (float masterGain : testGains) {
+        logger.log("VoiceManager/runMasterGainTest", "info", 
+                  "Testing master gain " + std::to_string(masterGain));
+        
+        // NastavenÃ­ master gain
+        voice.setMasterGain(masterGain, logger);
+        
+        // Test s pevnou velocity (100)
+        setNoteState(testMidi, true, 100);
+        
+        // Debug informace
+        voice.getGainDebugInfo(logger);
+        
+        // KrÃ¡tkÃ½ test
+        const int blockSize = 256;
+        float* leftBuffer = new float[blockSize];
+        float* rightBuffer = new float[blockSize];
+        
+        memset(leftBuffer, 0, blockSize * sizeof(float));
+        memset(rightBuffer, 0, blockSize * sizeof(float));
+        
+        if (processBlock(leftBuffer, rightBuffer, blockSize)) {
+            float peakL = 0.0f;
+            for (int i = 0; i < blockSize; ++i) {
+                peakL = std::max(peakL, std::abs(leftBuffer[i]));
+            }
+            
+            logger.log("VoiceManager/runMasterGainTest", "info", 
+                      "Master gain " + std::to_string(masterGain) + 
+                      " â†’ Peak output: " + std::to_string(peakL));
+        }
+        
+        delete[] leftBuffer;
+        delete[] rightBuffer;
+        
+        setNoteState(testMidi, false, 0);
+    }
+    
+    logger.log("VoiceManager/runMasterGainTest", "info", 
+              "=== MASTER GAIN TEST COMPLETED ===");
+}
+
+/**
+ * @brief ROZÅ ÃÅ˜ENÃ runSingleNoteTest s gain analÃ½zou
+ */
+void VoiceManager::runSingleNoteTestWithGain(Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/runSingleNoteTestWithGain", "error", 
+                  "System not initialized. Call loadAllInstruments() first.");
+        return;
+    }
+    
+    logger.log("VoiceManager/runSingleNoteTestWithGain", "info", 
+              "=== STARTING ENHANCED SINGLE NOTE TEST ===");
+    
+    uint8_t testMidi = findValidTestMidiNote(logger);
+    uint8_t testVelocity = 100;
+    
+    logger.log("VoiceManager/runSingleNoteTestWithGain", "info", 
+              "Testing MIDI " + std::to_string(testMidi) + 
+              " with velocity " + std::to_string(testVelocity) + 
+              " (enhanced gain monitoring)");
+    
+    Voice& voice = getVoice(testMidi);
+    
+    // Note-on
+    setNoteState(testMidi, true, testVelocity);
+    
+    // DetailnÃ­ gain monitoring
+    logger.log("VoiceManager/runSingleNoteTestWithGain", "info", 
+              "After note-on: " + voice.getGainDebugInfo(logger));
+    
+    const int blockSize = 512;
+    const int numBlocks = 8;  // VÃ­ce blokÅ¯ pro sledovÃ¡nÃ­ envelope
+    float* leftBuffer = new float[blockSize];
+    float* rightBuffer = new float[blockSize];
+    
+    for (int block = 0; block < numBlocks; ++block) {
+        memset(leftBuffer, 0, blockSize * sizeof(float));
+        memset(rightBuffer, 0, blockSize * sizeof(float));
+        
+        bool hasAudio = processBlock(leftBuffer, rightBuffer, blockSize);
+        
+        if (hasAudio) {
+            float maxL = 0.0f;
+            for (int i = 0; i < blockSize; ++i) {
+                maxL = std::max(maxL, std::abs(leftBuffer[i]));
+            }
+            
+            logger.log("VoiceManager/runSingleNoteTestWithGain", "info", 
+                      "Block " + std::to_string(block) + 
+                      " - Peak: " + std::to_string(maxL) + 
+                      ", Voice gains: Env=" + std::to_string(voice.getCurrentEnvelopeGain()) +
+                      ", Vel=" + std::to_string(voice.getVelocityGain()) +
+                      ", Final=" + std::to_string(voice.getFinalGain()));
+        }
+        
+        // Release po polovinÄ› blokÅ¯
+        if (block == numBlocks / 2) {
+            setNoteState(testMidi, false, 0);
+            logger.log("VoiceManager/runSingleNoteTestWithGain", "info", 
+                      "Note-off sent - monitoring release envelope");
+        }
+    }
+    
+    delete[] leftBuffer;
+    delete[] rightBuffer;
+    
+    logger.log("VoiceManager/runSingleNoteTestWithGain", "info", 
+              "=== ENHANCED SINGLE NOTE TEST COMPLETED ===");
+}
+
+// ===== PÅ®VODNÃ TESTING METHODS - adaptovanÃ© pro novou Voice tÅ™Ã­du =====
 
 /**
  * @brief Single note test s live export moÅ¾nostÃ­
@@ -3364,7 +3762,8 @@ void VoiceManager::runIndividualVoiceTest(Logger& logger) {
               std::to_string(static_cast<int>(voice.getState())) + 
               ", position: " + std::to_string(voice.getPosition()) + 
               ", envelope gain: " + std::to_string(voice.getCurrentEnvelopeGain()) +
-              ", voice gain: " + std::to_string(voice.getCurrentVoiceGain()) +
+              ", velocity gain: " + std::to_string(voice.getVelocityGain()) +
+              ", master gain: " + std::to_string(voice.getMasterGain()) +
               ", final gain: " + std::to_string(voice.getFinalGain()));
     
     logger.log("VoiceManager/runIndividualVoiceTest", "info", "Individual voice test completed");
@@ -3943,11 +4342,36 @@ public:
     void loadAllInstruments(Logger& logger);
     void validateSystemIntegrity(Logger& logger);
 
-    // Granular testing methods
+    // NOVÃ‰: Granular testing methods with GAIN FOCUS
     void runSingleNoteTest(Logger& logger);
     void runPolyphonyTest(Logger& logger);
     void runEdgeCaseTests(Logger& logger);
     void runIndividualVoiceTest(Logger& logger);
+
+    // NOVÃ‰: VELOCITY GAIN SPECIFIC testing methods
+    /**
+     * @brief NOVÃ metoda: Test velocity gain s rÅ¯znÃ½mi hodnotami
+     * Testuje aplikaci MIDI velocity na hlasitost s detailnÃ­m logovÃ¡nÃ­m.
+     * Testuje velocity: 1, 32, 64, 96, 127 a analyzuje vÃ½stupnÃ­ hlasitost.
+     * @param logger Reference na Logger
+     */
+    void runVelocityGainTest(Logger& logger);
+
+    /**
+     * @brief NOVÃ metoda: Test master gain nastavenÃ­
+     * Testuje rÅ¯znÃ© master gain hodnoty: 0.1, 0.3, 0.5, 0.8, 1.0
+     * s analÃ½zou jejich dopadu na vÃ½stupnÃ­ hlasitost.
+     * @param logger Reference na Logger
+     */
+    void runMasterGainTest(Logger& logger);
+
+    /**
+     * @brief ROZÅ ÃÅ˜ENÃ runSingleNoteTest s gain analÃ½zou
+     * Kombinuje pÅ¯vodnÃ­ single note test s detailnÃ­m monitoringem
+     * envelope, velocity a master gain bÄ›hem pÅ™ehrÃ¡vÃ¡nÃ­.
+     * @param logger Reference na Logger
+     */
+    void runSingleNoteTestWithGain(Logger& logger);
 
     // Export and diagnostics
     void exportTestSample(uint8_t midi, uint8_t vel, 

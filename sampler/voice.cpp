@@ -289,7 +289,7 @@ bool Voice::processBlock(float* outputLeft, float* outputRight,
     
     for (int i = 0; i < samplesToProcess; ++i) {
         // Kompletní gain chain: envelope (per-sample) * velocity * master * voiceScaling
-        const float finalGain = gainBuffer_.data()[i] * baseGain;
+        const float finalGain = gainBuffer_.data()[i] * baseGain * 0.8;
         const int srcIndex = i * 2;
         
         // Mixdown: Add to shared output buffers (multiple voices sum together)

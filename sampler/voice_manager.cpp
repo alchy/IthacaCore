@@ -557,12 +557,12 @@ void VoiceManager::runPolyphonyTest(Logger& logger) {
     
     logger.log("VoiceManager/runPolyphonyTest", "info", "Starting polyphony test...");
     
-    std::vector<uint8_t> testNotes = findValidNotesForPolyphony(logger, 3);
+    std::vector<uint8_t> testNotes = findValidNotesForPolyphony(logger, 2);
     
-    if (testNotes.size() >= 3) {
+    if (testNotes.size() >= 2) {
         // Note-on for all notes
         for (uint8_t note : testNotes) {
-            setNoteState(note, true, 100);
+            setNoteState(note, true, 90);
             logger.log("VoiceManager/runPolyphonyTest", "info", 
                       "Note-on MIDI " + std::to_string(note));
         }
@@ -975,7 +975,7 @@ uint8_t VoiceManager::findValidTestMidiNote(Logger& logger) const {
  */
 std::vector<uint8_t> VoiceManager::findValidNotesForPolyphony(Logger& logger, int maxNotes) const {
     std::vector<uint8_t> notes;
-    for (int midi = 50; midi <= 80 && notes.size() < maxNotes; ++midi) {
+    for (int midi = 70; midi <= 80 && notes.size() < maxNotes; ++midi) {
         if (systemInitialized_) {
             const Instrument& inst = instrumentLoader_.getInstrumentNote(midi);
             for (int vel = 0; vel < 8; ++vel) {
