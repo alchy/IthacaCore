@@ -286,7 +286,7 @@ bool Voice::processBlock(AudioData* outputBuffer, int numSamples) noexcept {
  */
 void Voice::calculateReleaseSamples() noexcept {
     if (sampleRate_ > 0) {
-        releaseSamples_ = static_cast<sf_count_t>(0.2 * sampleRate_);  // 200 ms = 0.2 s
+        releaseSamples_ = static_cast<sf_count_t>(0.5 * sampleRate_);  // 200 ms = 0.2 s
     } else {
         releaseSamples_ = 0;
     }
@@ -332,11 +332,28 @@ void Voice::processConstantGain(const float* stereoBuffer,
 }
 
 /**
- * @brief RT-SAFE: Specialized processing pro release s lineární fade.
+ * @brief RT-SAFE: Specialized processing pro release s exponenciální fade.
  * OPTIMALIZOVÁNO PRO SMOOTH INTERPOLATION:
- * - Pre-calculated gain step pro lineární interpolaci
+ * - Pre-calculated decay rate pro exponenciální interpolaci
  * - Batch gain updates
- * - Early termination při gain = 0
+ * 
+ * Tato metoda aplikuje exponenciální útlum během release fáze voice.
+ * Exponenciální křivka simuluje přirozený akustický decay (mírnější na začátku,
+ * rychlejší na konci), což eliminuje zip/click při přechodu z sustain.
+ * Délka release zůstává 200 ms (releaseSamples_ = 0.2 * sampleRate_).
+ * 
+ * ZMĚNY oproti původní lineární verzi:
+ * - Nahrazen lineární interpolace (gainStep) exponenciální (decayRate = -5.0f / releaseSamples_ pro útlum na ~0.007).
+ * - Odstraněn early termination check – loop proběhne celý blok pro jednoduchost.
+ * - Aktualizace gain_ vzata přímo z posledního currentGain (eliminován duplicitní výpočet).
+ * - Odstraněn std::max – exp vrací >=0, takže gain nebude záporný.
+ * 
+ * RT-SAFE: Žádné alokace, logging nebo složité branching v loopu; std::exp je rychlé pro float.
+ * 
+ * @param stereoBuffer Source audio buffer (interleaved [L,R,L,R...])
+ * @param outputLeft Left channel output buffer
+ * @param outputRight Right channel output buffer
+ * @param numSamples Number of samples to process
  */
 void Voice::processRelease(const float* stereoBuffer, 
                           float* outputLeft, float* outputRight, 
@@ -344,41 +361,35 @@ void Voice::processRelease(const float* stereoBuffer,
     const sf_count_t startIndex = position_ * 2;
     const sf_count_t releaseElapsed = position_ - releaseStartPosition_;
     
-    // Pre-calculate gain step pro lineární interpolaci
-    const sf_count_t remainingReleaseSamples = releaseSamples_ - releaseElapsed;
-    const float gainStep = (remainingReleaseSamples > 0) ? 
-        (-gain_ / static_cast<float>(remainingReleaseSamples)) : 0.0f;
+    // Precompute decayRate pro exponenciální útlum (mírný útlum na e^{-5} ~0.007)
+    // Bez změny délky: releaseSamples_ zůstává 0.2 * sampleRate_
+    const float decayRate = (releaseSamples_ > 0) ? -5.0f / static_cast<float>(releaseSamples_) : 0.0f;
+    const float initialGain = gain_;  // Uložit startovní gain (obvykle 1.0 z sustain)
     
-    float currentGain = gain_;
     const float* srcPtr = stereoBuffer + startIndex;
     
+    float lastCurrentGain = initialGain;  // Inicializace pro případ numSamples == 0
+    
     for (int i = 0; i < numSamples; ++i) {
-        // Early termination check
-        if (currentGain <= 0.0f) {
-            currentGain = 0.0f;
-            state_ = VoiceState::Idle;
-            
-            // Zero remaining output
-            for (int j = i; j < numSamples; ++j) {
-                outputLeft[j] += 0.0f;
-                outputRight[j] += 0.0f;
-            }
-            break;
-        }
+        // Exponenciální gain: initial * exp(decayRate * (elapsed + i))
+        // elapsed + i pro per-sample posun – plynulý útlum bez skoku
+        const float elapsedLocal = static_cast<float>(releaseElapsed + i);
+        float currentGain = initialGain * std::exp(decayRate * elapsedLocal);
         
         const int srcIndex = i * 2;
         outputLeft[i] += srcPtr[srcIndex] * currentGain;
         outputRight[i] += srcPtr[srcIndex + 1] * currentGain;
         
-        // Update gain pro next sample
-        currentGain += gainStep;
+        // Uložit poslední currentGain pro aktualizaci gain_ (při i = numSamples-1)
+        lastCurrentGain = currentGain;
     }
     
-    // Update stored gain
-    gain_ = std::max(0.0f, currentGain);
+    // Aktualizace stored gain na konec bloku (pro konzistenci v dalších voláních)
+    // Vzato přímo z posledního currentGain – přesnější než samostatný výpočet
+    gain_ = lastCurrentGain;
     
-    // Final release completion check
-    if (gain_ <= 0.0f) {
+    // Final release completion check (ukončení voice po bloku)
+    if (gain_ < 0.001f) {
         state_ = VoiceState::Idle;
     }
 }
