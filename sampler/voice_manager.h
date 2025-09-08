@@ -31,6 +31,10 @@ public:
     // NOVÉ: Export and diagnostics
     void exportTestSample(uint8_t midi, uint8_t vel, 
                          const std::string& exportDir, Logger& logger);
+    void exportSingleNotePlayback(uint8_t midi, uint8_t velocity, 
+                                 const std::string& exportDir, Logger& logger);
+    void exportPolyphonyPlayback(const std::vector<uint8_t>& midiNotes, 
+                                const std::string& exportDir, Logger& logger);
     void logSystemStatistics(Logger& logger);
 
     // Existing API - nezměněné
