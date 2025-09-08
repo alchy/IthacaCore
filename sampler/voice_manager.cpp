@@ -1,17 +1,29 @@
 #include "voice_manager.h"
-#include <algorithm>  // Pro std::find, std::remove
+#include "sampler.h"            // Pro stack allocated SamplerIO
+#include "instrument_loader.h"  // Pro stack allocated InstrumentLoader
+#include "wav_file_exporter.h"  // Pro exportTestSample
+#include <algorithm>
+#include <cmath>
 
 /**
- * @brief Konstruktor: Vytvoří fixní pool 128 voice, uloží sampleDir, sampleRate.
+ * @brief Constructor: ROZŠÍŘENÝ s stack allocated komponenty, BEZ automatické inicializace sample rate
+ * @param sampleDir Cesta k sample adresáři
+ * @param logger Reference na Logger
+ * 
+ * DŮLEŽITÉ: Constructor pouze vytvoří objekty s neinicializovaným sample rate!
+ * Musí se explicitně volat changeSampleRate() + initializeSystem() + loadAllInstruments()
  */
-VoiceManager::VoiceManager(const std::string& sampleDir, int sampleRate, Logger& logger)
-    : sampleRate_(sampleRate), sampleDir_(sampleDir) {
-    
-    if (sampleRate_ <= 0) {
-        logSafe("VoiceManager/constructor", "error", 
-               "Invalid sampleRate " + std::to_string(sampleRate_) + " - must be > 0. Terminating.", logger);
-        std::exit(1);
-    }
+VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
+    : samplerIO_(),              // Stack allocated SamplerIO - prázdný stav
+      instrumentLoader_(),       // Stack allocated InstrumentLoader - prázdný stav
+      currentSampleRate_(0),     // NEINICIALIZOVÁNO - bude nastaveno changeSampleRate()
+      sampleDir_(sampleDir),
+      systemInitialized_(false), // System není připraven
+      voices_(),
+      activeVoices_(),
+      voicesToRemove_(),
+      activeVoicesCount_(0),
+      rtMode_(false) {
     
     if (sampleDir_.empty()) {
         logSafe("VoiceManager/constructor", "error", 
@@ -19,25 +31,530 @@ VoiceManager::VoiceManager(const std::string& sampleDir, int sampleRate, Logger&
         std::exit(1);
     }
     
-    // Inicializace fixního poolu 128 voices
+    // Původní inicializace voices (zachovat!)
     voices_.resize(128);
     for (int i = 0; i < 128; ++i) {
         voices_[i] = Voice(static_cast<uint8_t>(i));
     }
     
-    // Pre-alokace bufferů pro active voice tracking
     activeVoices_.reserve(128);
     voicesToRemove_.reserve(128);
     
     logSafe("VoiceManager/constructor", "info", 
-           "VoiceManager created with fixed 128 voices (one per MIDI note), sampleDir '" + sampleDir_ + 
-           "' and sampleRate " + std::to_string(sampleRate_), logger);
+           "VoiceManager created with sampleDir '" + sampleDir_ + 
+           "'. Ready for changeSampleRate() and initialization pipeline.", logger);
 }
 
 /**
- * @brief RT-SAFE: Nastaví stav note pro danou MIDI notu.
+ * @brief NOVÉ: Nastavení sample rate a trigger reinicializace
+ * @param newSampleRate Nový sample rate (44100 nebo 48000)
+ * @param logger Reference na Logger
  */
+void VoiceManager::changeSampleRate(int newSampleRate, Logger& logger) {
+    // Validace sample rate
+    if (newSampleRate != 44100 && newSampleRate != 48000) {
+        logger.log("VoiceManager/changeSampleRate", "error", 
+                  "Invalid sample rate " + std::to_string(newSampleRate) + 
+                  " Hz - only 44100 Hz and 48000 Hz are supported. Terminating.");
+        std::exit(1);
+    }
+    
+    if (needsReinitialization(newSampleRate)) {
+        logger.log("VoiceManager/changeSampleRate", "info", 
+                  "Sample rate change detected: " + std::to_string(currentSampleRate_) + 
+                  " Hz -> " + std::to_string(newSampleRate) + " Hz. Reinitializing...");
+        
+        // Stop all active voices před reinicializací
+        stopAllVoices();
+        
+        // Update target sample rate
+        currentSampleRate_ = newSampleRate;
+        
+        // Reset system initialization flag
+        systemInitialized_ = false;
+        
+        // KRITICKÉ: Pokud už byl system inicializován, reinicializuj komplet
+        if (instrumentLoader_.getActualSampleRate() != 0) {
+            try {
+                // Full reinitialization pipeline
+                initializeSystem(logger);      // Re-scan s novým sample rate
+                loadAllInstruments(logger);    // Reload s novým sample rate
+                validateSystemIntegrity(logger);
+                
+                logger.log("VoiceManager/changeSampleRate", "info", 
+                          "Sample rate change completed successfully");
+            } catch (...) {
+                logger.log("VoiceManager/changeSampleRate", "error", 
+                          "Sample rate change failed during reinitialization. Terminating.");
+                std::exit(1);
+            }
+        } else {
+            logger.log("VoiceManager/changeSampleRate", "info", 
+                      "Sample rate set to " + std::to_string(newSampleRate) + 
+                      " Hz. System ready for initialization.");
+        }
+    } else {
+        logger.log("VoiceManager/changeSampleRate", "info", 
+                  "Sample rate unchanged: " + std::to_string(newSampleRate) + " Hz");
+    }
+}
+
+/**
+ * @brief NOVÉ: Inicializace systému - scanování sample adresáře
+ * @param logger Reference na Logger
+ */
+void VoiceManager::initializeSystem(Logger& logger) {
+    if (currentSampleRate_ <= 0) {
+        logger.log("VoiceManager/initializeSystem", "error", 
+                  "Sample rate not set. Call changeSampleRate() first. Terminating.");
+        std::exit(1);
+    }
+    
+    logger.log("VoiceManager/initializeSystem", "info", 
+              "Starting system initialization with sampleDir: " + sampleDir_);
+    
+    try {
+        // Delegace na SamplerIO - scanování adresáře
+        samplerIO_.scanSampleDirectory(sampleDir_, logger);
+        
+        logger.log("VoiceManager/initializeSystem", "info", 
+                  "System initialization completed successfully");
+        
+    } catch (...) {
+        logger.log("VoiceManager/initializeSystem", "error", 
+                  "System initialization failed. Terminating.");
+        std::exit(1);
+    }
+}
+
+/**
+ * @brief NOVÉ: Načtení všech instrumentů do paměti
+ * @param logger Reference na Logger
+ */
+void VoiceManager::loadAllInstruments(Logger& logger) {
+    if (currentSampleRate_ <= 0) {
+        logger.log("VoiceManager/loadAllInstruments", "error", 
+                  "Sample rate not set. Call changeSampleRate() first. Terminating.");
+        std::exit(1);
+    }
+    
+    logger.log("VoiceManager/loadAllInstruments", "info", 
+              "Starting instrument loading with targetSampleRate: " + 
+              std::to_string(currentSampleRate_) + " Hz");
+    
+    try {
+        // Delegace na InstrumentLoader - načtení všech dat
+        instrumentLoader_.loadInstrumentData(samplerIO_, currentSampleRate_, logger);
+        
+        // Inicializace všech voices s načtenými instrumenty
+        initializeVoicesWithInstruments(logger);
+        
+        systemInitialized_ = true;
+        
+        logger.log("VoiceManager/loadAllInstruments", "info", 
+                  "All instruments loaded and voices initialized successfully");
+        
+    } catch (...) {
+        logger.log("VoiceManager/loadAllInstruments", "error", 
+                  "Instrument loading failed. Terminating.");
+        std::exit(1);
+    }
+}
+
+/**
+ * @brief NOVÉ: System validation
+ */
+void VoiceManager::validateSystemIntegrity(Logger& logger) {
+    if (!systemInitialized_) {
+        logSafe("VoiceManager/validateSystemIntegrity", "error", 
+                "System not initialized. Call loadAllInstruments() first. Terminating.", logger);
+        std::exit(1);
+    }
+    
+    logSafe("VoiceManager/validateSystemIntegrity", "info", 
+            "Starting system integrity validation...", logger);
+    
+    try {
+        instrumentLoader_.validateStereoConsistency(logger);
+        
+        int validVoices = 0;
+        for (int i = 0; i < 128; ++i) {
+            const Voice& voice = voices_[i];
+            if (voice.getMidiNote() == i) {
+                validVoices++;
+            } else {
+                logSafe("VoiceManager/validateSystemIntegrity", "error", 
+                        "Voice MIDI note mismatch: voice index " + std::to_string(i) + 
+                        " has midiNote " + std::to_string(voice.getMidiNote()) + ". Terminating.", logger);
+                std::exit(1);
+            }
+        }
+        
+        logSafe("VoiceManager/validateSystemIntegrity", "info", 
+                "System integrity validation completed successfully. " + 
+                std::to_string(validVoices) + " voices validated.", logger);
+    } catch (...) {
+        logSafe("VoiceManager/validateSystemIntegrity", "error", 
+                "System integrity validation failed. Terminating.", logger);
+        std::exit(1);
+    }
+}
+
+/**
+ * @brief NOVÉ: Statistiky celého systému
+ * @param logger Reference na Logger
+ */
+void VoiceManager::logSystemStatistics(Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/logSystemStatistics", "warn", 
+                  "System not initialized - limited statistics available");
+        return;
+    }
+    
+    // InstrumentLoader statistiky
+    const int totalSamples = instrumentLoader_.getTotalLoadedSamples();
+    const int monoSamples = instrumentLoader_.getMonoSamplesCount();
+    const int stereoSamples = instrumentLoader_.getStereoSamplesCount();
+    const int actualSampleRate = instrumentLoader_.getActualSampleRate();
+    
+    // VoiceManager statistiky
+    const int activeCount = getActiveVoicesCount();
+    const int sustaining = getSustainingVoicesCount();
+    const int releasing = getReleasingVoicesCount();
+    
+    logger.log("VoiceManager/statistics", "info", 
+              "=== SYSTEM STATISTICS ===");
+    logger.log("VoiceManager/statistics", "info", 
+              "Sample Rate: " + std::to_string(actualSampleRate) + " Hz");
+    logger.log("VoiceManager/statistics", "info", 
+              "Total loaded samples: " + std::to_string(totalSamples));
+    logger.log("VoiceManager/statistics", "info", 
+              "Originally mono: " + std::to_string(monoSamples) + 
+              ", Originally stereo: " + std::to_string(stereoSamples));
+    logger.log("VoiceManager/statistics", "info", 
+              "Voice Activity - Active: " + std::to_string(activeCount) + 
+              ", Sustaining: " + std::to_string(sustaining) + 
+              ", Releasing: " + std::to_string(releasing) + 
+              ", Max: 128");
+    logger.log("VoiceManager/statistics", "info", 
+              "========================");
+}
+
+// ===== TESTING METHODS =====
+
+/**
+ * @brief NOVÉ: Single note test
+ */
+void VoiceManager::runSingleNoteTest(Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/runSingleNoteTest", "error", 
+                  "System not initialized. Call loadAllInstruments() first.");
+        return;
+    }
+    
+    logger.log("VoiceManager/runSingleNoteTest", "info", "Starting single note test...");
+    
+    uint8_t testMidi = findValidTestMidiNote(logger);
+    uint8_t testVelocity = 100;
+    
+    logger.log("VoiceManager/runSingleNoteTest", "info", 
+              "Testing MIDI " + std::to_string(testMidi) + " with velocity " + std::to_string(testVelocity));
+    
+    // Note-on
+    setNoteState(testMidi, true, testVelocity);
+    logger.log("VoiceManager/runSingleNoteTest", "info", 
+              "Note-on sent. Active voices: " + std::to_string(getActiveVoicesCount()));
+    
+    // Simulate audio processing
+    const int blockSize = 512;
+    const int numBlocks = 5;
+    
+    for (int block = 0; block < numBlocks; ++block) {
+        float* leftBuffer = new float[blockSize];
+        float* rightBuffer = new float[blockSize];
+        
+        bool hasAudio = processBlock(leftBuffer, rightBuffer, blockSize);
+        
+        if (hasAudio) {
+            float maxL = 0.0f, maxR = 0.0f;
+            for (int i = 0; i < blockSize; ++i) {
+                maxL = std::max(maxL, std::abs(leftBuffer[i]));
+                maxR = std::max(maxR, std::abs(rightBuffer[i]));
+            }
+            
+            logger.log("VoiceManager/runSingleNoteTest", "info", 
+                      "Block " + std::to_string(block) + " - Peak L: " + std::to_string(maxL) + 
+                      ", Peak R: " + std::to_string(maxR));
+        } else {
+            logger.log("VoiceManager/runSingleNoteTest", "info", 
+                      "Block " + std::to_string(block) + " - Silent");
+        }
+        
+        delete[] leftBuffer;
+        delete[] rightBuffer;
+    }
+    
+    // Note-off
+    setNoteState(testMidi, false, 0);
+    logger.log("VoiceManager/runSingleNoteTest", "info", "Single note test completed");
+}
+
+/**
+ * @brief NOVÉ: Polyphony test
+ */
+void VoiceManager::runPolyphonyTest(Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/runPolyphonyTest", "error", 
+                  "System not initialized. Call loadAllInstruments() first.");
+        return;
+    }
+    
+    logger.log("VoiceManager/runPolyphonyTest", "info", "Starting polyphony test...");
+    
+    std::vector<uint8_t> testNotes = findValidNotesForPolyphony(logger, 3);
+    
+    if (testNotes.size() >= 3) {
+        // Note-on for all notes
+        for (uint8_t note : testNotes) {
+            setNoteState(note, true, 100);
+            logger.log("VoiceManager/runPolyphonyTest", "info", 
+                      "Note-on MIDI " + std::to_string(note));
+        }
+        
+        logger.log("VoiceManager/runPolyphonyTest", "info", 
+                  "Active voices after chord: " + std::to_string(getActiveVoicesCount()));
+        
+        // Process one block
+        const int blockSize = 512;
+        float* leftBuffer = new float[blockSize];
+        float* rightBuffer = new float[blockSize];
+        
+        if (processBlock(leftBuffer, rightBuffer, blockSize)) {
+            float maxL = 0.0f, maxR = 0.0f;
+            for (int i = 0; i < blockSize; ++i) {
+                maxL = std::max(maxL, std::abs(leftBuffer[i]));
+                maxR = std::max(maxR, std::abs(rightBuffer[i]));
+            }
+            
+            logger.log("VoiceManager/runPolyphonyTest", "info", 
+                      "Polyphonic audio - Peak L: " + std::to_string(maxL) + 
+                      ", Peak R: " + std::to_string(maxR));
+        }
+        
+        delete[] leftBuffer;
+        delete[] rightBuffer;
+        
+        // Note-off for all
+        for (uint8_t note : testNotes) {
+            setNoteState(note, false, 0);
+        }
+    } else {
+        logger.log("VoiceManager/runPolyphonyTest", "warn", 
+                  "Not enough valid notes for polyphony test");
+    }
+    
+    logger.log("VoiceManager/runPolyphonyTest", "info", "Polyphony test completed");
+}
+
+/**
+ * @brief NOVÉ: Edge case tests
+ */
+void VoiceManager::runEdgeCaseTests(Logger& logger) {
+    logger.log("VoiceManager/runEdgeCaseTests", "info", "Starting edge case tests...");
+    
+    // Invalid MIDI notes
+    setNoteState(200, true, 100);  // Invalid MIDI
+    setNoteState(60, true, 0);     // Zero velocity
+    setNoteState(61, true, 127);   // Max velocity
+    
+    logger.log("VoiceManager/runEdgeCaseTests", "info", 
+              "Active voices after edge cases: " + std::to_string(getActiveVoicesCount()));
+    
+    stopAllVoices();
+    logger.log("VoiceManager/runEdgeCaseTests", "info", "Edge case tests completed");
+}
+
+/**
+ * @brief NOVÉ: Individual voice test
+ */
+void VoiceManager::runIndividualVoiceTest(Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/runIndividualVoiceTest", "error", 
+                  "System not initialized. Call loadAllInstruments() first.");
+        return;
+    }
+    
+    logger.log("VoiceManager/runIndividualVoiceTest", "info", "Starting individual voice test...");
+    
+    uint8_t testMidi = findValidTestMidiNote(logger);
+    Voice& voice = getVoice(testMidi);
+    
+    logger.log("VoiceManager/runIndividualVoiceTest", "info", 
+              "Voice " + std::to_string(testMidi) + " state: " + 
+              std::to_string(static_cast<int>(voice.getState())) + 
+              ", position: " + std::to_string(voice.getPosition()) + 
+              ", gain: " + std::to_string(voice.getCurrentGain()));
+    
+    logger.log("VoiceManager/runIndividualVoiceTest", "info", "Individual voice test completed");
+}
+
+/**
+ * @brief NOVÉ: Export test sample
+ */
+void VoiceManager::exportTestSample(uint8_t midi, uint8_t vel, const std::string& exportDir, Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/exportTestSample", "error", 
+                  "System not initialized. Call loadAllInstruments() first.");
+        return;
+    }
+    
+    logger.log("VoiceManager/exportTestSample", "info", 
+              "Starting export test for MIDI " + std::to_string(midi) + 
+              " velocity " + std::to_string(vel));
+    
+    try {
+        const Instrument& instrument = instrumentLoader_.getInstrumentNote(midi);
+        if (instrument.velocityExists[vel]) {
+            WavExporter exporter(exportDir, logger);
+            std::string filename = "test_export_midi" + std::to_string(midi) + "_vel" + std::to_string(vel) + ".wav";
+            
+            float* exportBuffer = exporter.wavFileCreate(filename, currentSampleRate_, 512, true, true);
+            if (exportBuffer) {
+                sf_count_t totalFrames = instrument.get_frame_count(vel);
+                sf_count_t framesPerBuffer = 512;
+                sf_count_t remainingFrames = totalFrames;
+                float* sourceData = instrument.get_sample_begin_pointer(vel);
+                
+                while (remainingFrames > 0) {
+                    sf_count_t thisBufferFrames = std::min(framesPerBuffer, remainingFrames);
+                    size_t offset = (totalFrames - remainingFrames) * 2;
+                    
+                    for (sf_count_t i = 0; i < thisBufferFrames * 2; ++i) {
+                        exportBuffer[i] = sourceData[offset + i];
+                    }
+                    
+                    if (!exporter.wavFileWriteBuffer(exportBuffer, static_cast<int>(thisBufferFrames))) {
+                        logger.log("VoiceManager/exportTestSample", "error", "Export write failed");
+                        return;
+                    }
+                    
+                    remainingFrames -= thisBufferFrames;
+                }
+                
+                logger.log("VoiceManager/exportTestSample", "info", 
+                          "Export completed: " + filename);
+            }
+        } else {
+            logger.log("VoiceManager/exportTestSample", "warn", 
+                      "No sample found for MIDI " + std::to_string(midi) + " velocity " + std::to_string(vel));
+        }
+    } catch (...) {
+        logger.log("VoiceManager/exportTestSample", "error", "Export failed with exception");
+    }
+}
+
+// ===== PRIVATE HELPER METHODS =====
+
+/**
+ * @brief Inicializace všech voices s načtenými instrumenty
+ * @param logger Reference na Logger
+ */
+void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
+    logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
+              "Initializing all 128 voices with loaded instruments...");
+    
+    for (int i = 0; i < 128; ++i) {
+        uint8_t midiNote = static_cast<uint8_t>(i);
+        const Instrument& inst = instrumentLoader_.getInstrumentNote(midiNote);
+        Voice& voice = voices_[i];
+        
+        // Initialize voice s odpovídajícím instrumentem
+        voice.initialize(inst, currentSampleRate_, logger);
+    }
+    
+    logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
+              "All voices initialized with instruments successfully");
+}
+
+/**
+ * @brief Helper: Check if reinitialization needed
+ */
+bool VoiceManager::needsReinitialization(int targetSampleRate) const noexcept {
+    if (currentSampleRate_ != targetSampleRate) {
+        return true;
+    }
+    if (instrumentLoader_.getActualSampleRate() != targetSampleRate) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * @brief Helper: Reinitialize if needed
+ */
+void VoiceManager::reinitializeIfNeeded(int targetSampleRate, Logger& logger) {
+    if (needsReinitialization(targetSampleRate)) {
+        changeSampleRate(targetSampleRate, logger);
+    }
+}
+
+/**
+ * @brief Helper: Find valid test MIDI note
+ */
+uint8_t VoiceManager::findValidTestMidiNote(Logger& logger) const {
+    for (int midi = 60; midi <= 80; ++midi) {
+        if (systemInitialized_) {
+            const Instrument& inst = instrumentLoader_.getInstrumentNote(midi);
+            for (int vel = 0; vel < 8; ++vel) {
+                if (inst.velocityExists[vel]) {
+                    logger.log("VoiceManager/findValidTestMidiNote", "info", 
+                              "Found valid test note: MIDI " + std::to_string(midi));
+                    return static_cast<uint8_t>(midi);
+                }
+            }
+        }
+    }
+    logger.log("VoiceManager/findValidTestMidiNote", "warn", 
+              "No valid test note found, using default MIDI 60");
+    return 60; // fallback
+}
+
+/**
+ * @brief Helper: Find valid notes for polyphony
+ */
+std::vector<uint8_t> VoiceManager::findValidNotesForPolyphony(Logger& logger, int maxNotes) const {
+    std::vector<uint8_t> notes;
+    for (int midi = 50; midi <= 80 && notes.size() < maxNotes; ++midi) {
+        if (systemInitialized_) {
+            const Instrument& inst = instrumentLoader_.getInstrumentNote(midi);
+            for (int vel = 0; vel < 8; ++vel) {
+                if (inst.velocityExists[vel]) {
+                    notes.push_back(static_cast<uint8_t>(midi));
+                    logger.log("VoiceManager/findValidNotesForPolyphony", "info", 
+                              "Added MIDI " + std::to_string(midi) + " for polyphony test");
+                    break;
+                }
+            }
+        }
+    }
+    return notes;
+}
+
+/**
+ * @brief NON-RT SAFE: Safe logging wrapper
+ */
+void VoiceManager::logSafe(const std::string& component, const std::string& severity, 
+                          const std::string& message, Logger& logger) const {
+    if (!rtMode_.load()) {
+        logger.log(component, severity, message);
+    }
+}
+
+// ===== ORIGINAL METHODS PLACEHOLDERS =====
+// Tyto metody musí být implementovány podle původního voice_manager.cpp
+
 void VoiceManager::setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) noexcept {
+    // TODO: Implementovat podle původního kódu
     if (!isValidMidiNote(midiNote)) {
         return;
     }
@@ -49,21 +566,17 @@ void VoiceManager::setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) n
             addActiveVoice(&voice);
         }
         voice.setNoteState(true, velocity);
-        
     } else {
         voice.setNoteState(false, velocity);
     }
 }
 
-/**
- * @brief RT-SAFE HLAVNÍ METODA: Procesuje audio blok s explicitními stereo buffery.
- */
 bool VoiceManager::processBlock(float* outputLeft, float* outputRight, int numSamples) noexcept {
     if (!outputLeft || !outputRight || numSamples <= 0) {
         return false;
     }
     
-    // Vynulování výstupních bufferů
+    // Clear output buffers
     memset(outputLeft, 0, numSamples * sizeof(float));
     memset(outputRight, 0, numSamples * sizeof(float));
     
@@ -92,9 +605,6 @@ bool VoiceManager::processBlock(float* outputLeft, float* outputRight, int numSa
     return anyActive;
 }
 
-/**
- * @brief RT-SAFE: Alternativní processBlock s AudioData strukturou.
- */
 bool VoiceManager::processBlock(AudioData* outputBuffer, int numSamples) noexcept {
     if (!outputBuffer || numSamples <= 0) {
         return false;
@@ -130,9 +640,6 @@ bool VoiceManager::processBlock(AudioData* outputBuffer, int numSamples) noexcep
     return anyActive;
 }
 
-/**
- * @brief RT-SAFE: Stopne všechny aktivní hlasy (panic button).
- */
 void VoiceManager::stopAllVoices() noexcept {
     for (Voice* voice : activeVoices_) {
         if (voice && voice->isActive()) {
@@ -141,9 +648,6 @@ void VoiceManager::stopAllVoices() noexcept {
     }
 }
 
-/**
- * @brief NON-RT SAFE: Resetuje všechny hlasy na idle stav.
- */
 void VoiceManager::resetAllVoices(Logger& logger) {
     for (int i = 0; i < 128; ++i) {
         voices_[i].cleanup(logger);
@@ -157,9 +661,6 @@ void VoiceManager::resetAllVoices(Logger& logger) {
            "Reset all 128 voices to idle state", logger);
 }
 
-/**
- * @brief RT-SAFE: Getter pro počet sustaining voices.
- */
 int VoiceManager::getSustainingVoicesCount() const noexcept {
     int count = 0;
     for (const Voice* voice : activeVoices_) {
@@ -170,9 +671,6 @@ int VoiceManager::getSustainingVoicesCount() const noexcept {
     return count;
 }
 
-/**
- * @brief RT-SAFE: Getter pro počet releasing voices.
- */
 int VoiceManager::getReleasingVoicesCount() const noexcept {
     int count = 0;
     for (const Voice* voice : activeVoices_) {
@@ -183,9 +681,6 @@ int VoiceManager::getReleasingVoicesCount() const noexcept {
     return count;
 }
 
-/**
- * @brief RT-SAFE: Getter pro referenci na konkrétní voice.
- */
 Voice& VoiceManager::getVoice(uint8_t midiNote) noexcept {
     #ifdef DEBUG
     if (!isValidMidiNote(midiNote)) {
@@ -196,9 +691,6 @@ Voice& VoiceManager::getVoice(uint8_t midiNote) noexcept {
     return voices_[midiNote];
 }
 
-/**
- * @brief RT-SAFE: Const getter pro referenci na konkrétní voice.
- */
 const Voice& VoiceManager::getVoice(uint8_t midiNote) const noexcept {
     #ifdef DEBUG
     if (!isValidMidiNote(midiNote)) {
@@ -209,34 +701,11 @@ const Voice& VoiceManager::getVoice(uint8_t midiNote) const noexcept {
     return voices_[midiNote];
 }
 
-/**
- * @brief RT-SAFE: Nastaví RT mode pro všechny voices.
- */
 void VoiceManager::setRealTimeMode(bool enabled) noexcept {
     rtMode_.store(enabled);
     Voice::setRealTimeMode(enabled);
 }
 
-/**
- * @brief NON-RT SAFE: Získá detailní statistiky pro debugging.
- */
-void VoiceManager::logStatistics(Logger& logger) const {
-    const int active = getActiveVoicesCount();
-    const int sustaining = getSustainingVoicesCount();
-    const int releasing = getReleasingVoicesCount();
-    
-    logSafe("VoiceManager/statistics", "info", 
-           "Voice Statistics - Active: " + std::to_string(active) +
-           ", Sustaining: " + std::to_string(sustaining) +
-           ", Releasing: " + std::to_string(releasing) +
-           ", Max: 128", logger);
-}
-
-// ===== PRIVATE OPTIMALIZOVANÉ RT-SAFE METODY =====
-
-/**
- * @brief RT-SAFE: Přidá voice do active tracking.
- */
 void VoiceManager::addActiveVoice(Voice* voice) noexcept {
     if (!voice) return;
     
@@ -247,9 +716,6 @@ void VoiceManager::addActiveVoice(Voice* voice) noexcept {
     }
 }
 
-/**
- * @brief RT-SAFE: Odebere voice z active tracking.
- */
 void VoiceManager::removeActiveVoice(Voice* voice) noexcept {
     if (!voice) return;
     
@@ -260,23 +726,10 @@ void VoiceManager::removeActiveVoice(Voice* voice) noexcept {
     }
 }
 
-/**
- * @brief RT-SAFE: Cleanup neaktivních voices z active tracking.
- */
 void VoiceManager::cleanupInactiveVoices() noexcept {
     for (Voice* voice : voicesToRemove_) {
         removeActiveVoice(voice);
     }
     
     voicesToRemove_.clear();
-}
-
-/**
- * @brief NON-RT SAFE: Logging wrapper pro non-critical operations.
- */
-void VoiceManager::logSafe(const std::string& component, const std::string& severity, 
-                          const std::string& message, Logger& logger) const {
-    if (!rtMode_.load()) {
-        logger.log(component, severity, message);
-    }
 }
