@@ -366,8 +366,14 @@ void Voice::processRelease(const float* stereoBuffer,
         float currentGain = (initialGain * std::exp(decayRate * elapsedLocal));
 
         const int srcIndex = i * 2;
-        outputLeft[i]  += srcPtr[srcIndex]     * (1.0f / currentGain);
-        outputRight[i] += srcPtr[srcIndex + 1] * (1.0f / currentGain);
+        //outputLeft[i]  += srcPtr[srcIndex]     * (1.0f - (1.0f / currentGain));
+        //outputRight[i] += srcPtr[srcIndex + 1] * (1.0f - (1.0f / currentGain));
+
+        //outputLeft[i]  += (srcPtr[srcIndex]     * ((currentGain / 1.0f)));
+        //outputRight[i] += (srcPtr[srcIndex + 1] * ((currentGain / 1.0f)));
+
+        outputLeft[i]  += srcPtr[srcIndex]     / (1.0f - (1.0f / currentGain));
+        outputRight[i] += srcPtr[srcIndex + 1] / (1.0f - (1.0f / currentGain));
 
         lastCurrentGain = currentGain;
     }
