@@ -22,7 +22,8 @@ int runSampler(Logger& logger) {
 
     /* ======= Globální nastavení proměnných (společné pro celý workflow) ====== */
     // Cesta k samples (upravte podle potřeby)
-    std::string sampleDir = R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)";
+    // std::string sampleDir = R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)";
+    std::string sampleDir = R"(C:\Users\nemej992\AppData\Roaming\IthacaPlayer\instrument)";
     
     // Konfigurace pro načítání (targetSampleRate)
     int targetSampleRate = 44100;  // Typická frekvence pro audio plugin
@@ -42,7 +43,7 @@ int runSampler(Logger& logger) {
     try {
         logger.log("runSampler", "info", "Starting Voice Management system tests");
         
-        // ✅ DEBUGGING: Kontrola existence samples pro MIDI 60
+        // DEBUGGING: Kontrola existence samples pro MIDI 60
         logger.log("runSampler", "info", "=== DEBUGGING: Checking MIDI 60 samples ===");
         
         uint8_t testMidiNote = 60;  // Default test note
@@ -90,10 +91,10 @@ int runSampler(Logger& logger) {
         std::string voiceTestDir = sampleDir;
         int voiceTestSampleRate = targetSampleRate;
         
-        // ✅ KRITICKÁ OPRAVA: VoiceManager musí používat STEJNÝ InstrumentLoader instance
+        // KRITICKÁ OPRAVA: VoiceManager musí používat STEJNÝ InstrumentLoader instance
         VoiceManager voiceManager(voiceTestDir, voiceTestSampleRate, logger);
         
-        // ✅ SPECIÁLNÍ INICIALIZACE: Použij už načtený InstrumentLoader
+        // SPECIÁLNÍ INICIALIZACE: Použij už načtený InstrumentLoader
         logger.log("runSampler", "info", "Initializing VoiceManager with existing InstrumentLoader...");
         
         // Manuální inicializace všech 128 voices s už načteným InstrumentLoader
