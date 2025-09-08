@@ -1,11 +1,14 @@
 #ifndef VOICE_H
 #define VOICE_H
 
-#include <cstdint>      // Pro uint8_t
-#include <atomic>       // Pro RT-safe logging flag
-#include <cstring>      // Pro memset
-#include "instrument_loader.h"  // Pro Instrument a Logger
-#include "core_logger.h"        // Pro Logger
+#define VOICE_GAIN 0.8f
+
+#include <cstdint>
+#include <atomic>
+#include <cstring>
+#include <vector>
+#include "instrument_loader.h"
+#include "core_logger.h"
 
 // Simulace JUCE AudioBuffer pro stereo výstup (bez závislosti na JUCE)
 struct AudioData {
@@ -31,16 +34,17 @@ enum class VoiceState {
  * @class Voice
  * @brief Jedna hlasová jednotka pro přehrávání sample s obálkou a stavy.
  * 
- * REFAKTOROVÁNO PRO RT-SAFETY:
- * - Eliminovány redundantní memory access patterns
- * - Batch processing místo sample-by-sample
+ * REFAKTOROVÁNO PRO OPRAVENOU APLIKACI GAIN:
+ * - OPRAVENÁ gain architektura: envelope_gain_ + velocity_gain_ + master_gain_
+ * - Velocity nyní SPRÁVNĚ ovlivňuje hlasitost (velocity 0-127 → gain 0.0-1.0)
+ * - Pre-alokovaný buffer pro RT-safe gain calculations
+ * - Centralizovaná aplikace gain v processBlock
+ * - JUCE framework kompatibilita s prepareToPlay pattern
+ * - Mixdown aditivní operací pro polyfonii
  * - RT-safe logging s compile-time/runtime flags
- * - Optimalizované envelope processing
- * - Cache-friendly memory access
- * - Žádné memory allocations v processBlock
  * 
  * Logger se předává jako reference pouze do non-RT metod.
- * ProcessBlock je 100% RT-safe bez loggingu a allocací.
+ * ProcessBlock je 100% RT-safe bez loggingu a alokací.
  */
 class Voice {
 public:
@@ -79,12 +83,19 @@ public:
      * @param logger Reference na Logger.
      */
     void reinitialize(const Instrument& instrument, int sampleRate, Logger& logger);
+    
+    /**
+     * @brief NON-RT SAFE: Updates internal buffer size for DAW block size changes
+     * Must be called from audio thread during buffer size changes, NOT during processing
+     * @param maxBlockSize Maximum expected block size from DAW
+     */
+    void prepareToPlay(int maxBlockSize) noexcept;
 
     /**
-     * @brief Nastaví stav note: true = startNote, false = stopNote.
-     * RT-SAFE: Žádné alokace, pouze state changes.
+     * @brief OPRAVENÁ metoda: Nastaví stav note s SPRÁVNOU aplikací velocity.
+     * RT-SAFE: Žádné alokace, pouze state changes + velocity gain update.
      * @param isOn True pro start, false pro stop.
-     * @param velocity Velocity (0-127, mapováno na layer 0-7).
+     * @param velocity Velocity (0-127) - NYní SPRÁVNĚ ovlivňuje hlasitost!
      */
     void setNoteState(bool isOn, uint8_t velocity) noexcept;
 
@@ -95,30 +106,44 @@ public:
     void advancePosition() noexcept;
 
     /**
-     * @brief Získá aktuální stereo audio data s aplikovanou obálkou.
-     * RT-SAFE: Inline gain application, žádné function call overhead.
+     * @brief OPRAVENÁ metoda: Získá aktuální stereo audio data s aplikovanou kompletní gain chain.
+     * RT-SAFE: Inline gain application s envelope * velocity * master.
      * @param data Reference na AudioData pro výstup.
      * @return True, pokud data jsou platná.
      */
     bool getCurrentAudioData(AudioData& data) const noexcept;
 
     /**
-     * @brief HLAVNÍ RT-SAFE METODA: Zpracuje audio blok s explicitními stereo buffery.
+     * @brief RT-SAFE: Pre-calculates envelope gains for entire block
      * 
-     * OPTIMALIZOVÁNO PRO RT:
-     * - Batch processing místo sample-by-sample loops
-     * - Eliminovány redundantní kontroly v každé iteraci
-     * - Cache-friendly memory access patterns
-     * - Specialized processing paths pro sustain/release
-     * - Žádné string operations ani alokace
-     * - Žádné logging v RT contextu
+     * This method separates gain calculation from audio processing for better
+     * modularity and testability. It handles all envelope states and returns
+     * false when voice should be deactivated.
      * 
-     * @param outputLeft Pointer na levý kanál výstupního bufferu.
-     * @param outputRight Pointer na pravý kanál výstupního bufferu.
+     * @param gainBuffer Pre-allocated buffer for per-sample gains (caller owns)
+     * @param numSamples Number of samples to calculate gains for
+     * @return true if voice remains active, false if should be deactivated
+     */
+    bool calculateBlockGains(float* gainBuffer, int numSamples) noexcept;
+
+    /**
+     * @brief HLAVNÍ RT-SAFE METODA: Zpracuje audio blok s OPRAVENOU centralizovanou aplikací gain.
+     * 
+     * OPRAVENO PRO KOMPLETNÍ GAIN CHAIN:
+     * - Volá calculateBlockGains() pro výpočet envelope
+     * - Aplikuje envelope_gain_ * velocity_gain_ * master_gain_ v jednom centralizovaném loopu
+     * - Řídí voice state transitions na základě výsledků gain calculation
+     * - Provádí mixdown sčítání do sdílených output bufferů
+     * - Dynamic voice scaling pro prevenci clippingu
+     * 
+     * @param outputLeft Pointer na levý kanál výstupního bufferu (sdílený, používá +=).
+     * @param outputRight Pointer na pravý kanál výstupního bufferu (sdílený, používá +=).
      * @param numSamples Počet samples k zpracování.
+     * @param activeVoiceCount Pro dynamic gain scaling (prevence clipping).
      * @return True, pokud voice je stále aktivní.
      */
-    bool processBlock(float* outputLeft, float* outputRight, int numSamples) noexcept;
+    bool processBlock(float* outputLeft, float* outputRight, 
+                     int numSamples, int activeVoiceCount = 1) noexcept;
 
     /**
      * @brief RT-SAFE: Zpracuje audio blok s AudioData strukturou.
@@ -134,12 +159,34 @@ public:
     bool isActive() const noexcept { return state_ != VoiceState::Idle; }
     VoiceState getState() const noexcept { return state_; }
     sf_count_t getPosition() const noexcept { return position_; }
-    float getCurrentGain() const noexcept { return gain_; }
     uint8_t getCurrentVelocityLayer() const noexcept { return currentVelocityLayer_; }
+    
+    // OPRAVENÉ gain gettery s jasnou strukturou
+    float getCurrentEnvelopeGain() const noexcept { return envelope_gain_; }
+    float getVelocityGain() const noexcept { return velocity_gain_; }         // NOVÉ
+    float getMasterGain() const noexcept { return master_gain_; }             // NOVÉ
+    float getFinalGain() const noexcept { 
+        return envelope_gain_ * velocity_gain_ * master_gain_; 
+    }
 
     // RT-Safe mode control (pro debugging/profiling)
     static void setRealTimeMode(bool enabled) noexcept { rtMode_.store(enabled); }
     static bool isRealTimeMode() noexcept { return rtMode_.load(); }
+
+    // NOVÉ metody pro runtime kontrolu gain
+    /**
+     * @brief NON-RT SAFE: Nastaví master gain pro voice (0.0-1.0)
+     * Použij pro globální kontrolu hlasitosti všech voices.
+     * @param gain Master gain (0.0-1.0, default 0.8)
+     */
+    void setMasterGain(float gain, Logger& logger);
+
+    /**
+     * @brief NON-RT SAFE: Získá debug informace o gain structure
+     * @param logger Reference na Logger
+     * @return String s detailními gain informacemi
+     */
+    std::string getGainDebugInfo(Logger& logger) const;
 
 private:
     uint8_t midiNote_;              // MIDI nota (0-127)
@@ -148,48 +195,35 @@ private:
     VoiceState state_;              // Aktuální stav
     sf_count_t position_;           // Pozice ve sample (frames)
     uint8_t currentVelocityLayer_;  // Aktuální velocity layer (0-7)
-    float gain_;                    // Aktuální gain obálky (0.0-1.0)
+    
+    // OPRAVENÉ: Oddělené gain komponenty s jasnou strukturou
+    float envelope_gain_;           // Dynamická obálka (attack/sustain/release): 0.0-1.0
+    float velocity_gain_;          // MIDI velocity gain (0-127 → 0.0-1.0): NOVÉ
+    float master_gain_;            // Master volume kontrola (default 0.8f): NOVÉ
+    
     sf_count_t releaseStartPosition_; // Pozice startu release pro lineární útlum
-    sf_count_t releaseSamples_;     // Délka release v samplech (např. 0.2 * sampleRate)
+    sf_count_t releaseSamples_;     // Délka release v samplech (např. 0.5 * sampleRate)
+    
+    // RT-SAFE: Pre-allocated buffer pro gain calculations
+    // Resized pouze během prepareToPlay() calls, nikdy během RT processing
+    mutable std::vector<float> gainBuffer_;
 
     // RT-safe mode flag (shared across all instances)
     static std::atomic<bool> rtMode_;
 
-    // OPTIMALIZOVANÉ PRIVATE METODY PRO RT-PROCESSING:
+    // RT-SAFE PRIVATE METODY:
 
     /**
-     * @brief RT-SAFE: Vypočítá releaseSamples na základě sampleRate_ (200 ms release).
+     * @brief RT-SAFE: Vypočítá releaseSamples na základě sampleRate_ (500 ms release).
      */
     void calculateReleaseSamples() noexcept;
 
     /**
-     * @brief RT-SAFE: Update release gain pro single sample advance.
+     * @brief RT-SAFE: NOVÁ metoda pro aplikaci MIDI velocity na hlasitost
+     * Mapuje velocity 0-127 na velocity_gain_ 0.0-1.0 s logaritmickou křivkou.
+     * @param velocity MIDI velocity (0-127)
      */
-    void updateReleaseGain() noexcept;
-
-    /**
-     * @brief RT-SAFE: Specialized processing pro konstantní gain (sustain).
-     * Cache-friendly, vectorizable loop.
-     * @param stereoBuffer Source audio buffer (interleaved [L,R,L,R...])
-     * @param outputLeft Left channel output buffer
-     * @param outputRight Right channel output buffer  
-     * @param numSamples Number of samples to process
-     */
-    void processConstantGain(const float* stereoBuffer, 
-                           float* outputLeft, float* outputRight, 
-                           int numSamples) noexcept;
-
-    /**
-     * @brief RT-SAFE: Specialized processing pro release s lineární fade.
-     * Optimalizované gain interpolation.
-     * @param stereoBuffer Source audio buffer
-     * @param outputLeft Left channel output buffer
-     * @param outputRight Right channel output buffer
-     * @param numSamples Number of samples to process
-     */
-    void processRelease(const float* stereoBuffer, 
-                       float* outputLeft, float* outputRight, 
-                       int numSamples) noexcept;
+    void updateVelocityGain(uint8_t velocity) noexcept;
 
     /**
      * @brief NON-RT: Safe logging wrapper pro non-critical operations.

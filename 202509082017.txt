@@ -340,39 +340,21 @@ private:
 ===== File: instrument_loader.cpp =====
 Path: C:\Users\jindr\IthacaCore\sampler\instrument_loader.cpp
 =====
-/*
-THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
-*/
-
 #include "instrument_loader.h"
 #include <cstdlib>      // Pro malloc, free, std::exit
 #include <cstring>      // Pro memcpy
 #include <sndfile.h>    // Pro sf_open, sf_readf_float, sf_close
 
 /**
- * @brief Konstruktor InstrumentLoader
- * Inicializuje vÅ¡echny reference a pole instruments na vÃ½chozÃ­ hodnoty.
- * @param sampler Reference na SamplerIO pro pÅ™Ã­stup k sample metadatÅ¯m
- * @param targetSampleRate PoÅ¾adovanÃ¡ frekvence vzorkovÃ¡nÃ­ (napÅ™. 44100 Hz)
- * @param logger Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­
+ * @brief PrÃ¡zdnÃ½ konstruktor InstrumentLoader
+ * Inicializuje vÅ¡echny hodnoty na vÃ½chozÃ­ stav.
  */
-InstrumentLoader::InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger)
-    : sampler_(sampler), targetSampleRate_(targetSampleRate), logger_(logger), 
+InstrumentLoader::InstrumentLoader()
+    : actual_samplerate_(0), sampler_(nullptr), logger_(nullptr),
       totalLoadedSamples_(0), monoSamplesCount_(0), stereoSamplesCount_(0) {
     
     // Inicializace pole instruments - konstruktory Instrument se zavolajÃ­ automaticky
     // (vÅ¡echny pointery na nullptr, velocityExists na false)
-    
-    logger_.log("InstrumentLoader/constructor", "info", 
-                "InstrumentLoader initialized with targetSampleRate " + 
-                std::to_string(targetSampleRate_) + " Hz");
-    
-    logger_.log("InstrumentLoader/constructor", "info", 
-                "Prepared array for " + std::to_string(MIDI_NOTE_MAX + 1) + 
-                " MIDI notes with " + std::to_string(VELOCITY_LAYERS) + " velocity layers");
-                
-    logger_.log("InstrumentLoader/constructor", "info", 
-                "All samples will be converted to stereo interleaved format [L,R,L,R...]");
 }
 
 /**
@@ -381,6 +363,134 @@ InstrumentLoader::InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Log
  * SampleInfo pointery se neuvolÅˆujÃ­ (patÅ™Ã­ SamplerIO).
  */
 InstrumentLoader::~InstrumentLoader() {
+    // Destruktor volÃ¡ clear bez loggingu, protoÅ¾e nemÃ¡me garantovanou dostupnost loggeru
+    clearWithoutLogging();
+}
+
+/**
+ * @brief HlavnÃ­ metoda pro naÄÃ­tÃ¡nÃ­ dat instrumentÅ¯
+ * @param sampler Reference na SamplerIO pro pÅ™Ã­stup k sample metadatÅ¯m
+ * @param targetSampleRate PoÅ¾adovanÃ¡ frekvence vzorkovÃ¡nÃ­ (44100 nebo 48000 Hz)
+ * @param logger Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­
+ */
+void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRate, Logger& logger) {
+    // Validace parametrÅ¯
+    validateSamplerReference(sampler, logger);
+    validateTargetSampleRate(targetSampleRate, logger);
+    
+    // UloÅ¾enÃ­ referencÃ­ pro pozdÄ›jÅ¡Ã­ pouÅ¾itÃ­
+    sampler_ = &sampler;
+    logger_ = &logger;
+    
+    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+              "Starting loadInstrumentData with targetSampleRate " + 
+              std::to_string(targetSampleRate) + " Hz");
+    
+    // AutomatickÃ© vyÄiÅ¡tÄ›nÃ­ pÅ™edchozÃ­ch dat (pokud existujÃ­)
+    if (actual_samplerate_ != 0) {
+        logger.log("InstrumentLoader/loadInstrumentData", "info", 
+                  "Clearing previous data (previous sampleRate: " + 
+                  std::to_string(actual_samplerate_) + " Hz)");
+        clear(logger);
+    }
+    
+    // NastavenÃ­ novÃ© target sample rate
+    actual_samplerate_ = targetSampleRate;
+    
+    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+              "InstrumentLoader initialized with targetSampleRate " + 
+              std::to_string(actual_samplerate_) + " Hz");
+    
+    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+              "Prepared array for " + std::to_string(MIDI_NOTE_MAX + 1) + 
+              " MIDI notes with " + std::to_string(VELOCITY_LAYERS) + " velocity layers");
+              
+    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+              "All samples will be converted to stereo interleaved format [L,R,L,R...]");
+    
+    // HlavnÃ­ loading loop - stejnÃ½ algoritmus jako pÅ¯vodnÃ­ loadInstrument()
+    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+              "Starting loading of all instruments for targetSampleRate " + 
+              std::to_string(actual_samplerate_) + " Hz");
+    
+    int foundSamples = 0;
+    int missingSamples = 0;
+    totalLoadedSamples_ = 0;
+    monoSamplesCount_ = 0;
+    stereoSamplesCount_ = 0;
+    
+    // Cyklus pro vÅ¡echny MIDI noty 0-127
+    for (int midi = MIDI_NOTE_MIN; midi <= MIDI_NOTE_MAX; midi++) {
+        // Cyklus pro vÅ¡echny velocity 0-7
+        for (int vel = 0; vel < VELOCITY_LAYERS; vel++) {
+            // VyhledÃ¡nÃ­ indexu v SamplerIO
+            int index = sampler.findSampleInSampleList(
+                static_cast<uint8_t>(midi), 
+                static_cast<uint8_t>(vel), 
+                actual_samplerate_
+            );
+            
+            if (index != -1) {
+                // Sample nalezen - naÄtenÃ­ do bufferu
+                logger.log("InstrumentLoader/loadInstrumentData", "info", 
+                          "Sample found for MIDI " + std::to_string(midi) + 
+                          " velocity " + std::to_string(vel) + " at index " + std::to_string(index));
+                
+                // NaÄtenÃ­ samplu do bufferu
+                if (loadSampleToBuffer(index, static_cast<uint8_t>(vel), static_cast<uint8_t>(midi), logger)) {
+                    foundSamples++;
+                    totalLoadedSamples_++;
+                }
+                
+            } else {
+                // Sample nenalezen - nastavenÃ­ null a warning log
+                instruments_[midi].sample_ptr_sampleInfo[vel] = nullptr;
+                instruments_[midi].sample_ptr_velocity[vel] = nullptr;
+                instruments_[midi].velocityExists[vel] = false;
+                instruments_[midi].frame_count_stereo[vel] = 0;
+                instruments_[midi].total_samples_stereo[vel] = 0;
+                instruments_[midi].was_originally_mono[vel] = false;
+                
+                logger.log("InstrumentLoader/loadInstrumentData", "warn", 
+                          "Sample for MIDI " + std::to_string(midi) + 
+                          " velocity " + std::to_string(vel) + 
+                          " not found at frequency " + std::to_string(actual_samplerate_) + " Hz");
+                
+                missingSamples++;
+            }
+        }
+    }
+    
+    // Summary log s mono/stereo statistikami
+    int totalSlots = (MIDI_NOTE_MAX + 1) * VELOCITY_LAYERS;
+    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+              "Loading completed. Found: " + std::to_string(foundSamples) + 
+              ", Missing: " + std::to_string(missingSamples) + 
+              ", Total slots: " + std::to_string(totalSlots));
+    
+    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+              "Successfully loaded " + std::to_string(totalLoadedSamples_) + 
+              " samples into memory as 32-bit stereo float buffers");
+              
+    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+              "Channel distribution: " + std::to_string(monoSamplesCount_) + 
+              " originally mono, " + std::to_string(stereoSamplesCount_) + " originally stereo/multi-channel");
+    
+    // Validace stereo konzistence po naÄtenÃ­
+    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+              "Starting stereo consistency validation...");
+    validateStereoConsistency(logger);
+    
+    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+              "InstrumentLoader data loading completed successfully");
+}
+
+/**
+ * @brief VyÄistÃ­ vÅ¡echna naÄtenÃ¡ data
+ * @param logger Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­
+ * UvolnÃ­ vÅ¡echny alokovanÃ© float buffery a resetuje stav objektu.
+ */
+void InstrumentLoader::clear(Logger& logger) {
     int freedCount = 0;
     
     // ProchÃ¡zÃ­ vÅ¡echny MIDI noty 0-127
@@ -398,92 +508,61 @@ InstrumentLoader::~InstrumentLoader() {
                 // SampleInfo pointery se NEUVOLÅ‡UJÃ - patÅ™Ã­ SamplerIO
                 instruments_[midi].sample_ptr_sampleInfo[vel] = nullptr;
                 
+                // Reset metadat
+                instruments_[midi].frame_count_stereo[vel] = 0;
+                instruments_[midi].total_samples_stereo[vel] = 0;
+                instruments_[midi].was_originally_mono[vel] = false;
+                
                 freedCount++;
             }
         }
     }
     
-    logger_.log("InstrumentLoader/destructor", "info", 
-                "Memory freed for " + std::to_string(freedCount) + " stereo buffers");
+    // Reset poÄÃ­tadel a stavu
+    totalLoadedSamples_ = 0;
+    monoSamplesCount_ = 0;
+    stereoSamplesCount_ = 0;
+    actual_samplerate_ = 0;
     
-    logger_.log("InstrumentLoader/destructor", "info", 
-                "InstrumentLoader destructor completed");
+    logger.log("InstrumentLoader/clear", "info", 
+              "Memory freed for " + std::to_string(freedCount) + " stereo buffers");
+    logger.log("InstrumentLoader/clear", "info", 
+              "InstrumentLoader data cleared and reset to uninitialized state");
 }
 
 /**
- * @brief HlavnÃ­ metoda pro naÄtenÃ­ vÅ¡ech instrumentÅ¯
- * ProchÃ¡zÃ­ vÅ¡echny MIDI noty a velocity, vyhledÃ¡vÃ¡ samples a naÄÃ­tÃ¡ je do bufferÅ¯.
+ * @brief VyÄistÃ­ vÅ¡echna naÄtenÃ¡ data bez loggingu
+ * PouÅ¾Ã­vÃ¡ se v destruktoru kde logger nemusÃ­ bÃ½t dostupnÃ½.
  */
-void InstrumentLoader::loadInstrument() {
-    logger_.log("InstrumentLoader/loadInstrument", "info", 
-                "Starting loading of all instruments for targetSampleRate " + 
-                std::to_string(targetSampleRate_) + " Hz");
-    
-    int foundSamples = 0;
-    int missingSamples = 0;
-    totalLoadedSamples_ = 0;
-    
-    // Cyklus pro vÅ¡echny MIDI noty 0-127
+void InstrumentLoader::clearWithoutLogging() {
+    // ProchÃ¡zÃ­ vÅ¡echny MIDI noty 0-127
     for (int midi = MIDI_NOTE_MIN; midi <= MIDI_NOTE_MAX; midi++) {
-        // Cyklus pro vÅ¡echny velocity 0-7
+        // ProchÃ¡zÃ­ vÅ¡echny velocity 0-7
         for (int vel = 0; vel < VELOCITY_LAYERS; vel++) {
-            // VyhledÃ¡nÃ­ indexu v SamplerIO
-            int index = sampler_.findSampleInSampleList(
-                static_cast<uint8_t>(midi), 
-                static_cast<uint8_t>(vel), 
-                targetSampleRate_
-            );
-            
-            if (index != -1) {
-                // Sample nalezen - naÄtenÃ­ do bufferu
-                logger_.log("InstrumentLoader/loadInstrument", "info", 
-                           "Sample found for MIDI " + std::to_string(midi) + 
-                           " velocity " + std::to_string(vel) + " at index " + std::to_string(index));
+            if (instruments_[midi].velocityExists[vel] && 
+                instruments_[midi].sample_ptr_velocity[vel] != nullptr) {
                 
-                // NaÄtenÃ­ samplu do bufferu
-                if (loadSampleToBuffer(index, static_cast<uint8_t>(vel), static_cast<uint8_t>(midi))) {
-                    foundSamples++;
-                    totalLoadedSamples_++;
-                }
-                
-            } else {
-                // Sample nenalezen - nastavenÃ­ null a warning log
-                instruments_[midi].sample_ptr_sampleInfo[vel] = nullptr;
+                // UvolnÄ›nÃ­ float bufferu
+                free(instruments_[midi].sample_ptr_velocity[vel]);
                 instruments_[midi].sample_ptr_velocity[vel] = nullptr;
                 instruments_[midi].velocityExists[vel] = false;
+                
+                // SampleInfo pointery se NEUVOLÅ‡UJÃ - patÅ™Ã­ SamplerIO
+                instruments_[midi].sample_ptr_sampleInfo[vel] = nullptr;
+                
+                // Reset metadat
                 instruments_[midi].frame_count_stereo[vel] = 0;
                 instruments_[midi].total_samples_stereo[vel] = 0;
                 instruments_[midi].was_originally_mono[vel] = false;
-                
-                logger_.log("InstrumentLoader/loadInstrument", "warn", 
-                           "Sample for MIDI " + std::to_string(midi) + 
-                           " velocity " + std::to_string(vel) + 
-                           " not found at frequency " + std::to_string(targetSampleRate_) + " Hz");
-                
-                missingSamples++;
             }
         }
     }
     
-    // Summary log s mono/stereo statistikami
-    int totalSlots = (MIDI_NOTE_MAX + 1) * VELOCITY_LAYERS;
-    logger_.log("InstrumentLoader/loadAllInstruments", "info", 
-                "Loading completed. Found: " + std::to_string(foundSamples) + 
-                ", Missing: " + std::to_string(missingSamples) + 
-                ", Total slots: " + std::to_string(totalSlots));
-    
-    logger_.log("InstrumentLoader/loadAllInstruments", "info", 
-                "Successfully loaded " + std::to_string(totalLoadedSamples_) + 
-                " samples into memory as 32-bit stereo float buffers");
-                
-    logger_.log("InstrumentLoader/loadAllInstruments", "info", 
-                "Channel distribution: " + std::to_string(monoSamplesCount_) + 
-                " originally mono, " + std::to_string(stereoSamplesCount_) + " originally stereo/multi-channel");
-    
-    // NOVÃ‰: Validace stereo konzistence po naÄtenÃ­
-    logger_.log("InstrumentLoader/loadAllInstruments", "info", 
-                "Starting stereo consistency validation...");
-    validateStereoConsistency();
+    // Reset poÄÃ­tadel a stavu
+    totalLoadedSamples_ = 0;
+    monoSamplesCount_ = 0;
+    stereoSamplesCount_ = 0;
+    actual_samplerate_ = 0;
 }
 
 /**
@@ -492,34 +571,35 @@ void InstrumentLoader::loadInstrument() {
  * @param sampleIndex Index samplu v SamplerIO
  * @param velocity Velocity vrstva (0-7)
  * @param midi_note MIDI nota (0-127)
+ * @param logger Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­
  * @return true pÅ™i ÃºspÄ›chu, false pÅ™i chybÄ› (s error logem a exit)
  */
-bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uint8_t midi_note) {
+bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uint8_t midi_note, Logger& logger) {
     // Validace parametrÅ¯
-    validateVelocity(velocity, "loadSampleToBuffer");
-    validateMidiNote(midi_note, "loadSampleToBuffer");
+    validateVelocity(velocity, "loadSampleToBuffer", logger);
+    validateMidiNote(midi_note, "loadSampleToBuffer", logger);
     
     // Krok 1: OtevÅ™enÃ­ souboru
     SNDFILE* sndfile = nullptr;
     SF_INFO sfinfo;
     
-    if (!openSampleFile(sampleIndex, sndfile, sfinfo)) {
+    if (!openSampleFile(sampleIndex, sndfile, sfinfo, logger)) {
         return false; // Chyba uÅ¾ je zalogovÃ¡na v openSampleFile
     }
     
     // ZÃ­skÃ¡nÃ­ metadat pÅ™es SamplerIO gettery
-    sf_count_t frameCount = sampler_.getSampleCount(sampleIndex, logger_);
-    int channelCount = sampler_.getChannelCount(sampleIndex, logger_);
-    bool needsConversion = sampler_.getNeedsConversion(sampleIndex, logger_);
-    bool isInterleaved = sampler_.getIsInterleavedFormat(sampleIndex, logger_);
-    const char* filename = sampler_.getFilename(sampleIndex, logger_);
+    sf_count_t frameCount = sampler_->getSampleCount(sampleIndex, logger);
+    int channelCount = sampler_->getChannelCount(sampleIndex, logger);
+    bool needsConversion = sampler_->getNeedsConversion(sampleIndex, logger);
+    bool isInterleaved = sampler_->getIsInterleavedFormat(sampleIndex, logger);
+    const char* filename = sampler_->getFilename(sampleIndex, logger);
     
     // Krok 2: Alokace temporary bufferu pro naÄtenÃ­ (pÅ¯vodnÃ­ velikost)
     size_t tempBufferSize = frameCount * channelCount * sizeof(float);
     float* tempBuffer = static_cast<float*>(malloc(tempBufferSize));
     
     if (!tempBuffer) {
-        logger_.log("InstrumentLoader/loadSampleToBuffer", "error", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", "error", 
                    "Memory allocation error for temporary buffer: " + 
                    std::to_string(tempBufferSize) + " bytes");
         sf_close(sndfile);
@@ -531,7 +611,7 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
     sf_close(sndfile);
     
     if (framesRead != frameCount) {
-        logger_.log("InstrumentLoader/loadSampleToBuffer", "error", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", "error", 
                    "Data reading error from file " + std::string(filename) + 
                    ": expected " + std::to_string(frameCount) + 
                    " frames, read " + std::to_string(framesRead));
@@ -541,19 +621,19 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
     
     // LogovÃ¡nÃ­ konverze (vÅ¾dy, i kdyÅ¾ neprobÄ›hla)
     if (needsConversion) {
-        logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
                    "PCM to 32-bit float conversion performed for file: " + std::string(filename));
     } else {
-        logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
                    "File already in 32-bit float format, no conversion needed: " + std::string(filename));
     }
     
-    // Krok 4: NOVÃ‰ - Alokace permanent bufferu VÅ½DY pro stereo (frameCount * 2 * sizeof(float))
+    // Krok 4: NOVÃ‰ - Alokace permanent bufferu VÃDY pro stereo (frameCount * 2 * sizeof(float))
     size_t stereoBufferSize = frameCount * 2 * sizeof(float);
     float* permanentBuffer = static_cast<float*>(malloc(stereoBufferSize));
     
     if (!permanentBuffer) {
-        logger_.log("InstrumentLoader/loadSampleToBuffer", "error", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", "error", 
                    "Memory allocation error for permanent stereo buffer: " + 
                    std::to_string(stereoBufferSize) + " bytes");
         free(tempBuffer);
@@ -569,14 +649,14 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
             permanentBuffer[frame * 2] = tempBuffer[frame];     // L kanÃ¡l
             permanentBuffer[frame * 2 + 1] = tempBuffer[frame]; // R kanÃ¡l (duplikace)
         }
-        logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
                    "Mono to stereo conversion performed (L=R duplication): " + std::string(filename));
         
     } else if (channelCount == 2) {
         // STEREO â†’ STEREO: pÅ™Ã­mÃ© kopÃ­rovÃ¡nÃ­ (jiÅ¾ sprÃ¡vnÃ½ formÃ¡t)
         if (isInterleaved) {
             memcpy(permanentBuffer, tempBuffer, tempBufferSize);
-            logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+            logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
                        "Stereo data already in interleaved format, direct copy: " + 
                        std::string(filename));
         } else {
@@ -585,7 +665,7 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
                 permanentBuffer[frame * 2] = tempBuffer[frame];                    // L kanÃ¡l
                 permanentBuffer[frame * 2 + 1] = tempBuffer[frameCount + frame];   // R kanÃ¡l
             }
-            logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+            logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
                        "Non-interleaved to interleaved stereo conversion performed: " + 
                        std::string(filename));
         }
@@ -605,7 +685,7 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
                 permanentBuffer[frame * 2 + 1] = tempBuffer[frameCount + frame];   // R kanÃ¡l
             }
         }
-        logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
                    "Multi-channel to stereo conversion performed (using L+R channels): " + 
                    std::string(filename) + " (" + std::to_string(channelCount) + " â†’ 2 channels)");
     }
@@ -632,20 +712,20 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
     // ZÃ­skÃ¡nÃ­ a pÅ™iÅ™azenÃ­ SampleInfo pointeru (pointer na data v SamplerIO)
     // Pozor: Toto je trochu hacknutÃ©, ale v kontextu souÄasnÃ©ho API je to nejjednoduÅ¡Å¡Ã­
     // V ideÃ¡lnÃ­m pÅ™Ã­padÄ› by SamplerIO mÄ›lo getter getSampleInfo(index)
-    const std::vector<SampleInfo>& sampleList = sampler_.getLoadedSampleList();
+    const std::vector<SampleInfo>& sampleList = sampler_->getLoadedSampleList();
     if (sampleIndex >= 0 && static_cast<size_t>(sampleIndex) < sampleList.size()) {
         // Const cast kvÅ¯li designu - pointer na data v SamplerIO
         instruments_[midi_note].sample_ptr_sampleInfo[velocity] = 
             const_cast<SampleInfo*>(&sampleList[sampleIndex]);
     } else {
-        logger_.log("InstrumentLoader/loadSampleToBuffer", "error", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", "error", 
                    "Invalid sampleIndex " + std::to_string(sampleIndex) + 
                    " for SampleInfo pointer assignment");
         std::exit(1);
     }
     
     // ÃšspÄ›Å¡nÃ© pÅ™iÅ™azenÃ­ - detailnÃ­ log s novÃ½mi stereo metadaty
-    logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+    logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
                "Stereo buffer assigned for MIDI " + std::to_string(midi_note) + 
                " velocity " + std::to_string(velocity) + ": " + 
                std::to_string(frameCount) + " frames, " +
@@ -653,7 +733,7 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
                std::to_string(stereoBufferSize) + " bytes, format: stereo interleaved [L,R,L,R...]");
     
     std::string originalFormat = wasOriginallyMono ? "originally mono" : "originally stereo";
-    logger_.log("InstrumentLoader/loadSampleToBuffer", "info", 
+    logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
                "Buffer for MIDI " + std::to_string(midi_note) + 
                "/velocity " + std::to_string(velocity) + 
                " allocated and loaded successfully (" + originalFormat + ")");
@@ -666,11 +746,12 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
  * @param sampleIndex Index samplu v SamplerIO
  * @param sndfile Reference na SNDFILE pointer (vÃ½stup)
  * @param sfinfo Reference na SF_INFO strukturu (vÃ½stup)
+ * @param logger Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­
  * @return true pÅ™i ÃºspÄ›chu, false pÅ™i chybÄ› (s error logem a exit)
  */
-bool InstrumentLoader::openSampleFile(int sampleIndex, SNDFILE*& sndfile, SF_INFO& sfinfo) {
+bool InstrumentLoader::openSampleFile(int sampleIndex, SNDFILE*& sndfile, SF_INFO& sfinfo, Logger& logger) {
     // ZÃ­skÃ¡nÃ­ cesty k souboru pÅ™es SamplerIO getter
-    const char* filename = sampler_.getFilename(sampleIndex, logger_);
+    const char* filename = sampler_->getFilename(sampleIndex, logger);
     
     // Inicializace SF_INFO struktury
     memset(&sfinfo, 0, sizeof(sfinfo));
@@ -679,13 +760,13 @@ bool InstrumentLoader::openSampleFile(int sampleIndex, SNDFILE*& sndfile, SF_INF
     sndfile = sf_open(filename, SFM_READ, &sfinfo);
     
     if (!sndfile) {
-        logger_.log("InstrumentLoader/openSampleFile", "error", 
+        logger.log("InstrumentLoader/openSampleFile", "error", 
                    "File opening error " + std::string(filename) + 
                    ": " + sf_strerror(nullptr));
         std::exit(1);
     }
     
-    logger_.log("InstrumentLoader/openSampleFile", "info", 
+    logger.log("InstrumentLoader/openSampleFile", "info", 
                "File " + std::string(filename) + " opened successfully");
     
     return true;
@@ -697,7 +778,8 @@ bool InstrumentLoader::openSampleFile(int sampleIndex, SNDFILE*& sndfile, SF_INF
  * @return Reference na Instrument strukturu
  */
 Instrument& InstrumentLoader::getInstrumentNote(uint8_t midi_note) {
-    validateMidiNote(midi_note, "getInstrumentNote");
+    checkInitialization("getInstrumentNote");
+    validateMidiNote(midi_note, "getInstrumentNote", *logger_);
     return instruments_[midi_note];
 }
 
@@ -707,16 +789,47 @@ Instrument& InstrumentLoader::getInstrumentNote(uint8_t midi_note) {
  * @return Const reference na Instrument strukturu
  */
 const Instrument& InstrumentLoader::getInstrumentNote(uint8_t midi_note) const {
-    validateMidiNote(midi_note, "getInstrumentNote const");
+    checkInitialization("getInstrumentNote const");
+    validateMidiNote(midi_note, "getInstrumentNote const", *logger_);
     return instruments_[midi_note];
 }
 
 /**
+ * @brief Getter pro celkovÃ½ poÄet naÄtenÃ½ch samplÅ¯
+ * @return PoÄet ÃºspÄ›Å¡nÄ› naÄtenÃ½ch samplÅ¯
+ */
+int InstrumentLoader::getTotalLoadedSamples() const {
+    checkInitialization("getTotalLoadedSamples");
+    return totalLoadedSamples_;
+}
+
+/**
+ * @brief Getter pro poÄet mono samplÅ¯
+ * @return PoÄet naÄtenÃ½ch mono samplÅ¯
+ */
+int InstrumentLoader::getMonoSamplesCount() const {
+    checkInitialization("getMonoSamplesCount");
+    return monoSamplesCount_;
+}
+
+/**
+ * @brief Getter pro poÄet stereo samplÅ¯  
+ * @return PoÄet naÄtenÃ½ch stereo samplÅ¯
+ */
+int InstrumentLoader::getStereoSamplesCount() const {
+    checkInitialization("getStereoSamplesCount");
+    return stereoSamplesCount_;
+}
+
+/**
  * @brief Validace, Å¾e vÅ¡echny naÄtenÃ© buffery jsou skuteÄnÄ› stereo
+ * @param logger Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­
  * Kontroluje konzistenci mezi metadaty a skuteÄnÃ½mi buffery.
  * PÅ™i selhÃ¡nÃ­ validace: zaloguje chyby a volÃ¡ std::exit(1).
  */
-void InstrumentLoader::validateStereoConsistency() {
+void InstrumentLoader::validateStereoConsistency(Logger& logger) {
+    checkInitialization("validateStereoConsistency");
+    
     int validatedSamples = 0;
     int validationErrors = 0;
     
@@ -729,7 +842,7 @@ void InstrumentLoader::validateStereoConsistency() {
                 
                 // Kontrola 1: Buffer pointer nesmÃ­ bÃ½t null
                 if (inst.sample_ptr_velocity[vel] == nullptr) {
-                    logger_.log("InstrumentLoader/validateStereoConsistency", "error", 
+                    logger.log("InstrumentLoader/validateStereoConsistency", "error", 
                               "NULL audio buffer for MIDI " + std::to_string(midi) + 
                               " velocity " + std::to_string(vel) + 
                               " despite velocityExists=true");
@@ -739,7 +852,7 @@ void InstrumentLoader::validateStereoConsistency() {
                 
                 // Kontrola 2: SampleInfo pointer nesmÃ­ bÃ½t null
                 if (inst.sample_ptr_sampleInfo[vel] == nullptr) {
-                    logger_.log("InstrumentLoader/validateStereoConsistency", "error", 
+                    logger.log("InstrumentLoader/validateStereoConsistency", "error", 
                               "NULL sampleInfo for MIDI " + std::to_string(midi) + 
                               " velocity " + std::to_string(vel) + 
                               " despite velocityExists=true");
@@ -749,7 +862,7 @@ void InstrumentLoader::validateStereoConsistency() {
                 
                 // Kontrola 3: Frame count musÃ­ bÃ½t > 0
                 if (inst.frame_count_stereo[vel] <= 0) {
-                    logger_.log("InstrumentLoader/validateStereoConsistency", "error", 
+                    logger.log("InstrumentLoader/validateStereoConsistency", "error", 
                               "Invalid frame_count_stereo " + std::to_string(inst.frame_count_stereo[vel]) + 
                               " for MIDI " + std::to_string(midi) + " velocity " + std::to_string(vel));
                     validationErrors++;
@@ -758,7 +871,7 @@ void InstrumentLoader::validateStereoConsistency() {
                 // Kontrola 4: Total samples musÃ­ bÃ½t frame_count * 2
                 sf_count_t expectedTotalSamples = inst.frame_count_stereo[vel] * 2;
                 if (inst.total_samples_stereo[vel] != expectedTotalSamples) {
-                    logger_.log("InstrumentLoader/validateStereoConsistency", "error", 
+                    logger.log("InstrumentLoader/validateStereoConsistency", "error", 
                               "Inconsistent total_samples_stereo for MIDI " + std::to_string(midi) + 
                               " velocity " + std::to_string(vel) + 
                               ": expected " + std::to_string(expectedTotalSamples) + 
@@ -769,7 +882,7 @@ void InstrumentLoader::validateStereoConsistency() {
                 // Kontrola 5: Konzistence s pÅ¯vodnÃ­mi metadata (SampleInfo.sample_count)
                 SampleInfo* sampleInfo = inst.sample_ptr_sampleInfo[vel];
                 if (inst.frame_count_stereo[vel] != sampleInfo->sample_count) {
-                    logger_.log("InstrumentLoader/validateStereoConsistency", "error", 
+                    logger.log("InstrumentLoader/validateStereoConsistency", "error", 
                               "Frame count mismatch for MIDI " + std::to_string(midi) + 
                               " velocity " + std::to_string(vel) + 
                               ": stereo_frame_count=" + std::to_string(inst.frame_count_stereo[vel]) + 
@@ -780,7 +893,7 @@ void InstrumentLoader::validateStereoConsistency() {
                 // Kontrola 6: LogickÃ¡ konzistence was_originally_mono vs pÅ¯vodnÃ­ channels
                 bool expectedMono = (sampleInfo->channels == 1);
                 if (inst.was_originally_mono[vel] != expectedMono) {
-                    logger_.log("InstrumentLoader/validateStereoConsistency", "error", 
+                    logger.log("InstrumentLoader/validateStereoConsistency", "error", 
                               "Mono flag inconsistency for MIDI " + std::to_string(midi) + 
                               " velocity " + std::to_string(vel) + 
                               ": was_originally_mono=" + (inst.was_originally_mono[vel] ? "true" : "false") + 
@@ -792,15 +905,15 @@ void InstrumentLoader::validateStereoConsistency() {
     }
     
     // Summary validace
-    logger_.log("InstrumentLoader/validateStereoConsistency", "info", 
+    logger.log("InstrumentLoader/validateStereoConsistency", "info", 
               "Stereo consistency validation completed. Validated " + std::to_string(validatedSamples) + 
               " samples, found " + std::to_string(validationErrors) + " errors");
     
     if (validationErrors == 0) {
-        logger_.log("InstrumentLoader/validateStereoConsistency", "info", 
+        logger.log("InstrumentLoader/validateStereoConsistency", "info", 
                   "âœ“ All stereo buffers are consistent and valid");
     } else {
-        logger_.log("InstrumentLoader/validateStereoConsistency", "error", 
+        logger.log("InstrumentLoader/validateStereoConsistency", "error", 
                   "âœ— Stereo consistency validation FAILED with " + 
                   std::to_string(validationErrors) + " errors - terminating");
         std::exit(1);
@@ -811,10 +924,11 @@ void InstrumentLoader::validateStereoConsistency() {
  * @brief Validuje velocity parametr
  * @param velocity Velocity hodnota k validaci
  * @param functionName NÃ¡zev funkce pro error log
+ * @param logger Reference na Logger pro error log
  */
-void InstrumentLoader::validateVelocity(uint8_t velocity, const char* functionName) const {
+void InstrumentLoader::validateVelocity(uint8_t velocity, const char* functionName, Logger& logger) const {
     if (velocity >= VELOCITY_LAYERS) {
-        logger_.log("InstrumentLoader/" + std::string(functionName), "error", 
+        logger.log("InstrumentLoader/" + std::string(functionName), "error", 
                    "Invalid velocity " + std::to_string(velocity) + 
                    " outside range 0-" + std::to_string(VELOCITY_LAYERS - 1));
         std::exit(1);
@@ -825,13 +939,58 @@ void InstrumentLoader::validateVelocity(uint8_t velocity, const char* functionNa
  * @brief Validuje MIDI note parametr
  * @param midi_note MIDI nota k validaci
  * @param functionName NÃ¡zev funkce pro error log
+ * @param logger Reference na Logger pro error log
  */
-void InstrumentLoader::validateMidiNote(uint8_t midi_note, const char* functionName) const {
+void InstrumentLoader::validateMidiNote(uint8_t midi_note, const char* functionName, Logger& logger) const {
     if (midi_note < MIDI_NOTE_MIN || midi_note > MIDI_NOTE_MAX) {
-        logger_.log("InstrumentLoader/" + std::string(functionName), "error", 
+        logger.log("InstrumentLoader/" + std::string(functionName), "error", 
                    "Invalid MIDI note " + std::to_string(midi_note) + 
                    " outside range " + std::to_string(MIDI_NOTE_MIN) + 
                    "-" + std::to_string(MIDI_NOTE_MAX));
+        std::exit(1);
+    }
+}
+
+/**
+ * @brief Kontroluje inicializaci objektu
+ * @param functionName NÃ¡zev funkce pro error log
+ */
+void InstrumentLoader::checkInitialization(const char* functionName) const {
+    if (actual_samplerate_ == 0) {
+        if (logger_) {
+            logger_->log("InstrumentLoader/" + std::string(functionName), "error", 
+                       "InstrumentLoader not initialized - call loadInstrumentData() first");
+        }
+        std::exit(1);
+    }
+}
+
+/**
+ * @brief Validuje referenci na SamplerIO
+ * @param sampler Reference na SamplerIO k validaci
+ * @param logger Reference na Logger pro error log
+ */
+void InstrumentLoader::validateSamplerReference(SamplerIO& sampler, Logger& logger) {
+    // Pro C++ reference je teoreticky nemoÅ¾nÃ©, aby byl nullptr,
+    // ale pro jistotu mÅ¯Å¾eme zkontrolovat adresu
+    SamplerIO* samplerPtr = &sampler;
+    if (samplerPtr == nullptr) {
+        logger.log("InstrumentLoader/validateSamplerReference", "error", 
+                  "SamplerIO reference is null - cannot proceed");
+        std::exit(1);
+    }
+}
+
+/**
+ * @brief Validuje targetSampleRate
+ * @param targetSampleRate Sample rate k validaci
+ * @param logger Reference na Logger pro error log
+ */
+void InstrumentLoader::validateTargetSampleRate(int targetSampleRate, Logger& logger) {
+    if (targetSampleRate != 44100 && targetSampleRate != 48000) {
+        logger.log("InstrumentLoader/validateTargetSampleRate", "error", 
+                  "Invalid targetSampleRate " + std::to_string(targetSampleRate) + 
+                  " Hz - only 44100 Hz and 48000 Hz are supported");
         std::exit(1);
     }
 }
@@ -865,7 +1024,7 @@ THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
  * pro vÅ¡echny velocity vrstvy jednÃ© MIDI noty. Index v poli instruments[] odpovÃ­dÃ¡ MIDI notÄ›,
  * takÅ¾e nenÃ­ potÅ™eba uklÃ¡dat midi_note hodnotu v struktuÅ™e.
  * 
- * DÅ®LEÅ½ITÃ‰: VÅ¡echny buffery jsou VÅ½DY uloÅ¾eny jako stereo interleaved 32-bit float formÃ¡t!
+ * DÅ®LEÅ½ITÃ‰: VÅ¡echny buffery jsou VÃDY uloÅ¾eny jako stereo interleaved 32-bit float formÃ¡t!
  * I pÅ¯vodnÄ› mono samples jsou konvertovÃ¡ny na stereo (L=R duplikace).
  * Buffer formÃ¡t: [L1,R1,L2,R2,L3,R3,...] pro pÅ™Ã­mou JUCE kompatibilitu.
  */
@@ -876,7 +1035,7 @@ struct Instrument {
     SampleInfo* sample_ptr_sampleInfo[VELOCITY_LAYERS];
     
     // Pointery na naÄtenÃ¡ float data v RAM pro velocity 0-7
-    // Buffery jsou alokovanÃ© pomocÃ­ malloc a obsahujÃ­ VÅ½DY stereo interleaved 32-bit float
+    // Buffery jsou alokovanÃ© pomocÃ­ malloc a obsahujÃ­ VÃDY stereo interleaved 32-bit float
     // Velikost: frame_count_stereo * 2 * sizeof(float) (vÅ¾dy stereo)
     // FormÃ¡t: [L1,R1,L2,R2,...] i pro pÅ¯vodnÄ› mono samples (L=R)
     float* sample_ptr_velocity[VELOCITY_LAYERS];
@@ -885,7 +1044,7 @@ struct Instrument {
     // true = sample byl nalezen a naÄten jako stereo, false = sample neexistuje
     bool velocityExists[VELOCITY_LAYERS];
     
-    // NOVÃ METADATA - stereo informace (nezÃ¡vislÃ© na SampleInfo)
+    // NOVÃ‰ METADATA - stereo informace (nezÃ¡vislÃ© na SampleInfo)
     // PoÄet stereo frame pÃ¡rÅ¯ (kaÅ¾dÃ½ frame = L+R sample)
     sf_count_t frame_count_stereo[VELOCITY_LAYERS];
     
@@ -975,27 +1134,29 @@ struct Instrument {
  * 
  * PAMÄšÅ¤OVÃ SPRÃVA:
  * - Alokuje buffery pomocÃ­ malloc (C-style pro konzistenci)
- * - Automaticky uvolÅˆuje v destruktoru
+ * - Automaticky uvolÅˆuje pÅ™i novÃ©m naÄÃ­tÃ¡nÃ­ nebo v destruktoru
  * - SampleInfo pointery patÅ™Ã­ SamplerIO (neuvolÅˆujÃ­ se)
  * 
  * BEZPEÄŒNOST:
- * - VÅ¡echny gettery kontrolujÃ­ rozsah indexÅ¯
+ * - VÅ¡echny gettery kontrolujÃ­ rozsah indexÅ¯ a inicializaci
  * - Chyby vedou k error logu a std::exit(1)
  * - Thread-safety nenÃ­ implementovÃ¡na (single-threaded design)
+ * 
+ * NOVÃ DESIGN:
+ * - PrÃ¡zdnÃ½ konstruktor, data se naÄÃ­tajÃ­ pomocÃ­ loadInstrumentData()
+ * - MoÅ¾nost opakovanÃ©ho naÄÃ­tÃ¡nÃ­ s rÅ¯znÃ½mi targetSampleRate
+ * - AutomatickÃ© vyÄiÅ¡tÄ›nÃ­ pÅ™i novÃ©m naÄÃ­tÃ¡nÃ­
  */
 class InstrumentLoader {
 public:
     /**
-     * @brief Konstruktor InstrumentLoader
-     * @param sampler Reference na SamplerIO pro pÅ™Ã­stup k sample metadatÅ¯m
-     * @param targetSampleRate PoÅ¾adovanÃ¡ frekvence vzorkovÃ¡nÃ­ (napÅ™. 44100 Hz)
-     * @param logger Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­
+     * @brief PrÃ¡zdnÃ½ konstruktor InstrumentLoader
      * 
      * Inicializuje pole instruments[128] na nullptr/false.
-     * UloÅ¾Ã­ reference pro pozdÄ›jÅ¡Ã­ pouÅ¾itÃ­ v loadInstrument().
-     * Zaloguje inicializaÄnÃ­ zprÃ¡vu s targetSampleRate.
+     * NastavÃ­ actual_samplerate_ na 0 (indikuje neinicializovanÃ½ stav).
+     * Pro naÄÃ­tÃ¡nÃ­ dat je tÅ™eba zavolat loadInstrumentData().
      */
-    InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger);
+    InstrumentLoader();
 
     /**
      * @brief Destruktor - uvolnÃ­ alokovanou pamÄ›Å¥
@@ -1003,18 +1164,29 @@ public:
      * ProchÃ¡zÃ­ vÅ¡echny MIDI noty 0-127 a velocity 0-7:
      * - Pokud velocityExists[vel] == true, uvolnÃ­ free(sample_ptr_velocity[vel])
      * - NEUVOLÅ‡UJE SampleInfo pointery (patÅ™Ã­ SamplerIO)
-     * - Zaloguje poÄet uvolnÄ›nÃ½ch samplÅ¯
+     * - Zaloguje poÄet uvolnÄ›nÃ½ch samplÅ¯ (pokud je logger dostupnÃ½)
      */
     ~InstrumentLoader();
 
     /**
-     * @brief HlavnÃ­ metoda pro naÄtenÃ­ vÅ¡ech instrumentÅ¯
+     * @brief HlavnÃ­ metoda pro naÄÃ­tÃ¡nÃ­ dat instrumentÅ¯
+     * @param sampler Reference na SamplerIO pro pÅ™Ã­stup k sample metadatÅ¯m
+     * @param targetSampleRate PoÅ¾adovanÃ¡ frekvence vzorkovÃ¡nÃ­ (44100 nebo 48000 Hz)
+     * @param logger Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­
      * 
-     * NaÄte vÅ¡echny MIDI noty 0-127 (vÄetnÄ› tÄ›ch bez samplÅ¯ - jen inicializuje null/false).
+     * Validuje parametry:
+     * - Kontroluje platnost reference na sampler (nenÃ­ nullptr)
+     * - Kontroluje targetSampleRate (povoleno jen 44100 nebo 48000)
+     * - PÅ™i chybÄ› loguje error a volÃ¡ std::exit(1)
+     * 
+     * Pokud uÅ¾ jsou data naÄtenÃ¡, automaticky je vyÄistÃ­ volÃ¡nÃ­m clear().
+     * PotÃ© naÄte vÅ¡echny MIDI noty 0-127 stejnÃ½m algoritmem jako pÅ¯vodnÃ­ loadInstrument().
      * 
      * Algoritmus:
-     * 1. Pro kaÅ¾dou MIDI notu (MIDI_NOTE_MIN to MIDI_NOTE_MAX)
-     * 2. Pro kaÅ¾dou velocity 0-7:
+     * 1. Validace parametrÅ¯
+     * 2. AutomatickÃ© vyÄiÅ¡tÄ›nÃ­ pÅ™edchozÃ­ch dat (pokud existujÃ­)
+     * 3. Pro kaÅ¾dou MIDI notu (MIDI_NOTE_MIN to MIDI_NOTE_MAX)
+     * 4. Pro kaÅ¾dou velocity 0-7:
      *    a) VyhledÃ¡ index = sampler.findSampleInSampleList(midi, vel, targetSampleRate)
      *    b) Pokud index != -1:
      *       - ZavolÃ¡ loadSampleToBuffer(index, vel, midi) pro naÄtenÃ­
@@ -1024,16 +1196,18 @@ public:
      *       - Warning log "Sample pro MIDI [midi] velocity [vel] nenalezen"
      * 
      * Loguje progress info a summary na konci.
+     * UloÅ¾Ã­ targetSampleRate do actual_samplerate_.
      */
-    void loadInstrument();
+    void loadInstrumentData(SamplerIO& sampler, int targetSampleRate, Logger& logger);
 
     /**
      * @brief Getter pro pÅ™Ã­stup k Instrument struktuÅ™e podle MIDI noty
      * @param midi_note MIDI nota (0-127)
      * @return Reference na Instrument strukturu
      * 
+     * Kontroluje inicializaci (actual_samplerate_ != 0).
      * Kontroluje platnost rozsahu MIDI noty.
-     * PÅ™i neplatnÃ©m rozsahu: log error a std::exit(1).
+     * PÅ™i neinicializaci nebo neplatnÃ©m rozsahu: log error a std::exit(1).
      */
     Instrument& getInstrumentNote(uint8_t midi_note);
 
@@ -1045,45 +1219,47 @@ public:
     const Instrument& getInstrumentNote(uint8_t midi_note) const;
 
     /**
-     * @brief Getter pro zÃ­skÃ¡nÃ­ target sample rate
-     * @return Nastavenou target sample rate v Hz
+     * @brief Getter pro zÃ­skÃ¡nÃ­ aktuÃ¡lnÃ­ sample rate
+     * @return Nastavenou actual sample rate v Hz (0 = neinicializovÃ¡no)
      */
-    int getTargetSampleRate() const { return targetSampleRate_; }
+    int getActualSampleRate() const { return actual_samplerate_; }
 
     /**
      * @brief Getter pro celkovÃ½ poÄet naÄtenÃ½ch samplÅ¯
      * @return PoÄet ÃºspÄ›Å¡nÄ› naÄtenÃ½ch samplÅ¯
+     * Kontroluje inicializaci - pÅ™i neinicializaci loguje error a volÃ¡ std::exit(1).
      */
-    int getTotalLoadedSamples() const { return totalLoadedSamples_; }
+    int getTotalLoadedSamples() const;
 
     /**
      * @brief Getter pro poÄet mono samplÅ¯
      * @return PoÄet naÄtenÃ½ch mono samplÅ¯
+     * Kontroluje inicializaci - pÅ™i neinicializaci loguje error a volÃ¡ std::exit(1).
      */
-    int getMonoSamplesCount() const { return monoSamplesCount_; }
+    int getMonoSamplesCount() const;
 
     /**
      * @brief Getter pro poÄet stereo samplÅ¯  
      * @return PoÄet naÄtenÃ½ch stereo samplÅ¯
+     * Kontroluje inicializaci - pÅ™i neinicializaci loguje error a volÃ¡ std::exit(1).
      */
-    int getStereoSamplesCount() const { return stereoSamplesCount_; }
+    int getStereoSamplesCount() const;
 
     /**
      * @brief Validace, Å¾e vÅ¡echny naÄtenÃ© buffery jsou skuteÄnÄ› stereo
      * Kontroluje konzistenci mezi metadaty a skuteÄnÃ½mi buffery.
      * PÅ™i selhÃ¡nÃ­ validace: zaloguje chyby a volÃ¡ std::exit(1).
+     * Kontroluje inicializaci - pÅ™i neinicializaci loguje error a volÃ¡ std::exit(1).
      */
-    void validateStereoConsistency();
+    void validateStereoConsistency(Logger& logger);
 
 private:
-    // Reference na SamplerIO pro pÅ™Ã­stup k metadatÅ¯m
-    SamplerIO& sampler_;
+    // AktuÃ¡lnÃ­ frekvence vzorkovÃ¡nÃ­ (0 = neinicializovÃ¡no)
+    int actual_samplerate_;
     
-    // PoÅ¾adovanÃ¡ frekvence vzorkovÃ¡nÃ­
-    int targetSampleRate_;
-    
-    // Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­
-    Logger& logger_;
+    // Pointery na SamplerIO a Logger (uloÅ¾enÃ© z poslednÃ­ho volÃ¡nÃ­ loadInstrumentData)
+    SamplerIO* sampler_;
+    Logger* logger_;
     
     // Pole Instrument struktur pro MIDI noty 0-127
     // Index pole odpovÃ­dÃ¡ MIDI notÄ›
@@ -1097,13 +1273,35 @@ private:
     int stereoSamplesCount_;
 
     /**
+     * @brief VyÄistÃ­ vÅ¡echna naÄtenÃ¡ data
+     * @param logger Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­
+     * 
+     * UvolnÃ­ vÅ¡echny alokovanÃ© float buffery pomocÃ­ free().
+     * Vynuluje vÅ¡echny pointery a poÄÃ­tadla.
+     * Resetuje actual_samplerate_ na 0.
+     * Loguje informace o uvolÅˆovÃ¡nÃ­.
+     * 
+     * VolÃ¡ se automaticky pÅ™i novÃ©m naÄÃ­tÃ¡nÃ­.
+     */
+    void clear(Logger& logger);
+
+    /**
+     * @brief VyÄistÃ­ vÅ¡echna naÄtenÃ¡ data bez loggingu
+     * 
+     * StejnÃ¡ funkcionalita jako clear(), ale bez loggingu.
+     * PouÅ¾Ã­vÃ¡ se v destruktoru kde logger nemusÃ­ bÃ½t dostupnÃ½.
+     */
+    void clearWithoutLogging();
+
+    /**
      * @brief NaÄte jeden sample do bufferu
      * @param sampleIndex Index samplu v SamplerIO
      * @param velocity Velocity vrstva (0-7)
      * @param midi_note MIDI nota (0-127)
+     * @param logger Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­
      * @return true pÅ™i ÃºspÄ›chu, false pÅ™i chybÄ› (s error logem a exit)
      * 
-     * Algoritmus:
+     * Algoritmus stejnÃ½ jako v pÅ¯vodnÃ­ verzi:
      * 1. OtevÅ™e soubor pomocÃ­ openSampleFile()
      * 2. Alokuje temporary buffer pro naÄtenÃ­
      * 3. NaÄte data pomocÃ­ sf_readf_float (automatickÃ¡ PCM->float konverze)
@@ -1115,13 +1313,14 @@ private:
      * Loguje vÅ¡echny konverze (i kdyÅ¾ neprobÄ›hly) a ÃºspÄ›Å¡nÃ© pÅ™iÅ™azenÃ­.
      * PÅ™i chybÄ› alokace/naÄtenÃ­: log error a std::exit(1).
      */
-    bool loadSampleToBuffer(int sampleIndex, uint8_t velocity, uint8_t midi_note);
+    bool loadSampleToBuffer(int sampleIndex, uint8_t velocity, uint8_t midi_note, Logger& logger);
 
     /**
      * @brief OtevÅ™e sample soubor pro ÄtenÃ­
      * @param sampleIndex Index samplu v SamplerIO
      * @param sndfile Reference na SNDFILE pointer (vÃ½stup)
      * @param sfinfo Reference na SF_INFO strukturu (vÃ½stup)
+     * @param logger Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­
      * @return true pÅ™i ÃºspÄ›chu, false pÅ™i chybÄ› (s error logem a exit)
      * 
      * PouÅ¾ije getFilename(sampleIndex) pro zÃ­skÃ¡nÃ­ cesty.
@@ -1129,25 +1328,54 @@ private:
      * PÅ™i ÃºspÄ›chu: log info "Soubor [filename] otevÅ™en ÃºspÄ›Å¡nÄ›"
      * PÅ™i chybÄ›: log error s sf_strerror() a std::exit(1)
      */
-    bool openSampleFile(int sampleIndex, SNDFILE*& sndfile, SF_INFO& sfinfo);
+    bool openSampleFile(int sampleIndex, SNDFILE*& sndfile, SF_INFO& sfinfo, Logger& logger);
 
     /**
      * @brief Validuje velocity parametr
      * @param velocity Velocity hodnota k validaci
      * @param functionName NÃ¡zev funkce pro error log
+     * @param logger Reference na Logger pro error log
      * 
      * Kontroluje rozsah 0-7. PÅ™i neplatnÃ© hodnotÄ›: log error a std::exit(1).
      */
-    void validateVelocity(uint8_t velocity, const char* functionName) const;
+    void validateVelocity(uint8_t velocity, const char* functionName, Logger& logger) const;
 
     /**
      * @brief Validuje MIDI note parametr
      * @param midi_note MIDI nota k validaci
      * @param functionName NÃ¡zev funkce pro error log
+     * @param logger Reference na Logger pro error log
      * 
      * Kontroluje rozsah MIDI_NOTE_MIN-MIDI_NOTE_MAX. PÅ™i neplatnÃ© hodnotÄ›: log error a std::exit(1).
      */
-    void validateMidiNote(uint8_t midi_note, const char* functionName) const;
+    void validateMidiNote(uint8_t midi_note, const char* functionName, Logger& logger) const;
+
+    /**
+     * @brief Kontroluje inicializaci objektu
+     * @param functionName NÃ¡zev funkce pro error log
+     * 
+     * Kontroluje actual_samplerate_ != 0. PÅ™i neinicializaci: log error a std::exit(1).
+     */
+    void checkInitialization(const char* functionName) const;
+
+    /**
+     * @brief Validuje referenci na SamplerIO
+     * @param sampler Reference na SamplerIO k validaci
+     * @param logger Reference na Logger pro error log
+     * 
+     * Kontroluje, Å¾e reference nenÃ­ nullptr (teoreticky nemoÅ¾nÃ© u referencÃ­,
+     * ale pro jistotu). PÅ™i chybÄ›: log error a std::exit(1).
+     */
+    void validateSamplerReference(SamplerIO& sampler, Logger& logger);
+
+    /**
+     * @brief Validuje targetSampleRate
+     * @param targetSampleRate Sample rate k validaci
+     * @param logger Reference na Logger pro error log
+     * 
+     * Kontroluje, Å¾e je 44100 nebo 48000. PÅ™i chybÄ›: log error a std::exit(1).
+     */
+    void validateTargetSampleRate(int targetSampleRate, Logger& logger);
 };
 
 #endif  // INSTRUMENT_LOADER_H
@@ -1156,473 +1384,449 @@ private:
 ===== File: sampler.cpp =====
 Path: C:\Users\jindr\IthacaCore\sampler\sampler.cpp
 =====
-#include "sampler.h"  // SamplerIO
-#include "instrument_loader.h"  // InstrumentLoader
-#include "wav_file_exporter.h"  // WavExporter pro test exportu
-#include "voice_manager.h"      // VoiceManager pro polyfonnÃƒÂ­ testy
-
-// âœ… PÅ˜IDANÃ‰ INCLUDES PRO ZÃKLADNÃ FUNKCIONALITU:
-#include <string>       // Pro std::string
-#include <exception>    // Pro std::exception
-#include <stdexcept>    // Pro std::runtime_error
-#include <vector>       // Pro std::vector
-#include <algorithm>    // Pro std::min, std::max
-#include <iostream>     // Pro std::cout (pokud potÅ™eba)
-#include <cstdlib>      // Pro std::exit
+#include "sampler.h"
+#include "voice_manager.h"  // Pro VoiceManager testing
+#include <iostream>
+#include <memory>
 
 /**
- * @brief HlavnÃ­ koordinÃ¡tor sampleru â€“ spustÃ­ celÃ½ workflow.
- * @param logger Reference na Logger pro logovÃ¡nÃ­.
- * @return 0 pÅ™i ÃºspÄ›chu.
+ * @brief REFAKTOROVANÃ: runSampler jako thin wrapper pro VoiceManager testing
+ * 
+ * PÅ¯vodnÃ­ monolitickÃ¡ runSampler funkce byla nahrazena delegacÃ­ na VoiceManager.
+ * Tento approach poskytuje lepÅ¡Ã­ separation of concerns a modularity.
+ * 
+ * Test pipeline:
+ * 1. VytvoÅ™enÃ­ VoiceManager instance
+ * 2. Sample rate configuration
+ * 3. System initialization (directory scan)
+ * 4. Instrument loading (audio data)
+ * 5. System integrity validation
+ * 6. Granular testing suite
+ * 7. System statistics
+ * 
+ * @param logger Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­ celÃ©ho procesu
+ * @return 0 pÅ™i ÃºspÄ›chu, 1 pÅ™i kritickÃ© chybÄ›
  */
 int runSampler(Logger& logger) {
-    logger.log("runSampler", "info", "Starting IthacaCore sampler workflow");
-
-    /* ======= GlobÃ¡lnÃ­ nastavenÃ­ promÄ›nnÃ½ch (spoleÄnÃ© pro celÃ½ workflow) ====== */
-    // Cesta k samples (upravte podle potÅ™eby)
-    std::string sampleDir = R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)";
+    logger.log("runSampler", "info", "=== STARTING REFACTORED SAMPLER TEST SUITE ===");
+    logger.log("runSampler", "info", "Using VoiceManager-based architecture with new Voice class");
     
-    // Konfigurace pro naÄÃ­tÃ¡nÃ­ (targetSampleRate)
-    int targetSampleRate = 44100;  // TypickÃ¡ frekvence pro audio plugin
-    /* ======= Konec globÃ¡lnÃ­ho nastavenÃ­ ====== */
-
-    /* ======= HlavnÃ­ workflow: Inicializace a naÄtenÃ­ samples ====== */
-    // Krok 1: Inicializace SamplerIO a prohledÃ¡nÃ­ adresÃ¡Å™e
-    SamplerIO sampler;
-    logger.log("runSampler", "info", "Scanning sample directory: " + sampleDir);
-    sampler.scanSampleDirectory(sampleDir, logger);
-
-    // Krok 2: NaÄtenÃ­ do pamÄ›ti jako stereo buffery
-    InstrumentLoader instrument(sampler, targetSampleRate, logger);
-    instrument.loadInstrument();
-
-    /* ======= PÅ˜ESUNUTÃ‰ A OPRAVENÃ‰: Voice Management testy PÅ˜ED destrukcÃ­ InstrumentLoader ====== */
     try {
-        logger.log("runSampler", "info", "Starting Voice Management system tests");
+        // 1. VYTVOÅ˜ENÃ VOICEMANAGER INSTANCE
+        logger.log("runSampler", "info", "Creating VoiceManager instance...");
+        VoiceManager voiceManager(DEFAULT_SAMPLE_DIR, logger);
         
-        // âœ… DEBUGGING: Kontrola existence samples pro MIDI 60
-        logger.log("runSampler", "info", "=== DEBUGGING: Checking MIDI 60 samples ===");
+        // 2. SAMPLE RATE CONFIGURATION
+        logger.log("runSampler", "info", "Configuring sample rate...");
+        voiceManager.changeSampleRate(DEFAULT_SAMPLE_RATE, logger);
         
-        uint8_t testMidiNote = 60;  // Default test note
-        Instrument& debugInst = instrument.getInstrumentNote(60);
-        bool hasSamplesFor60 = false;
+        // 3. SYSTEM INITIALIZATION (Directory scan)
+        logger.log("runSampler", "info", "Initializing system (scanning sample directory)...");
+        voiceManager.initializeSystem(logger);
         
-        for (int vel = 0; vel < 8; ++vel) {
-            if (debugInst.velocityExists[vel]) {
-                hasSamplesFor60 = true;
-                logger.log("runSampler", "info", "MIDI 60 has sample at velocity layer " + 
-                           std::to_string(vel) + " with " + 
-                           std::to_string(debugInst.get_frame_count(vel)) + " frames");
-                
-                // Test prvnÃ­ch sample values
-                float* buffer = debugInst.get_sample_begin_pointer(vel);
-                if (buffer) {
-                    logger.log("runSampler", "info", "First samples: L=" + 
-                               std::to_string(buffer[0]) + ", R=" + std::to_string(buffer[1]));
-                } else {
-                    logger.log("runSampler", "warn", "Buffer pointer is NULL for velocity " + std::to_string(vel));
-                }
-            }
+        // 4. INSTRUMENT LOADING (Audio data loading)
+        logger.log("runSampler", "info", "Loading all instruments into memory...");
+        voiceManager.loadAllInstruments(logger);
+        
+        // 5. SYSTEM INTEGRITY VALIDATION
+        logger.log("runSampler", "info", "Validating system integrity...");
+        voiceManager.validateSystemIntegrity(logger);
+        
+        // 6. GRANULAR TESTING SUITE
+        logger.log("runSampler", "info", "=== STARTING GRANULAR TESTS ===");
+        
+        // Individual voice inspection
+        logger.log("runSampler", "info", "Running individual voice test...");
+        voiceManager.runIndividualVoiceTest(logger);
+        
+        // Single note functionality
+        logger.log("runSampler", "info", "Running single note test...");
+        voiceManager.runSingleNoteTest(logger);
+        
+        // Polyphonic capabilities
+        logger.log("runSampler", "info", "Running polyphony test...");
+        voiceManager.runPolyphonyTest(logger);
+        
+        // Edge case handling
+        logger.log("runSampler", "info", "Running edge case tests...");
+        voiceManager.runEdgeCaseTests(logger);
+        
+        // 7. SYSTEM STATISTICS
+        logger.log("runSampler", "info", "=== FINAL SYSTEM STATISTICS ===");
+        voiceManager.logSystemStatistics(logger);
+        
+        // 8. DODATEÄŒNÃ‰ EXPORT TESTY (Optional)
+        logger.log("runSampler", "info", "=== EXPORT TESTS ===");
+        try {
+            // Test export raw sample data
+            voiceManager.exportTestSample(TEST_MIDI_NOTE, TEST_VELOCITY, EXPORT_DIR, logger);
+            
+            logger.log("runSampler", "info", "Export tests completed successfully");
+        } catch (...) {
+            logger.log("runSampler", "warn", "Export tests failed - continuing anyway");
         }
         
-        if (!hasSamplesFor60) {
-            logger.log("runSampler", "warn", "MIDI 60 has NO samples available! Searching alternatives...");
-            // HledÃ¡nÃ­ alternativnÃ­ MIDI noty
-            for (int midi = 50; midi <= 70; ++midi) {
-                Instrument& testInst = instrument.getInstrumentNote(midi);
-                for (int vel = 0; vel < 8; ++vel) {
-                    if (testInst.velocityExists[vel]) {
-                        logger.log("runSampler", "info", "Using alternative: MIDI " + std::to_string(midi) + 
-                                   " has samples at velocity " + std::to_string(vel));
-                        testMidiNote = static_cast<uint8_t>(midi);
-                        goto found_alternative;
-                    }
-                }
-            }
-            found_alternative:;
-        }
+        // 9. ÃšSPÄšÅ NÃ‰ UKONÄŒENÃ
+        logger.log("runSampler", "info", "=== SAMPLER TEST SUITE COMPLETED SUCCESSFULLY ===");
+        logger.log("runSampler", "info", "All tests passed. System ready for production use.");
         
-        logger.log("runSampler", "info", "=== END DEBUGGING ===");
+        return 0;  // ÃšspÄ›ch
         
-        // Parametry pro VoiceManager test
-        std::string voiceTestDir = sampleDir;
-        int voiceTestSampleRate = targetSampleRate;
+    } catch (const std::exception& e) {
+        logger.log("runSampler", "error", 
+                  "CRITICAL ERROR in runSampler: " + std::string(e.what()));
+        return 1;  // Chyba
+    } catch (...) {
+        logger.log("runSampler", "error", 
+                  "UNKNOWN CRITICAL ERROR in runSampler");
+        return 1;  // NeznÃ¡mÃ¡ chyba
+    }
+}
+
+/**
+ * @brief NOVÃ‰: JUCE integration demonstration
+ * 
+ * Ukazuje sprÃ¡vnÃ½ pattern pro integraci VoiceManager do JUCE AudioProcessor.
+ * Tento kÃ³d slouÅ¾Ã­ jako reference pro skuteÄnou JUCE implementaci.
+ * 
+ * @param logger Reference na Logger
+ * @return 0 pÅ™i ÃºspÄ›chu, 1 pÅ™i chybÄ›
+ */
+int demonstrateJuceIntegration(Logger& logger) {
+    logger.log("JUCEDemo", "info", "=== JUCE INTEGRATION DEMONSTRATION ===");
+    
+    try {
+        // 1. VYTVOÅ˜ENÃ VOICEMANAGER (equivalent to AudioProcessor constructor)
+        logger.log("JUCEDemo", "info", "Creating VoiceManager (AudioProcessor constructor pattern)...");
+        VoiceManager voiceManager(DEFAULT_SAMPLE_DIR, logger);
         
-        // âœ… KRITICKÃ OPRAVA: VoiceManager musÃ­ pouÅ¾Ã­vat STEJNÃ InstrumentLoader instance
-        VoiceManager voiceManager(voiceTestDir, voiceTestSampleRate, logger);
+        // 2. SAMPLE RATE A BUFFER SIZE SETUP (equivalent to prepareToPlay)
+        logger.log("JUCEDemo", "info", "Simulating AudioProcessor::prepareToPlay()...");
         
-        // âœ… SPECIÃLNÃ INICIALIZACE: PouÅ¾ij uÅ¾ naÄtenÃ½ InstrumentLoader
-        logger.log("runSampler", "info", "Initializing VoiceManager with existing InstrumentLoader...");
+        const int demoSampleRate = DEFAULT_SAMPLE_RATE;
+        const int demoBlockSize = DEFAULT_JUCE_BLOCK_SIZE;
         
-        // ManuÃ¡lnÃ­ inicializace vÅ¡ech 128 voices s uÅ¾ naÄtenÃ½m InstrumentLoader
-        for (int i = 0; i < 128; ++i) {
-            uint8_t midiNote = static_cast<uint8_t>(i);
-            const Instrument& inst = instrument.getInstrumentNote(midiNote);
-            Voice& voice = voiceManager.getVoice(midiNote);
-            voice.initialize(inst, voiceTestSampleRate, logger);
-        }
+        // Sample rate configuration
+        voiceManager.changeSampleRate(demoSampleRate, logger);
         
-        logger.log("runSampler", "info", "VoiceManager initialized with " + 
-                   std::to_string(voiceManager.getMaxVoices()) + " voices");
+        // Buffer size preparation
+        voiceManager.prepareToPlay(demoBlockSize);
+        logger.log("JUCEDemo", "info", 
+                  "Prepared for sample rate: " + std::to_string(demoSampleRate) + 
+                  " Hz, block size: " + std::to_string(demoBlockSize));
         
-        // Test 1: Single note test s ovÄ›Å™enou MIDI notou
-        uint8_t testVelocity = 100;
+        // System initialization
+        voiceManager.initializeSystem(logger);
+        voiceManager.loadAllInstruments(logger);
+        voiceManager.validateSystemIntegrity(logger);
         
-        logger.log("runSampler", "info", "Test 1: Single note playback (MIDI " + 
-                   std::to_string(testMidiNote) + ")");
+        // 3. SIMULACE ZMÄšNY BUFFER SIZE BÄšHEM RUNTIME
+        logger.log("JUCEDemo", "info", "Simulating DAW buffer size change...");
+        const int newBlockSize = 1024;
+        voiceManager.prepareToPlay(newBlockSize);
+        logger.log("JUCEDemo", "info", 
+                  "Buffer size changed to: " + std::to_string(newBlockSize));
         
-        // OvÄ›Å™enÃ­ pÅ™ed spuÅ¡tÄ›nÃ­m
-        Voice& testVoice = voiceManager.getVoice(testMidiNote);
-        logger.log("runSampler", "info", "Pre-test voice state: " + 
-                   std::to_string(static_cast<int>(testVoice.getState())));
+        // 4. SIMULACE MIDI INPUT A AUDIO PROCESSING
+        logger.log("JUCEDemo", "info", "Simulating MIDI input and audio processing...");
         
-        voiceManager.setNoteState(testMidiNote, true, testVelocity);
-        logger.log("runSampler", "info", "Active voices after note-on: " + 
-                   std::to_string(voiceManager.getActiveVoicesCount()));
+        // Allocate audio buffers (equivalent to JUCE AudioBuffer)
+        const int numSamples = demoBlockSize;
+        float* leftChannel = new float[numSamples];
+        float* rightChannel = new float[numSamples];
         
-        // Post note-on ovÄ›Å™enÃ­
-        logger.log("runSampler", "info", "Post note-on voice state: " + 
-                   std::to_string(static_cast<int>(testVoice.getState())) + 
-                   ", velocity layer: " + std::to_string(testVoice.getCurrentVelocityLayer()));
+        // Simulate MIDI note-on events
+        const uint8_t testNote1 = 60;  // C4
+        const uint8_t testNote2 = 64;  // E4
+        const uint8_t testNote3 = 67;  // G4
+        const uint8_t testVelocity = 100;
         
-        // Simulace nÄ›kolika audio blokÅ¯
-        const int blockSize = 512;
-        const int numBlocks = 5;
+        logger.log("JUCEDemo", "info", "Sending MIDI note-on events (C major chord)...");
+        voiceManager.setNoteState(testNote1, true, testVelocity);
+        voiceManager.setNoteState(testNote2, true, testVelocity);
+        voiceManager.setNoteState(testNote3, true, testVelocity);
         
+        logger.log("JUCEDemo", "info", 
+                  "Active voices after chord: " + std::to_string(voiceManager.getActiveVoicesCount()));
+        
+        // Process several audio blocks
+        const int numBlocks = 10;
         for (int block = 0; block < numBlocks; ++block) {
-            // Alokace test bufferÅ¯
-            float* leftBuffer = new float[blockSize];
-            float* rightBuffer = new float[blockSize];
-            
-            bool hasAudio = voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+            // Process audio block (equivalent to processBlock in JUCE)
+            bool hasAudio = voiceManager.processBlock(leftChannel, rightChannel, numSamples);
             
             if (hasAudio) {
-                // AnalÃ½za vÃ½stupnÃ­ho audio (kontrola, Å¾e nenÃ­ ticho)
-                float maxL = 0.0f, maxR = 0.0f;
-                for (int i = 0; i < blockSize; ++i) {
-                    maxL = std::max(maxL, std::abs(leftBuffer[i]));
-                    maxR = std::max(maxR, std::abs(rightBuffer[i]));
+                // Calculate peak levels for monitoring
+                float peakL = 0.0f, peakR = 0.0f;
+                for (int i = 0; i < numSamples; ++i) {
+                    peakL = std::max(peakL, std::abs(leftChannel[i]));
+                    peakR = std::max(peakR, std::abs(rightChannel[i]));
                 }
                 
-                logger.log("runSampler", "info", "Block " + std::to_string(block) + 
-                           " - Peak L: " + std::to_string(maxL) + 
-                           ", Peak R: " + std::to_string(maxR));
+                logger.log("JUCEDemo", "info", 
+                          "Block " + std::to_string(block) + " - Peak L: " + 
+                          std::to_string(peakL) + ", Peak R: " + std::to_string(peakR));
             } else {
-                logger.log("runSampler", "info", "Block " + std::to_string(block) + " - Silent");
-            }
-            
-            delete[] leftBuffer;
-            delete[] rightBuffer;
-        }
-        
-        voiceManager.setNoteState(testMidiNote, false, 0);
-        logger.log("runSampler", "info", "Note-off sent for MIDI " + std::to_string(testMidiNote));
-        
-        // Test release - nÄ›kolik dalÅ¡Ã­ch blokÅ¯
-        logger.log("runSampler", "info", "Testing release phase...");
-        for (int block = 0; block < 3; ++block) {
-            float* leftBuffer = new float[blockSize];
-            float* rightBuffer = new float[blockSize];
-            
-            bool hasAudio = voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
-            
-            if (hasAudio) {
-                float maxL = 0.0f, maxR = 0.0f;
-                for (int i = 0; i < blockSize; ++i) {
-                    maxL = std::max(maxL, std::abs(leftBuffer[i]));
-                    maxR = std::max(maxR, std::abs(rightBuffer[i]));
-                }
-                
-                logger.log("runSampler", "info", "Release block " + std::to_string(block) + 
-                           " - Peak L: " + std::to_string(maxL) + 
-                           ", Peak R: " + std::to_string(maxR) + 
-                           " (should decrease)");
-            }
-            
-            delete[] leftBuffer;
-            delete[] rightBuffer;
-        }
-        
-        // Test 2: Polyphony test s ovÄ›Å™enÃ½mi notami
-        logger.log("runSampler", "info", "Test 2: Polyphony test");
-        
-        std::vector<uint8_t> testNotes;
-        
-        // Najdi 3 noty, kterÃ© majÃ­ samples
-        for (int midi = 50; midi <= 80 && testNotes.size() < 3; ++midi) {
-            Instrument& checkInst = instrument.getInstrumentNote(midi);
-            for (int vel = 0; vel < 8; ++vel) {
-                if (checkInst.velocityExists[vel]) {
-                    testNotes.push_back(static_cast<uint8_t>(midi));
-                    logger.log("runSampler", "info", "Using MIDI " + std::to_string(midi) + " for polyphony test");
-                    break;
-                }
+                logger.log("JUCEDemo", "info", "Block " + std::to_string(block) + " - Silent");
             }
         }
         
-        if (testNotes.size() >= 3) {
-            // Note-on pro vÅ¡echny noty
-            for (uint8_t note : testNotes) {
-                voiceManager.setNoteState(note, true, testVelocity);
+        // Simulate MIDI note-off events
+        logger.log("JUCEDemo", "info", "Sending MIDI note-off events...");
+        voiceManager.setNoteState(testNote1, false, 0);
+        voiceManager.setNoteState(testNote2, false, 0);
+        voiceManager.setNoteState(testNote3, false, 0);
+        
+        // Process release phase
+        logger.log("JUCEDemo", "info", "Processing release phase...");
+        for (int block = 0; block < 5; ++block) {
+            bool hasAudio = voiceManager.processBlock(leftChannel, rightChannel, numSamples);
+            if (!hasAudio) {
+                logger.log("JUCEDemo", "info", "All voices finished releasing at block " + std::to_string(block));
+                break;
             }
-            
-            logger.log("runSampler", "info", "Active voices after chord: " + 
-                       std::to_string(voiceManager.getActiveVoicesCount()) + 
-                       " (sustaining: " + std::to_string(voiceManager.getSustainingVoicesCount()) + ")");
-            
-            // Jeden blok polyphonic audio
-            float* leftBuffer = new float[blockSize];
-            float* rightBuffer = new float[blockSize];
-            
-            if (voiceManager.processBlock(leftBuffer, rightBuffer, blockSize)) {
-                float maxL = 0.0f, maxR = 0.0f;
-                for (int i = 0; i < blockSize; ++i) {
-                    maxL = std::max(maxL, std::abs(leftBuffer[i]));
-                    maxR = std::max(maxR, std::abs(rightBuffer[i]));
-                }
-                
-                logger.log("runSampler", "info", "Polyphonic audio - Peak L: " + 
-                           std::to_string(maxL) + ", Peak R: " + std::to_string(maxR));
-            } else {
-                logger.log("runSampler", "warn", "Polyphonic test produced silence");
-            }
-            
-            delete[] leftBuffer;
-            delete[] rightBuffer;
-        } else {
-            logger.log("runSampler", "warn", "Not enough samples for polyphony test");
         }
-        
-        voiceManager.stopAllVoices();
-        logger.log("runSampler", "info", "All voices stopped. Active count: " + 
-                   std::to_string(voiceManager.getActiveVoicesCount()) + 
-                   " (releasing: " + std::to_string(voiceManager.getReleasingVoicesCount()) + ")");
-        
-        // Test 3: Edge cases
-        logger.log("runSampler", "info", "Test 3: Edge cases");
-        
-        voiceManager.setNoteState(static_cast<uint8_t>(200), true, 100);  // Invalid MIDI
-        voiceManager.setNoteState(60, true, 0);
-        voiceManager.setNoteState(61, true, 127);
-        
-        logger.log("runSampler", "info", "Active voices after edge case tests: " + 
-                   std::to_string(voiceManager.getActiveVoicesCount()));
-        
-        // Test 4: Individual voice access
-        logger.log("runSampler", "info", "Test 4: Individual voice access and state monitoring");
-        
-        Voice& finalTestVoice = voiceManager.getVoice(testMidiNote);
-        logger.log("runSampler", "info", "Voice " + std::to_string(testMidiNote) + " state: " + 
-                   std::to_string(static_cast<int>(finalTestVoice.getState())) + 
-                   ", position: " + std::to_string(finalTestVoice.getPosition()) + 
-                   ", gain: " + std::to_string(finalTestVoice.getCurrentGain()));
         
         // Cleanup
-        voiceManager.resetAllVoices(logger);
+        delete[] leftChannel;
+        delete[] rightChannel;
         
-        logger.log("runSampler", "info", "Voice Management system tests completed successfully");
+        // 5. FINAL STATISTICS
+        voiceManager.logSystemStatistics(logger);
+        
+        logger.log("JUCEDemo", "info", "=== JUCE INTEGRATION DEMO COMPLETED ===");
+        logger.log("JUCEDemo", "info", "Pattern ready for real JUCE AudioProcessor implementation");
+        
+        return 0;
         
     } catch (const std::exception& e) {
-        logger.log("runSampler", "error", "Exception in Voice Management tests: " + std::string(e.what()));
+        logger.log("JUCEDemo", "error", 
+                  "Error in JUCE demo: " + std::string(e.what()));
         return 1;
     } catch (...) {
-        logger.log("runSampler", "error", "Unknown exception in Voice Management tests");
+        logger.log("JUCEDemo", "error", "Unknown error in JUCE demo");
         return 1;
     }
-    /* ======= KONEC Voice Management testÅ¯ ====== */
-
-    /* ======= TESTY: PÅ™Ã­stup k instrumentu a export ====== */
-    try {
-        uint8_t testMidi = 108;
-        uint8_t testVel = 5;
-        
-        // Krok 3: Test pÅ™Ã­stupu k jednomu instrumentu
-        Instrument& instrument_note = instrument.getInstrumentNote(testMidi);
-        if (instrument_note.velocityExists[testVel]) {
-            logger.log("runSampler", "info", "Test access OK: MIDI " + std::to_string(testMidi) + "/vel " + std::to_string(testVel) + 
-                       " exists. Frames: " + std::to_string(instrument_note.get_frame_count(testVel)) + 
-                       ", Total samples: " + std::to_string(instrument_note.get_total_sample_count(testVel)) + 
-                       ", Originally mono: " + (instrument_note.get_was_originally_mono(testVel) ? "yes" : "no"));
-
-            // Export test
-            std::string exportDir = "./exports";
-            std::string exportFilename = "export_test.wav";
-            sf_count_t framesPerBuffer = 512;
-            bool isStereo = true;
-            bool realWrite = true;
-            
-            logger.log("runSampler", "info", "Starting WAV export test for verification");
-            WavExporter exporter(exportDir, logger);
-
-            float* exportBuffer = exporter.wavFileCreate(exportFilename, targetSampleRate, static_cast<int>(framesPerBuffer), isStereo, realWrite);
-            if (exportBuffer) {
-                sf_count_t totalFrames = instrument_note.get_frame_count(testVel);
-                sf_count_t remainingFrames = totalFrames;
-                float* sourceData = instrument_note.get_sample_begin_pointer(testVel);
-
-                while (remainingFrames > 0) {
-                    sf_count_t thisBufferFrames = std::min(framesPerBuffer, remainingFrames);
-                    size_t offset = (totalFrames - remainingFrames) * 2;
-                    
-                    for (sf_count_t i = 0; i < thisBufferFrames * 2; ++i) {
-                        exportBuffer[i] = sourceData[offset + i];
-                    }
-
-                    if (!exporter.wavFileWriteBuffer(exportBuffer, static_cast<int>(thisBufferFrames))) {
-                        logger.log("runSampler", "error", "Export write failed");
-                        return 1;
-                    }
-                    
-                    remainingFrames -= thisBufferFrames;
-                }
-
-                logger.log("runSampler", "info", "WAV export completed: " + exportFilename + " in " + exportDir + 
-                           ". Listen to verify mono->stereo conversion and data integrity (format: Pcm16).");
-            } else {
-                logger.log("runSampler", "error", "Failed to create export buffer");
-                return 1;
-            }
-        } else {
-            logger.log("runSampler", "warn", "Test sample MIDI " + std::to_string(testMidi) + "/vel " + std::to_string(testVel) + " not found");
-        }
-    } catch (const std::exception& e) {
-        logger.log("runSampler", "error", "Exception in tests: " + std::string(e.what()));
-        return 1;
-    } catch (...) {
-        logger.log("runSampler", "error", "Unknown exception in tests");
-        return 1;
-    }
-
-    /* ======= ZÃ¡vÄ›reÄnÃ© statistiky ====== */
-    logger.log("runSampler", "info", "Total loaded samples: " + std::to_string(instrument.getTotalLoadedSamples()));
-    logger.log("runSampler", "info", "Mono originally: " + std::to_string(instrument.getMonoSamplesCount()) + 
-               ", Stereo originally: " + std::to_string(instrument.getStereoSamplesCount()));
-
-    logger.log("runSampler", "info", "Sampler workflow completed successfully");
-    return 0;
 }
+
+/**
+ * @brief POMOCNÃ FUNKCE: Sample JUCE AudioProcessor integration code
+ * 
+ * Tento kÃ³d ukazuje, jak by vypadala skuteÄnÃ¡ integrace do JUCE AudioProcessor.
+ * KopÃ­rujte tento pattern do vaÅ¡eho AudioProcessor potomka.
+ */
+
+/*
+// SAMPLE JUCE AUDIOPROCESSOR INTEGRATION:
+
+class YourSamplerAudioProcessor : public juce::AudioProcessor {
+public:
+    YourSamplerAudioProcessor() 
+        : voiceManager_(DEFAULT_SAMPLE_DIR, logger_) {
+        // VoiceManager se vytvoÅ™Ã­ s cestou k samples
+    }
+
+    void prepareToPlay(double sampleRate, int samplesPerBlock) override {
+        // 1. Configure sample rate
+        voiceManager_.changeSampleRate(static_cast<int>(sampleRate), logger_);
+        
+        // 2. KRITICKÃ‰: Prepare for buffer size
+        voiceManager_.prepareToPlay(samplesPerBlock);
+        
+        // 3. Initialize system if not done yet
+        if (!systemInitialized_) {
+            voiceManager_.initializeSystem(logger_);
+            voiceManager_.loadAllInstruments(logger_);
+            voiceManager_.validateSystemIntegrity(logger_);
+            systemInitialized_ = true;
+        }
+        
+        // 4. Log preparation
+        logger_.log("AudioProcessor", "info", 
+                   "Prepared for " + std::to_string(sampleRate) + " Hz, " + 
+                   std::to_string(samplesPerBlock) + " samples per block");
+    }
+
+    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) override {
+        const int numSamples = buffer.getNumSamples();
+        
+        // 1. Handle MIDI events
+        for (const auto metadata : midiMessages) {
+            const auto msg = metadata.getMessage();
+            if (msg.isNoteOn()) {
+                voiceManager_.setNoteState(msg.getNoteNumber(), true, msg.getVelocity());
+            } else if (msg.isNoteOff()) {
+                voiceManager_.setNoteState(msg.getNoteNumber(), false, 0);
+            }
+        }
+        
+        // 2. Process audio - get pointers to JUCE buffer channels
+        float* leftChannel = buffer.getWritePointer(0);
+        float* rightChannel = buffer.getNumChannels() > 1 ? 
+                             buffer.getWritePointer(1) : leftChannel;
+        
+        // 3. KRITICKÃ‰: VoiceManager processBlock handles buffer clearing and mixing
+        voiceManager_.processBlock(leftChannel, rightChannel, numSamples);
+    }
+
+    void releaseResources() override {
+        voiceManager_.stopAllVoices();
+        voiceManager_.resetAllVoices(logger_);
+    }
+
+private:
+    VoiceManager voiceManager_;
+    Logger logger_;
+    bool systemInitialized_ = false;
+};
+
+*/
 
 
 ===== File: sampler.h =====
 Path: C:\Users\jindr\IthacaCore\sampler\sampler.h
 =====
-#ifndef SAMPLER_H       // Include guard pro prevenci duplicitnÃ­ho includu
+#ifndef SAMPLER_H
 #define SAMPLER_H
 
-#include <cstdint>      // Pro uint8_t a size_t
-#include <cstddef>      // Pro size_t (pokud nenÃ­ v cstdint)
-#include <string>       // Pro std::string
-#include <vector>       // Pro std::vector
-#include <sndfile.h>    // Pro sf_count_t typ
+#include <cstdint>
+#include <cstddef>
+#include <string>
+#include <vector>
+#include <sndfile.h>
 
-#include "core_logger.h"  // Pro Logger (pro pÅ™edÃ¡nÃ­ reference)
+#include "core_logger.h"
 
-// Struktura pro metadata o samplu (naÄtenÃ¡ z WAV souboru a nÃ¡zvu)
-// UchovÃ¡vÃ¡ zÃ¡kladnÃ­ informace pro vyhledÃ¡vÃ¡nÃ­ a sprÃ¡vu sample
+// Configuration constants pro VoiceManager
+//#define DEFAULT_SAMPLE_DIR R"(C:\Users\nemej992\AppData\Roaming\IthacaPlayer\instrument)"
+#define DEFAULT_SAMPLE_DIR R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)"
+// #define ALTERNATIVE_SAMPLE_DIR R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)"
+
+#define DEFAULT_SAMPLE_RATE 44100
+#define ALTERNATIVE_SAMPLE_RATE 48000
+
+// Test configuration constants
+#define TEST_MIDI_NOTE 108
+#define TEST_VELOCITY 5
+#define TEST_VELOCITY_FULL 100
+#define EXPORT_DIR "./exports"
+#define EXPORT_FILENAME "export_test.wav"
+#define EXPORT_FRAMES_PER_BUFFER 512
+#define AUDIO_BLOCK_SIZE 512
+#define POLYPHONY_TEST_NOTES 3
+
+// Voice testing constants
+#define VOICE_TEST_BLOCKS 5
+#define VOICE_RELEASE_BLOCKS 3
+#define MIDI_NOTE_SEARCH_START 50
+#define MIDI_NOTE_SEARCH_END 80
+
+// JUCE integration constants
+#define DEFAULT_JUCE_BLOCK_SIZE 512
+#define MAX_JUCE_BLOCK_SIZE 2048
+
+/**
+ * @struct SampleInfo
+ * @brief Metadata pro jeden audio sample soubor
+ * Obsahuje vÅ¡echny potÅ™ebnÃ© informace pro naÄtenÃ­ a zpracovÃ¡nÃ­ samples
+ */
 struct SampleInfo {
-    char filename[256];             // CelÃ© jmÃ©no souboru (vÄetnÄ› cesty, max 256 znakÅ¯)
-    uint8_t midi_note;              // MIDI nota (z nÃ¡zvu, rozsah 0-127, ale podporuje aÅ¾ 999)
-    uint8_t midi_note_velocity;     // Velocity (z nÃ¡zvu, rozsah 0-7)
-    int frequency;                  // Frekvence samplu (naÄtenÃ¡ z WAV souboru, musÃ­ odpovÃ­dat nÃ¡zvu)
-    sf_count_t sample_count;        // CelkovÃ½ poÄet vzorkÅ¯ (frames)
+    char filename[256];              // PlnÃ¡ cesta k souboru
+    uint8_t midi_note;              // MIDI nota (0-127)
+    uint8_t midi_note_velocity;     // Velocity layer (0-7)
+    int frequency;                  // Sample rate v Hz
+    sf_count_t sample_count;        // PoÄet frames (stereo pairs)
     double duration_seconds;        // DÃ©lka v sekundÃ¡ch
-    int channels;                   // PoÄet kanÃ¡lÅ¯ (1=mono, 2=stereo, atd.)
-    bool is_stereo;                 // True pokud stereo (channels >= 2)
-    bool interleaved_format;        // True pokud je WAV v interleaved formÃ¡tu (standard)
-    bool needs_conversion;          // True pokud potÅ™ebuje konverzi do float (16-bit PCM -> float)
+    int channels;                   // PoÄet kanÃ¡lÅ¯ (1 = mono, 2 = stereo)
+    bool is_stereo;                // True pokud channels >= 2
+    bool interleaved_format;        // True pro interleaved stereo (standard)
+    bool needs_conversion;          // True pokud potÅ™ebuje konverzi do float
 };
 
-// HlavnÃ­ tÅ™Ã­da pro IO operace se WAV samplami
-// Centralizuje naÄÃ­tÃ¡nÃ­ metadat z adresÃ¡Å™e pomocÃ­ libsndfile a vyhledÃ¡vÃ¡nÃ­
+/**
+ * @class SamplerIO
+ * @brief TÅ™Ã­da pro skenovÃ¡nÃ­ a metadata management audio samples
+ * 
+ * LOCKED CLASS - nemÄ›nit implementaci!
+ * Poskytuje rozhranÃ­ pro naÄtenÃ­ metadat ze sample adresÃ¡Å™e
+ * a vyhledÃ¡vÃ¡nÃ­ samples podle MIDI noty, velocity a sample rate.
+ */
 class SamplerIO {
 public:
-    // Konstruktor: Inicializuje prÃ¡zdnÃ½ seznam sample
     SamplerIO();
-
-    // Destruktor: Loguje ukonÄenÃ­ instance
     ~SamplerIO();
 
-    // Metoda pro prohledÃ¡nÃ­ adresÃ¡Å™e s WAV soubory a naplnÄ›nÃ­ seznamu metadat
-    // Vstup: Cesta k adresÃ¡Å™i (string), reference na Logger pro logovÃ¡nÃ­
-    // ChovÃ¡nÃ­: ProchÃ¡zÃ­ adresÃ¡Å™, parsuje nÃ¡zvy podle patternu mXXX-velY-fZZ.wav,
-    // naÄte freq z WAV headeru pomocÃ­ libsndfile; loguje info/warn/error
-    // Detekuje interleaved formÃ¡t a potÅ™ebu konverze do float
-    // Validace konzistence: Kontroluje, zda frekvence v nÃ¡zvu odpovÃ­dÃ¡ frekvenci v souboru
-    // PÅ™i chybÄ› (napÅ™. neexistujÃ­cÃ­ adresÃ¡Å™, nekonzistentnÃ­ frekvence): Zaloguje error a volÃ¡ std::exit(1)
+    /**
+     * @brief ProhledÃ¡ adresÃ¡Å™ s WAV soubory a naplnÃ­ seznam metadat
+     * @param directoryPath Cesta k adresÃ¡Å™i se samples
+     * @param logger Reference na logger pro zaznamenÃ¡vÃ¡nÃ­
+     */
     void scanSampleDirectory(const std::string& directoryPath, Logger& logger);
 
-    // Metoda pro vyhledÃ¡nÃ­ indexu sample v internÃ­m seznamu podle MIDI noty, velocity a poÅ¾adovanÃ© frekvence vzorkovÃ¡nÃ­
-    // Vstup: uint8_t midi_note, uint8_t velocity, int sampleRate (frekvence v Hz, napÅ™. 44100)
-    // VÃ½stup: Index v seznamu (int, -1 pokud nenalezeno)
-    // ChovÃ¡nÃ­: LineÃ¡rnÃ­ prohledÃ¡vÃ¡nÃ­, vracÃ­ prvnÃ­ shodu kde odpovÃ­dajÃ­ vÅ¡echny tÅ™i kritÃ©ria (MIDI + velocity + frequency == sampleRate)
+    /**
+     * @brief VyhledÃ¡ index sample v internÃ­m seznamu podle MIDI noty, velocity a poÅ¾adovanÃ© frekvence vzorkovÃ¡nÃ­
+     * @param midi_note MIDI nota (0-127)
+     * @param velocity Velocity (0-7)
+     * @param sampleRate PoÅ¾adovanÃ¡ frekvence vzorkovÃ¡nÃ­ v Hz (napÅ™. 44100)
+     * @return Index v seznamu nebo -1 pokud nenalezeno
+     */
     int findSampleInSampleList(uint8_t midi_note, uint8_t velocity, int sampleRate) const;
 
-    // Getter pro pÅ™Ã­stup k naÄtenÃ©mu seznamu (volitelnÃ½)
-    // VrÃ¡tÃ­ konstantnÃ­ referenci na vektor SampleInfo pro ÄtenÃ­ dat
+    /**
+     * @brief Getter pro pÅ™Ã­stup k naÄtenÃ©mu seznamu samples
+     * @return KonstantnÃ­ reference na vektor SampleInfo
+     */
     const std::vector<SampleInfo>& getLoadedSampleList() const;
 
-    // Gettery pro pÅ™Ã­stup k metadatÅ¯m na zÃ¡kladÄ› indexu
-    // Tyto metody kontrolujÃ­ platnost indexu; pÅ™i neplatnÃ©m: logujÃ­ error a exit(1)
-    // Vstup: int index (musÃ­ bÃ½t >=0 a < velikost seznamu)
-    // VÃ½stup: Hodnota z SampleInfo na danÃ©m indexu
-
-    // Getter pro nÃ¡zev souboru (cesta vÄetnÄ›)
+    // Gettery pro pÅ™Ã­stup k metadatÅ¯m na konkrÃ©tnÃ­m indexu
     const char* getFilename(int index, Logger& logger) const;
-
-    // Getter pro MIDI notu
     uint8_t getMidiNote(int index, Logger& logger) const;
-
-    // Getter pro velocity MIDI noty
     uint8_t getMidiNoteVelocity(int index, Logger& logger) const;
-
-    // Getter pro frekvenci samplu (Hz)
     int getFrequency(int index, Logger& logger) const;
-
-    // RozÅ¡Ã­Å™enÃ© gettery pro metadata
-    
-    // Getter pro poÄet vzorkÅ¯ (frames)
     sf_count_t getSampleCount(int index, Logger& logger) const;
-
-    // Getter pro dÃ©lku v sekundÃ¡ch
     double getDurationInSeconds(int index, Logger& logger) const;
-
-    // Getter pro poÄet kanÃ¡lÅ¯
     int getChannelCount(int index, Logger& logger) const;
-
-    // Getter pro stereo flag (true pokud channels >= 2)
     bool getIsStereo(int index, Logger& logger) const;
-
-    // Getter pro interleaved formÃ¡t flag
     bool getIsInterleavedFormat(int index, Logger& logger) const;
-
-    // Getter pro potÅ™ebu konverze do float
     bool getNeedsConversion(int index, Logger& logger) const;
 
 private:
-    std::vector<SampleInfo> sampleList;  // InternÃ­ seznam naÄtenÃ½ch sample
-
-    // PomocnÃ© metody pro detekci formÃ¡tu
+    std::vector<SampleInfo> sampleList;
     
-    // Detekce, zda je WAV v interleaved formÃ¡tu (pro standardnÃ­ WAV vÅ¾dy true)
-    // Parametry: cesta k souboru, reference na logger
-    // VrÃ¡cÃ­: true pokud interleaved, false jinak (vzÃ¡cnÃ© pÅ™Ã­pady)
-    // PÅ™i chybÄ›: loguje error a volÃ¡ std::exit(1)
+    // Private helper methods
     bool detectInterleavedFormat(const char* filename, Logger& logger) const;
-
-    // Detekce subformÃ¡tu a potÅ™eby konverze do float
-    // Parametry: cesta k souboru, reference na logger  
-    // VrÃ¡cÃ­: true pokud 16-bit PCM (potÅ™ebuje konverzi), false pokud jiÅ¾ float
-    // PÅ™i chybÄ› nebo nepodporovanÃ©m formÃ¡tu: loguje error a volÃ¡ std::exit(1)
     bool detectFloatConversionNeed(const char* filename, Logger& logger) const;
 };
 
-// Deklarace funkce pro Å™Ã­zenÃ­ sampleru
-// VolÃ¡na z main.cpp; obsahuje logiku naÄÃ­tÃ¡nÃ­ a vyhledÃ¡vÃ¡nÃ­ s loggerem
-// @param logger Reference na Logger pro logovÃ¡nÃ­
-// @return 0 pÅ™i ÃºspÄ›chu, 1 pÅ™i chybÄ› (chyby jsou Å™eÅ¡eny ukonÄenÃ­m programu)
+/**
+ * @brief REFAKTOROVANÃ: runSampler jako thin wrapper pro VoiceManager testing
+ * 
+ * Nahrazuje pÅ¯vodnÃ­ monolitickou runSampler funkci.
+ * NynÃ­ vytvoÅ™Ã­ VoiceManager a spustÃ­ kompletnÃ­ test pipeline:
+ * 1. Sample rate setup
+ * 2. System initialization 
+ * 3. Instrument loading
+ * 4. Validation
+ * 5. Granular testing
+ * 6. Statistics
+ * 
+ * @param logger Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­
+ * @return 0 pÅ™i ÃºspÄ›chu, 1 pÅ™i chybÄ›
+ */
 int runSampler(Logger& logger);
 
-#endif  // SAMPLER_H
+/**
+ * @brief NOVÃ‰: JUCE integration helper pro AudioProcessor
+ * 
+ * UkÃ¡zkovÃ½ pattern pro integraci VoiceManager do JUCE AudioProcessor.
+ * Ukazuje sprÃ¡vnÃ© volÃ¡nÃ­ prepareToPlay() a processBlock() metod.
+ * 
+ * @param logger Reference na Logger
+ * @return 0 pÅ™i ÃºspÄ›chu, 1 pÅ™i chybÄ›
+ */
+int demonstrateJuceIntegration(Logger& logger);
+
+#endif // SAMPLER_H
 
 
 ===== File: sampler_io.cpp =====
@@ -1737,7 +1941,7 @@ bool SamplerIO::detectInterleavedFormat(const char* filename, Logger& logger) co
 }
 
 /**
- * @brief NOVÃ POMOCNÃ METODA: Detekce subformÃ¡tu a potÅ™eby konverze do float
+ * @brief Metoda pro detekci subformÃ¡tu a potÅ™eby konverze do float
  * @param filename Cesta k souboru
  * @param logger Reference na logger pro zaznamenÃ¡vÃ¡nÃ­
  * @return true pokud 16-bit PCM (potÅ™ebuje konverzi), false pokud jiÅ¾ float
@@ -1801,8 +2005,8 @@ bool SamplerIO::detectFloatConversionNeed(const char* filename, Logger& logger) 
 }
 
 /**
- * @brief ProhledÃ¡ adresÃ¡Å™ s WAV soubory a naplnÃ­ seznam metadat (pÅ™ejmenovÃ¡no z loadSamples)
- * ROZÅ ÃÅ˜ENO: NynÃ­ takÃ© detekuje interleaved formÃ¡t a potÅ™ebu konverze
+ * @brief ProhledÃ¡ adresÃ¡Å™ s WAV soubory a naplnÃ­ seznam metadat
+ * @brief TakÃ© detekuje interleaved formÃ¡t a potÅ™ebu konverze
  * @param directoryPath Cesta k adresÃ¡Å™i se samples
  * @param logger Reference na logger pro zaznamenÃ¡vÃ¡nÃ­
  */
@@ -2135,7 +2339,8 @@ std::atomic<bool> Voice::rtMode_{false};
 // Default konstruktor
 Voice::Voice() : midiNote_(0), instrument_(nullptr), sampleRate_(0),
                  state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
-                 gain_(0.0f), releaseStartPosition_(0), releaseSamples_(0) {
+                 envelope_gain_(0.0f), voice_gain_(1.0f), 
+                 releaseStartPosition_(0), releaseSamples_(0) {
     // Å½Ã¡dnÃ¡ akce - ÄekÃ¡ na initialize pro plnou inicializaci
 }
 
@@ -2143,7 +2348,8 @@ Voice::Voice() : midiNote_(0), instrument_(nullptr), sampleRate_(0),
 Voice::Voice(uint8_t midiNote)
     : midiNote_(midiNote), instrument_(nullptr), sampleRate_(0),
       state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
-      gain_(0.0f), releaseStartPosition_(0), releaseSamples_(0) {
+      envelope_gain_(0.0f), voice_gain_(1.0f),
+      releaseStartPosition_(0), releaseSamples_(0) {
     // Logger se pÅ™edÃ¡ pÅ™i initialize
 }
 
@@ -2167,14 +2373,37 @@ void Voice::initialize(const Instrument& instrument, int sampleRate, Logger& log
     state_ = VoiceState::Idle;
     position_ = 0;
     currentVelocityLayer_ = 0;
-    gain_ = 0.0f;
+    envelope_gain_ = 0.0f;
+    voice_gain_ = 1.0f;
     releaseStartPosition_ = 0;
     
     calculateReleaseSamples();  // RT-safe calculation
     
+    // Initialize gain buffer with reasonable default size
+    // Will be properly sized by prepareToPlay()
+    gainBuffer_.reserve(512);
+    
     logSafe("Voice/initialize", "info", 
            "Voice initialized for MIDI " + std::to_string(midiNote_) + 
            " with sampleRate " + std::to_string(sampleRate_), logger);
+}
+
+/**
+ * @brief NON-RT SAFE: Updates internal buffer size for DAW block size changes
+ * Must be called from audio thread during buffer size changes, NOT during processing
+ */
+void Voice::prepareToPlay(int maxBlockSize) noexcept {
+    // NON-RT SAFE: This method should be called from audio thread during setup/buffer size changes
+    // Never call during active audio processing
+    
+    if (maxBlockSize > 0 && gainBuffer_.size() < static_cast<size_t>(maxBlockSize)) {
+        try {
+            gainBuffer_.resize(maxBlockSize);
+        } catch (...) {
+            // In case of allocation failure, keep old buffer
+            // This is better than crashing, though not ideal
+        }
+    }
 }
 
 /**
@@ -2184,7 +2413,8 @@ void Voice::initialize(const Instrument& instrument, int sampleRate, Logger& log
 void Voice::cleanup(Logger& logger) {
     state_ = VoiceState::Idle;
     position_ = 0;
-    gain_ = 0.0f;
+    envelope_gain_ = 0.0f;
+    voice_gain_ = 0.3f;  // SNÃÅ½ENÃ GAIN PRO KONTROLU HLASITOSTI
     releaseStartPosition_ = 0;
     
     logSafe("Voice/cleanup", "info", 
@@ -2215,28 +2445,76 @@ void Voice::setNoteState(bool isOn, uint8_t velocity) noexcept {
     currentVelocityLayer_ = std::min(static_cast<uint8_t>(velocity / 16), static_cast<uint8_t>(7));
     
     if (isOn) {
-        // Start note: Attack (zde okamÅ¾itÃ½) -> Sustain
+        // Start note: Set voice gain based on velocity and start sustain
+        updateVoiceGainFromVelocity(velocity);
         state_ = VoiceState::Sustaining;
         position_ = 0;  // ZaÄÃ¡tek sample
-        gain_ = 1.0f;   // PlnÃ½ gain
-        
-        // RT-safe: conditional logging pouze pokud nenÃ­ RT mode
-        // Logging je expensive, takÅ¾e skip v RT contextu
+        envelope_gain_ = 1.0f;  // PlnÃ½ envelope gain pro sustain
         
     } else {
         // Stop note: PÅ™ejdi do release, pokud byl aktivnÃ­
         if (state_ == VoiceState::Sustaining || state_ == VoiceState::Attacking) {
             state_ = VoiceState::Releasing;
             releaseStartPosition_ = position_;  // UloÅ¾it aktuÃ¡lnÃ­ pozici pro Ãºtlum
-            
-            // RT-safe: Å¾Ã¡dnÃ© logging v RT mÃ³du
+            // envelope_gain_ will be calculated dynamically in calculateBlockGains
         }
     }
 }
 
 /**
+ * @brief RT-SAFE: Pre-calculates envelope gains for entire block
+ */
+bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
+    if (state_ == VoiceState::Idle || !gainBuffer || numSamples <= 0) {
+        return false;
+    }
+    
+    switch (state_) {
+        case VoiceState::Sustaining:
+        case VoiceState::Attacking: {
+            // Constant gain for sustain/attack
+            const float constantGain = envelope_gain_;
+            for (int i = 0; i < numSamples; ++i) {
+                gainBuffer[i] = constantGain;
+            }
+            return true;
+        }
+        
+        case VoiceState::Releasing: {
+            // Linear release fade
+            constexpr float targetGain = 0.001f;
+            constexpr float estimatedStartGain = 1.0f;
+            
+            const sf_count_t releaseElapsed = position_ - releaseStartPosition_;
+            
+            for (int i = 0; i < numSamples; ++i) {
+                const float elapsedLocal = static_cast<float>(releaseElapsed + i);
+                
+                if (releaseSamples_ <= 0 || elapsedLocal >= static_cast<float>(releaseSamples_)) {
+                    gainBuffer[i] = targetGain;
+                } else {
+                    const float progress = elapsedLocal / static_cast<float>(releaseSamples_);
+                    gainBuffer[i] = estimatedStartGain * (1.0f - progress) + targetGain * progress;
+                    gainBuffer[i] = std::max(gainBuffer[i], targetGain);
+                    gainBuffer[i] = std::min(gainBuffer[i], estimatedStartGain);
+                }
+            }
+            
+            // Update envelope_gain_ to last calculated value for getter consistency
+            envelope_gain_ = gainBuffer[numSamples - 1];
+            
+            // Check if release is complete
+            return envelope_gain_ > targetGain * 1.1f;
+        }
+        
+        default:
+            return false;
+    }
+}
+
+/**
  * @brief RT-SAFE: Posune pozici ve sample o 1 frame (pro non-real-time processing).
- * OPTIMALIZOVÃNO: EliminovÃ¡ny expensive function calls, inline gain update.
+ * OPTIMALIZOVÃNO: EliminovÃ¡ny expensive function calls.
  */
 void Voice::advancePosition() noexcept {
     if (state_ == VoiceState::Idle || !instrument_) {
@@ -2248,10 +2526,8 @@ void Voice::advancePosition() noexcept {
         ++position_;  // Posun o 1 frame (stereo pÃ¡r L,R)
     }
     
-    // OptimalizovanÃ½ release processing
-    if (state_ == VoiceState::Releasing) {
-        updateReleaseGain();  // RT-safe batch update
-    }
+    // Release processing se nynÃ­ Å™eÅ¡Ã­ jen v processRelease()
+    // - Å¾Ã¡dnÃ© gain updates zde
 }
 
 /**
@@ -2267,26 +2543,26 @@ bool Voice::getCurrentAudioData(AudioData& data) const noexcept {
     const float* stereoPtr = instrument_->get_sample_begin_pointer(currentVelocityLayer_);
     if (!stereoPtr) return false;
     
-    // OPTIMALIZOVÃNO: Inline gain application - Å¾Ã¡dnÃ½ function call overhead
+    // Apply both envelope and voice gains
+    const float finalGain = envelope_gain_ * voice_gain_;
     const sf_count_t idx = position_ * 2;
-    data.left = stereoPtr[idx] * gain_;      // Direct inline mÃ­sto applyEnvelope()
-    data.right = stereoPtr[idx + 1] * gain_; // Direct inline mÃ­sto applyEnvelope()
+    data.left = stereoPtr[idx] * finalGain;
+    data.right = stereoPtr[idx + 1] * finalGain;
     
     return true;
 }
 
 /**
- * @brief RT-SAFE HLAVNÃ METODA: Zpracuje audio blok s explicitnÃ­mi stereo buffery.
+ * @brief RT-SAFE HLAVNÃ METODA: Zpracuje audio blok s centralizovanou aplikacÃ­ gain.
  * 
- * KOMPLETNÄš REFAKTOROVÃNO PRO RT-PERFORMANCE:
- * - Batch processing mÃ­sto sample-by-sample
- * - EliminovÃ¡ny redundantnÃ­ kontroly v loops
- * - Cache-friendly memory access patterns  
- * - Specialized processing paths
- * - Å½Ã¡dnÃ© string operations ani memory allocations
- * - Å½Ã¡dnÃ© logging v RT contextu
+ * KOMPLETNÄš REFAKTOROVÃNO PRO CENTRALIZACI:
+ * - VolÃ¡ calculateBlockGains() pro vÃ½poÄet envelope
+ * - Aplikuje voice_gain_ a envelope gains v jednom centralizovanÃ©m loopu
+ * - Å˜Ã­dÃ­ voice state transitions na zÃ¡kladÄ› vÃ½sledkÅ¯ gain calculation
+ * - ProvÃ¡dÃ­ mixdown sÄÃ­tÃ¡nÃ­ do sdÃ­lenÃ½ch output bufferÅ¯
  */
-bool Voice::processBlock(float* outputLeft, float* outputRight, int numSamples) noexcept {
+bool Voice::processBlock(float* outputLeft, float* outputRight, 
+                        int numSamples, int activeVoiceCount) noexcept {
     // Early exit conditions - RT optimized
     if (state_ == VoiceState::Idle || !instrument_ || sampleRate_ <= 0) {
         return false;  // Voice nenÃ­ aktivnÃ­
@@ -2300,13 +2576,6 @@ bool Voice::processBlock(float* outputLeft, float* outputRight, int numSamples) 
     // Cache frequently used values (avoid repeated method calls)
     const float* stereoBuffer = instrument_->get_sample_begin_pointer(currentVelocityLayer_);
     const sf_count_t maxFrames = instrument_->get_frame_count(currentVelocityLayer_);
-    
-    static int debugCounter = 0;
-    if (debugCounter < 5) {  // Log jen prvnÃ­ch 5 blokÅ¯
-        printf("[DEBUG] ProcessBlock MIDI %d: state=%d, buffer=%p, maxFrames=%ld, position=%ld\n",
-               midiNote_, static_cast<int>(state_), stereoBuffer, maxFrames, position_);
-        debugCounter++;
-    }
 
     if (!stereoBuffer || maxFrames == 0) {
         state_ = VoiceState::Idle;
@@ -2321,13 +2590,34 @@ bool Voice::processBlock(float* outputLeft, float* outputRight, int numSamples) 
         samplesUntilEnd
     ));
     
-    // SPECIALIZED PROCESSING PATHS - better CPU branch prediction
-    if (state_ == VoiceState::Sustaining) {
-        // Simple sustain - constant gain, optimized loop
-        processConstantGain(stereoBuffer, outputLeft, outputRight, samplesToProcess);
-    } else if (state_ == VoiceState::Releasing) {
-        // Release with linear fade - optimized interpolation
-        processRelease(stereoBuffer, outputLeft, outputRight, samplesToProcess);
+    // Use pre-allocated buffer, ensure it's large enough
+    if (gainBuffer_.size() < static_cast<size_t>(samplesToProcess)) {
+        // This should not happen if prepareToPlay() was called correctly
+        // But provide fallback for safety
+        return false;
+    }
+    
+    // Pre-calculate envelope gains for the block
+    if (!calculateBlockGains(gainBuffer_.data(), samplesToProcess)) {
+        state_ = VoiceState::Idle;
+        return false;
+    }
+    
+    // Dynamic gain scaling to prevent clipping with multiple voices
+    const float voiceScaling = (activeVoiceCount > 1) ? 
+        1.0f / std::sqrt(static_cast<float>(activeVoiceCount)) : 1.0f;
+    
+    // CENTRALIZED GAIN APPLICATION AND MIXDOWN
+    const sf_count_t startIndex = position_ * 2;
+    const float* srcPtr = stereoBuffer + startIndex;
+    
+    for (int i = 0; i < samplesToProcess; ++i) {
+        const float finalGain = gainBuffer_.data()[i] * voice_gain_ * voiceScaling;
+        const int srcIndex = i * 2;
+        
+        // Mixdown: Add to shared output buffers (multiple voices sum together)
+        outputLeft[i] += srcPtr[srcIndex] * finalGain;
+        outputRight[i] += srcPtr[srcIndex + 1] * finalGain;
     }
     
     // Batch position update - once per block instead of per sample
@@ -2339,179 +2629,80 @@ bool Voice::processBlock(float* outputLeft, float* outputRight, int numSamples) 
         return false;
     }
     
-    // OPTIMALIZACE: Fill remaining samples with silence if needed
-    // memset je rychlejÅ¡Ã­ neÅ¾ loop s += 0.0f
-    if (samplesToProcess < numSamples) {
-        const int remainingSamples = numSamples - samplesToProcess;
-        memset(&outputLeft[samplesToProcess], 0, remainingSamples * sizeof(float));
-        memset(&outputRight[samplesToProcess], 0, remainingSamples * sizeof(float));
-    }
-    
     return state_ != VoiceState::Idle;
 }
 
 /**
  * @brief RT-SAFE: AlternativnÃ­ processBlock s AudioData strukturou.
- * KompatibilnÃ­ interface, ale mÃ©nÄ› optimÃ¡lnÃ­ neÅ¾ pointer verze.
+ * DEPRECATED: PouÅ¾Ã­vÃ¡ se pouze pro zpÄ›tnou kompatibilitu.
+ * Pro optimÃ¡lnÃ­ vÃ½kon pouÅ¾ijte processBlock s float pointers.
  */
 bool Voice::processBlock(AudioData* outputBuffer, int numSamples) noexcept {
-    if (state_ == VoiceState::Idle || !instrument_ || sampleRate_ <= 0) {
-        return false;
-    }
-    
     if (!outputBuffer || numSamples <= 0) {
         return false;
     }
     
-    const float* stereoBuffer = instrument_->get_sample_begin_pointer(currentVelocityLayer_);
-    const sf_count_t maxFrames = instrument_->get_frame_count(currentVelocityLayer_);
+    // Allocate temporary buffers for delegation
+    float* leftBuffer = new(std::nothrow) float[numSamples];
+    float* rightBuffer = new(std::nothrow) float[numSamples];
     
-    if (!stereoBuffer || maxFrames == 0) {
-        state_ = VoiceState::Idle;
+    if (!leftBuffer || !rightBuffer) {
+        delete[] leftBuffer;
+        delete[] rightBuffer;
         return false;
     }
     
-    const sf_count_t samplesUntilEnd = maxFrames - position_;
-    const int samplesToProcess = static_cast<int>(std::min(
-        static_cast<sf_count_t>(numSamples), 
-        samplesUntilEnd
-    ));
+    // Initialize buffers to zero
+    memset(leftBuffer, 0, numSamples * sizeof(float));
+    memset(rightBuffer, 0, numSamples * sizeof(float));
     
-    // Process samples using AudioData interface
-    for (int i = 0; i < samplesToProcess; ++i) {
-        AudioData sample;
-        if (getCurrentAudioData(sample)) {
-            outputBuffer[i].left += sample.left;
-            outputBuffer[i].right += sample.right;
-        }
-        
-        advancePosition();  // RT-safe single sample advance
-        
-        if (state_ == VoiceState::Idle) {
-            // Zero remaining buffer
-            for (int j = i + 1; j < numSamples; ++j) {
-                outputBuffer[j].left += 0.0f;
-                outputBuffer[j].right += 0.0f;
-            }
-            return false;
-        }
+    // Delegate to optimized version
+    bool result = processBlock(leftBuffer, rightBuffer, numSamples);
+    
+    // Copy results to AudioData structure (additive mixing)
+    for (int i = 0; i < numSamples; ++i) {
+        outputBuffer[i].left += leftBuffer[i];
+        outputBuffer[i].right += rightBuffer[i];
     }
     
-    // Zero remaining samples if any
-    for (int i = samplesToProcess; i < numSamples; ++i) {
-        outputBuffer[i].left += 0.0f;
-        outputBuffer[i].right += 0.0f;
-    }
+    delete[] leftBuffer;
+    delete[] rightBuffer;
     
-    return isActive();
+    return result;
 }
 
-// ===== PRIVATE OPTIMALIZOVANÃ‰ RT-SAFE METODY =====
+// ===== PRIVATE RT-SAFE METODY =====
 
 /**
- * @brief RT-SAFE: VÃ½poÄet releaseSamples na zÃ¡kladÄ› sampleRate_ (200 ms release).
+ * @brief RT-SAFE: VÃ½poÄet releaseSamples na zÃ¡kladÄ› sampleRate_ (500 ms release).
  */
 void Voice::calculateReleaseSamples() noexcept {
     if (sampleRate_ > 0) {
-        releaseSamples_ = static_cast<sf_count_t>(0.2 * sampleRate_);  // 200 ms = 0.2 s
+        releaseSamples_ = static_cast<sf_count_t>(0.5 * sampleRate_);  // 500 ms = 0.5 s
     } else {
         releaseSamples_ = 0;
     }
 }
 
 /**
- * @brief RT-SAFE: Update release gain pro single sample advance.
- * OPTIMALIZOVÃNO: Inline gain calculation bez function call overhead.
+ * @brief RT-SAFE: Updates voice gain based on velocity mapping.
+ * DISABLED: Voice gain remains constant since samples already contain velocity information
  */
-void Voice::updateReleaseGain() noexcept {
-    const sf_count_t elapsed = position_ - releaseStartPosition_;
-    if (elapsed >= releaseSamples_) {
-        gain_ = 0.0f;
-        state_ = VoiceState::Idle;
-    } else {
-        // Linear interpolation - optimalizovanÃ¡ verze
-        gain_ = 1.0f - static_cast<float>(elapsed) / static_cast<float>(releaseSamples_);
+void Voice::updateVoiceGainFromVelocity(uint8_t velocity) noexcept {
+    // Keep voice_gain_ constant - samples already contain velocity information
+    // voice_gain_ is set once during initialization and never changes
+    // The velocity parameter is used only for velocity layer selection (currentVelocityLayer_)
+    
+    // Optional: Log velocity for debugging (non-RT safe, only when rtMode_ is false)
+    #ifdef DEBUG
+    if (!rtMode_.load()) {
+        // Could log velocity here for debugging purposes
     }
+    #endif
 }
 
 /**
- * @brief RT-SAFE: Specialized processing pro konstantnÃ­ gain (sustain).
- * OPTIMALIZOVÃNO PRO CACHE A VECTORIZATION:
- * - PouÅ¾itÃ­ pointer arithmetic pro lepÅ¡Ã­ compiler optimization
- * - Vectorizable loop pattern
- * - Cache-friendly sequential access
- */
-void Voice::processConstantGain(const float* stereoBuffer, 
-                               float* outputLeft, float* outputRight, 
-                               int numSamples) noexcept {
-    // Cache starting position
-    const sf_count_t startIndex = position_ * 2;
-    
-    // OptimalizovanÃ½ loop - compiler mÅ¯Å¾e vectorizovat
-    // Pointer arithmetic je Äasto rychlejÅ¡Ã­ neÅ¾ array indexing
-    const float* srcPtr = stereoBuffer + startIndex;
-    
-    for (int i = 0; i < numSamples; ++i) {
-        const int srcIndex = i * 2;
-        outputLeft[i] += srcPtr[srcIndex] * gain_;
-        outputRight[i] += srcPtr[srcIndex + 1] * gain_;
-    }
-}
-
-/**
- * @brief RT-SAFE: Specialized processing pro release s lineÃ¡rnÃ­ fade.
- * OPTIMALIZOVÃNO PRO SMOOTH INTERPOLATION:
- * - Pre-calculated gain step pro lineÃ¡rnÃ­ interpolaci
- * - Batch gain updates
- * - Early termination pÅ™i gain = 0
- */
-void Voice::processRelease(const float* stereoBuffer, 
-                          float* outputLeft, float* outputRight, 
-                          int numSamples) noexcept {
-    const sf_count_t startIndex = position_ * 2;
-    const sf_count_t releaseElapsed = position_ - releaseStartPosition_;
-    
-    // Pre-calculate gain step pro lineÃ¡rnÃ­ interpolaci
-    const sf_count_t remainingReleaseSamples = releaseSamples_ - releaseElapsed;
-    const float gainStep = (remainingReleaseSamples > 0) ? 
-        (-gain_ / static_cast<float>(remainingReleaseSamples)) : 0.0f;
-    
-    float currentGain = gain_;
-    const float* srcPtr = stereoBuffer + startIndex;
-    
-    for (int i = 0; i < numSamples; ++i) {
-        // Early termination check
-        if (currentGain <= 0.0f) {
-            currentGain = 0.0f;
-            state_ = VoiceState::Idle;
-            
-            // Zero remaining output
-            for (int j = i; j < numSamples; ++j) {
-                outputLeft[j] += 0.0f;
-                outputRight[j] += 0.0f;
-            }
-            break;
-        }
-        
-        const int srcIndex = i * 2;
-        outputLeft[i] += srcPtr[srcIndex] * currentGain;
-        outputRight[i] += srcPtr[srcIndex + 1] * currentGain;
-        
-        // Update gain pro next sample
-        currentGain += gainStep;
-    }
-    
-    // Update stored gain
-    gain_ = std::max(0.0f, currentGain);
-    
-    // Final release completion check
-    if (gain_ <= 0.0f) {
-        state_ = VoiceState::Idle;
-    }
-}
-
-/**
- * @brief NON-RT SAFE: Wrapper pro bezpeÄnÃ© logovÃ¡nÃ­ v non-critical operacÃ­ch.
+ * @brief NON-RT: Safe logging wrapper pro non-critical operations.
  * PouÅ¾Ã­vÃ¡ se pouze v initialize/cleanup/reinitialize metodÃ¡ch.
  */
 void Voice::logSafe(const std::string& component, const std::string& severity, 
@@ -2530,11 +2721,14 @@ Path: C:\Users\jindr\IthacaCore\sampler\voice.h
 #ifndef VOICE_H
 #define VOICE_H
 
-#include <cstdint>      // Pro uint8_t
-#include <atomic>       // Pro RT-safe logging flag
-#include <cstring>      // Pro memset
-#include "instrument_loader.h"  // Pro Instrument a Logger
-#include "core_logger.h"        // Pro Logger
+#define VOICE_GAIN 0.8f
+
+#include <cstdint>
+#include <atomic>
+#include <cstring>
+#include <vector>
+#include "instrument_loader.h"
+#include "core_logger.h"
 
 // Simulace JUCE AudioBuffer pro stereo vÃ½stup (bez zÃ¡vislosti na JUCE)
 struct AudioData {
@@ -2560,16 +2754,16 @@ enum class VoiceState {
  * @class Voice
  * @brief Jedna hlasovÃ¡ jednotka pro pÅ™ehrÃ¡vÃ¡nÃ­ sample s obÃ¡lkou a stavy.
  * 
- * REFAKTOROVÃNO PRO RT-SAFETY:
- * - EliminovÃ¡ny redundantnÃ­ memory access patterns
- * - Batch processing mÃ­sto sample-by-sample
+ * REFAKTOROVÃNO PRO CENTRALIZOVANOU APLIKACI GAIN:
+ * - OddÄ›lenÃ© envelope_gain_ a voice_gain_ komponenty
+ * - Pre-alokovanÃ½ buffer pro RT-safe gain calculations
+ * - CentralizovanÃ¡ aplikace gain v processBlock
+ * - JUCE framework kompatibilita s prepareToPlay pattern
+ * - Mixdown aditivnÃ­ operacÃ­ pro polyfonii
  * - RT-safe logging s compile-time/runtime flags
- * - OptimalizovanÃ© envelope processing
- * - Cache-friendly memory access
- * - Å½Ã¡dnÃ© memory allocations v processBlock
  * 
  * Logger se pÅ™edÃ¡vÃ¡ jako reference pouze do non-RT metod.
- * ProcessBlock je 100% RT-safe bez loggingu a allocacÃ­.
+ * ProcessBlock je 100% RT-safe bez loggingu a alokacÃ­.
  */
 class Voice {
 public:
@@ -2608,6 +2802,13 @@ public:
      * @param logger Reference na Logger.
      */
     void reinitialize(const Instrument& instrument, int sampleRate, Logger& logger);
+    
+    /**
+     * @brief NON-RT SAFE: Updates internal buffer size for DAW block size changes
+     * Must be called from audio thread during buffer size changes, NOT during processing
+     * @param maxBlockSize Maximum expected block size from DAW
+     */
+    void prepareToPlay(int maxBlockSize) noexcept;
 
     /**
      * @brief NastavÃ­ stav note: true = startNote, false = stopNote.
@@ -2632,22 +2833,36 @@ public:
     bool getCurrentAudioData(AudioData& data) const noexcept;
 
     /**
-     * @brief HLAVNÃ RT-SAFE METODA: Zpracuje audio blok s explicitnÃ­mi stereo buffery.
+     * @brief RT-SAFE: Pre-calculates envelope gains for entire block
      * 
-     * OPTIMALIZOVÃNO PRO RT:
-     * - Batch processing mÃ­sto sample-by-sample loops
-     * - EliminovÃ¡ny redundantnÃ­ kontroly v kaÅ¾dÃ© iteraci
-     * - Cache-friendly memory access patterns
-     * - Specialized processing paths pro sustain/release
-     * - Å½Ã¡dnÃ© string operations ani alokace
-     * - Å½Ã¡dnÃ© logging v RT contextu
+     * This method separates gain calculation from audio processing for better
+     * modularity and testability. It handles all envelope states and returns
+     * false when voice should be deactivated.
      * 
-     * @param outputLeft Pointer na levÃ½ kanÃ¡l vÃ½stupnÃ­ho bufferu.
-     * @param outputRight Pointer na pravÃ½ kanÃ¡l vÃ½stupnÃ­ho bufferu.
+     * @param gainBuffer Pre-allocated buffer for per-sample gains (caller owns)
+     * @param numSamples Number of samples to calculate gains for
+     * @return true if voice remains active, false if should be deactivated
+     */
+    bool calculateBlockGains(float* gainBuffer, int numSamples) noexcept;
+
+    /**
+     * @brief HLAVNÃ RT-SAFE METODA: Zpracuje audio blok s centralizovanou aplikacÃ­ gain.
+     * 
+     * REFAKTOROVÃNO PRO CENTRALIZACI:
+     * - VolÃ¡ calculateBlockGains() pro vÃ½poÄet envelope
+     * - Aplikuje voice_gain_ a envelope gains v jednom centralizovanÃ©m loopu
+     * - Å˜Ã­dÃ­ voice state transitions na zÃ¡kladÄ› vÃ½sledkÅ¯ gain calculation
+     * - ProvÃ¡dÃ­ mixdown sÄÃ­tÃ¡nÃ­ do sdÃ­lenÃ½ch output bufferÅ¯
+     * - Dynamic voice scaling pro prevenci clippingu
+     * 
+     * @param outputLeft Pointer na levÃ½ kanÃ¡l vÃ½stupnÃ­ho bufferu (sdÃ­lenÃ½, pouÅ¾Ã­vÃ¡ +=).
+     * @param outputRight Pointer na pravÃ½ kanÃ¡l vÃ½stupnÃ­ho bufferu (sdÃ­lenÃ½, pouÅ¾Ã­vÃ¡ +=).
      * @param numSamples PoÄet samples k zpracovÃ¡nÃ­.
+     * @param activeVoiceCount Pro dynamic gain scaling (prevence clipping).
      * @return True, pokud voice je stÃ¡le aktivnÃ­.
      */
-    bool processBlock(float* outputLeft, float* outputRight, int numSamples) noexcept;
+    bool processBlock(float* outputLeft, float* outputRight, 
+                     int numSamples, int activeVoiceCount = 1) noexcept;
 
     /**
      * @brief RT-SAFE: Zpracuje audio blok s AudioData strukturou.
@@ -2663,7 +2878,9 @@ public:
     bool isActive() const noexcept { return state_ != VoiceState::Idle; }
     VoiceState getState() const noexcept { return state_; }
     sf_count_t getPosition() const noexcept { return position_; }
-    float getCurrentGain() const noexcept { return gain_; }
+    float getCurrentEnvelopeGain() const noexcept { return envelope_gain_; }
+    float getCurrentVoiceGain() const noexcept { return voice_gain_; }
+    float getFinalGain() const noexcept { return envelope_gain_ * voice_gain_; }
     uint8_t getCurrentVelocityLayer() const noexcept { return currentVelocityLayer_; }
 
     // RT-Safe mode control (pro debugging/profiling)
@@ -2677,48 +2894,32 @@ private:
     VoiceState state_;              // AktuÃ¡lnÃ­ stav
     sf_count_t position_;           // Pozice ve sample (frames)
     uint8_t currentVelocityLayer_;  // AktuÃ¡lnÃ­ velocity layer (0-7)
-    float gain_;                    // AktuÃ¡lnÃ­ gain obÃ¡lky (0.0-1.0)
+    
+    // NOVÃ‰: OddÄ›lenÃ© gain komponenty
+    float envelope_gain_;           // DynamickÃ¡ obÃ¡lka (attack/sustain/release)
+    float voice_gain_;             // Per-voice gain (velocity-based, konstantnÃ­)
+    
     sf_count_t releaseStartPosition_; // Pozice startu release pro lineÃ¡rnÃ­ Ãºtlum
-    sf_count_t releaseSamples_;     // DÃ©lka release v samplech (napÅ™. 0.2 * sampleRate)
+    sf_count_t releaseSamples_;     // DÃ©lka release v samplech (napÅ™. 0.5 * sampleRate)
+    
+    // RT-SAFE: Pre-allocated buffer pro gain calculations
+    // Resized pouze bÄ›hem prepareToPlay() calls, nikdy bÄ›hem RT processing
+    mutable std::vector<float> gainBuffer_;
 
     // RT-safe mode flag (shared across all instances)
     static std::atomic<bool> rtMode_;
 
-    // OPTIMALIZOVANÃ‰ PRIVATE METODY PRO RT-PROCESSING:
+    // RT-SAFE PRIVATE METODY:
 
     /**
-     * @brief RT-SAFE: VypoÄÃ­tÃ¡ releaseSamples na zÃ¡kladÄ› sampleRate_ (200 ms release).
+     * @brief RT-SAFE: VypoÄÃ­tÃ¡ releaseSamples na zÃ¡kladÄ› sampleRate_ (500 ms release).
      */
     void calculateReleaseSamples() noexcept;
 
     /**
-     * @brief RT-SAFE: Update release gain pro single sample advance.
+     * @brief RT-SAFE: Updates voice gain based on velocity mapping.
      */
-    void updateReleaseGain() noexcept;
-
-    /**
-     * @brief RT-SAFE: Specialized processing pro konstantnÃ­ gain (sustain).
-     * Cache-friendly, vectorizable loop.
-     * @param stereoBuffer Source audio buffer (interleaved [L,R,L,R...])
-     * @param outputLeft Left channel output buffer
-     * @param outputRight Right channel output buffer  
-     * @param numSamples Number of samples to process
-     */
-    void processConstantGain(const float* stereoBuffer, 
-                           float* outputLeft, float* outputRight, 
-                           int numSamples) noexcept;
-
-    /**
-     * @brief RT-SAFE: Specialized processing pro release s lineÃ¡rnÃ­ fade.
-     * OptimalizovanÃ© gain interpolation.
-     * @param stereoBuffer Source audio buffer
-     * @param outputLeft Left channel output buffer
-     * @param outputRight Right channel output buffer
-     * @param numSamples Number of samples to process
-     */
-    void processRelease(const float* stereoBuffer, 
-                       float* outputLeft, float* outputRight, 
-                       int numSamples) noexcept;
+    void updateVoiceGainFromVelocity(uint8_t velocity) noexcept;
 
     /**
      * @brief NON-RT: Safe logging wrapper pro non-critical operations.
@@ -2735,19 +2936,31 @@ private:
 Path: C:\Users\jindr\IthacaCore\sampler\voice_manager.cpp
 =====
 #include "voice_manager.h"
-#include <algorithm>  // Pro std::find, std::remove
+#include "sampler.h"            // Pro stack allocated SamplerIO
+#include "instrument_loader.h"  // Pro stack allocated InstrumentLoader
+#include "wav_file_exporter.h"  // Pro exportTestSample
+#include <algorithm>
+#include <cmath>
 
 /**
- * @brief Konstruktor: VytvoÅ™Ã­ fixnÃ­ pool 128 voice, uloÅ¾Ã­ sampleDir, sampleRate.
+ * @brief Constructor: ROZÅ ÃÅ˜ENÃ s stack allocated komponenty, BEZ automatickÃ© inicializace sample rate
+ * @param sampleDir Cesta k sample adresÃ¡Å™i
+ * @param logger Reference na Logger
+ * 
+ * DÅ®LEÅ½ITÃ‰: Constructor pouze vytvoÅ™Ã­ objekty s neinicializovanÃ½m sample rate!
+ * MusÃ­ se explicitnÄ› volat changeSampleRate() + initializeSystem() + loadAllInstruments()
  */
-VoiceManager::VoiceManager(const std::string& sampleDir, int sampleRate, Logger& logger)
-    : sampleRate_(sampleRate), sampleDir_(sampleDir) {
-    
-    if (sampleRate_ <= 0) {
-        logSafe("VoiceManager/constructor", "error", 
-               "Invalid sampleRate " + std::to_string(sampleRate_) + " - must be > 0. Terminating.", logger);
-        std::exit(1);
-    }
+VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
+    : samplerIO_(),              // Stack allocated SamplerIO - prÃ¡zdnÃ½ stav
+      instrumentLoader_(),       // Stack allocated InstrumentLoader - prÃ¡zdnÃ½ stav
+      currentSampleRate_(0),     // NEINICIALIZOVÃNO - bude nastaveno changeSampleRate()
+      sampleDir_(sampleDir),
+      systemInitialized_(false), // System nenÃ­ pÅ™ipraven
+      voices_(),
+      activeVoices_(),
+      voicesToRemove_(),
+      activeVoicesCount_(0),
+      rtMode_(false) {
     
     if (sampleDir_.empty()) {
         logSafe("VoiceManager/constructor", "error", 
@@ -2755,24 +2968,759 @@ VoiceManager::VoiceManager(const std::string& sampleDir, int sampleRate, Logger&
         std::exit(1);
     }
     
-    // Inicializace fixnÃ­ho poolu 128 voices
+    // PÅ¯vodnÃ­ inicializace voices (zachovat!)
     voices_.resize(128);
     for (int i = 0; i < 128; ++i) {
         voices_[i] = Voice(static_cast<uint8_t>(i));
     }
     
-    // Pre-alokace bufferÅ¯ pro active voice tracking
     activeVoices_.reserve(128);
     voicesToRemove_.reserve(128);
     
     logSafe("VoiceManager/constructor", "info", 
-           "VoiceManager created with fixed 128 voices (one per MIDI note), sampleDir '" + sampleDir_ + 
-           "' and sampleRate " + std::to_string(sampleRate_), logger);
+           "VoiceManager created with sampleDir '" + sampleDir_ + 
+           "'. Ready for changeSampleRate() and initialization pipeline.", logger);
 }
 
 /**
- * @brief RT-SAFE: NastavÃ­ stav note pro danou MIDI notu.
+ * @brief NastavenÃ­ sample rate a trigger reinicializace
+ * @param newSampleRate NovÃ½ sample rate (44100 nebo 48000)
+ * @param logger Reference na Logger
  */
+void VoiceManager::changeSampleRate(int newSampleRate, Logger& logger) {
+    // Validace sample rate
+    if (newSampleRate != 44100 && newSampleRate != 48000) {
+        logger.log("VoiceManager/changeSampleRate", "error", 
+                  "Invalid sample rate " + std::to_string(newSampleRate) + 
+                  " Hz - only 44100 Hz and 48000 Hz are supported. Terminating.");
+        std::exit(1);
+    }
+    
+    // DEBUG: DetailnÃ­ info o aktuÃ¡lnÃ­m stavu
+    logger.log("VoiceManager/changeSampleRate", "debug", 
+              "DEBUG: Requested sample rate: " + std::to_string(newSampleRate) + " Hz");
+    logger.log("VoiceManager/changeSampleRate", "debug", 
+              "DEBUG: Current sample rate (VoiceManager): " + std::to_string(currentSampleRate_) + " Hz");
+    logger.log("VoiceManager/changeSampleRate", "debug", 
+              "DEBUG: Current sample rate (InstrumentLoader): " + std::to_string(instrumentLoader_.getActualSampleRate()) + " Hz");
+    
+    if (needsReinitialization(newSampleRate)) {
+        logger.log("VoiceManager/changeSampleRate", "info", 
+                  "Sample rate change detected: " + std::to_string(currentSampleRate_) + 
+                  " Hz -> " + std::to_string(newSampleRate) + " Hz. Reinitializing...");
+        
+        // Stop all active voices pÅ™ed reinicializacÃ­
+        stopAllVoices();
+        
+        // Update target sample rate
+        currentSampleRate_ = newSampleRate;
+        
+        // Reset system initialization flag
+        systemInitialized_ = false;
+        
+        // KRITICKÃ‰: Pokud uÅ¾ byl system inicializovÃ¡n, reinicializuj komplet
+        if (instrumentLoader_.getActualSampleRate() != 0) {
+            try {
+                // Full reinitialization pipeline
+                initializeSystem(logger);      // Re-scan s novÃ½m sample rate
+                loadAllInstruments(logger);    // Reload s novÃ½m sample rate
+                validateSystemIntegrity(logger);
+                
+                logger.log("VoiceManager/changeSampleRate", "info", 
+                          "Sample rate change completed successfully");
+            } catch (...) {
+                logger.log("VoiceManager/changeSampleRate", "error", 
+                          "Sample rate change failed during reinitialization. Terminating.");
+                std::exit(1);
+            }
+        } else {
+            logger.log("VoiceManager/changeSampleRate", "info", 
+                      "Sample rate set to " + std::to_string(newSampleRate) + 
+                      " Hz. System ready for initialization.");
+        }
+    } else {
+        logger.log("VoiceManager/changeSampleRate", "info", 
+                  "Sample rate unchanged: " + std::to_string(newSampleRate) + 
+                  " Hz (no reinitialization needed)");
+    }
+}
+
+/**
+ * @brief NOVÃ‰: Prepare all voices for new buffer size (JUCE integration)
+ * @param maxBlockSize Maximum block size from DAW
+ */
+void VoiceManager::prepareToPlay(int maxBlockSize) noexcept {
+    // Prepare all 128 voices for new buffer size
+    for (int i = 0; i < 128; ++i) {
+        voices_[i].prepareToPlay(maxBlockSize);
+    }
+    
+    // Note: Logging nenÃ­ RT-safe, ale tato metoda se volÃ¡ bÄ›hem setup, ne RT processing
+    // V production kÃ³du by zde byl conditional logging based on rtMode_
+}
+
+/**
+ * @brief Inicializace systÃ©mu - skenovÃ¡nÃ­ sample adresÃ¡Å™e
+ * @param logger Reference na Logger
+ */
+void VoiceManager::initializeSystem(Logger& logger) {
+    if (currentSampleRate_ <= 0) {
+        logger.log("VoiceManager/initializeSystem", "error", 
+                  "Sample rate not set. Call changeSampleRate() first. Terminating.");
+        std::exit(1);
+    }
+    
+    logger.log("VoiceManager/initializeSystem", "info", 
+              "Starting system initialization with sampleDir: " + sampleDir_);
+    
+    try {
+        // Delegace na SamplerIO - skenovÃ¡nÃ­ adresÃ¡Å™e
+        samplerIO_.scanSampleDirectory(sampleDir_, logger);
+        
+        logger.log("VoiceManager/initializeSystem", "info", 
+                  "System initialization completed successfully");
+        
+    } catch (...) {
+        logger.log("VoiceManager/initializeSystem", "error", 
+                  "System initialization failed. Terminating.");
+        std::exit(1);
+    }
+}
+
+/**
+ * @brief NaÄtenÃ­ vÅ¡ech instrumentÅ¯ do pamÄ›ti
+ * @param logger Reference na Logger
+ */
+void VoiceManager::loadAllInstruments(Logger& logger) {
+    if (currentSampleRate_ <= 0) {
+        logger.log("VoiceManager/loadAllInstruments", "error", 
+                  "Sample rate not set. Call changeSampleRate() first. Terminating.");
+        std::exit(1);
+    }
+    
+    logger.log("VoiceManager/loadAllInstruments", "info", 
+              "Starting instrument loading with targetSampleRate: " + 
+              std::to_string(currentSampleRate_) + " Hz");
+    
+    try {
+        // Delegace na InstrumentLoader - naÄtenÃ­ vÅ¡ech dat
+        instrumentLoader_.loadInstrumentData(samplerIO_, currentSampleRate_, logger);
+        
+        // Inicializace vÅ¡ech voices s naÄtenÃ½mi instrumenty
+        initializeVoicesWithInstruments(logger);
+        
+        systemInitialized_ = true;
+        
+        logger.log("VoiceManager/loadAllInstruments", "info", 
+                  "All instruments loaded and voices initialized successfully");
+        
+    } catch (...) {
+        logger.log("VoiceManager/loadAllInstruments", "error", 
+                  "Instrument loading failed. Terminating.");
+        std::exit(1);
+    }
+}
+
+/**
+ * @brief System validation
+ */
+void VoiceManager::validateSystemIntegrity(Logger& logger) {
+    if (!systemInitialized_) {
+        logSafe("VoiceManager/validateSystemIntegrity", "error", 
+                "System not initialized. Call loadAllInstruments() first. Terminating.", logger);
+        std::exit(1);
+    }
+    
+    logSafe("VoiceManager/validateSystemIntegrity", "info", 
+            "Starting system integrity validation...", logger);
+    
+    try {
+        instrumentLoader_.validateStereoConsistency(logger);
+        
+        int validVoices = 0;
+        for (int i = 0; i < 128; ++i) {
+            const Voice& voice = voices_[i];
+            if (voice.getMidiNote() == i) {
+                validVoices++;
+            } else {
+                logSafe("VoiceManager/validateSystemIntegrity", "error", 
+                        "Voice MIDI note mismatch: voice index " + std::to_string(i) + 
+                        " has midiNote " + std::to_string(voice.getMidiNote()) + ". Terminating.", logger);
+                std::exit(1);
+            }
+        }
+        
+        logSafe("VoiceManager/validateSystemIntegrity", "info", 
+                "System integrity validation completed successfully. " + 
+                std::to_string(validVoices) + " voices validated.", logger);
+    } catch (...) {
+        logSafe("VoiceManager/validateSystemIntegrity", "error", 
+                "System integrity validation failed. Terminating.", logger);
+        std::exit(1);
+    }
+}
+
+/**
+ * @brief Statistiky celÃ©ho systÃ©mu
+ * @param logger Reference na Logger
+ */
+void VoiceManager::logSystemStatistics(Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/logSystemStatistics", "warn", 
+                  "System not initialized - limited statistics available");
+        return;
+    }
+    
+    // InstrumentLoader statistiky
+    const int totalSamples = instrumentLoader_.getTotalLoadedSamples();
+    const int monoSamples = instrumentLoader_.getMonoSamplesCount();
+    const int stereoSamples = instrumentLoader_.getStereoSamplesCount();
+    const int actualSampleRate = instrumentLoader_.getActualSampleRate();
+    
+    // VoiceManager statistiky
+    const int activeCount = getActiveVoicesCount();
+    const int sustaining = getSustainingVoicesCount();
+    const int releasing = getReleasingVoicesCount();
+    
+    logger.log("VoiceManager/statistics", "info", 
+              "=== SYSTEM STATISTICS ===");
+    logger.log("VoiceManager/statistics", "info", 
+              "Sample Rate: " + std::to_string(actualSampleRate) + " Hz");
+    logger.log("VoiceManager/statistics", "info", 
+              "Total loaded samples: " + std::to_string(totalSamples));
+    logger.log("VoiceManager/statistics", "info", 
+              "Originally mono: " + std::to_string(monoSamples) + 
+              ", Originally stereo: " + std::to_string(stereoSamples));
+    logger.log("VoiceManager/statistics", "info", 
+              "Voice Activity - Active: " + std::to_string(activeCount) + 
+              ", Sustaining: " + std::to_string(sustaining) + 
+              ", Releasing: " + std::to_string(releasing) + 
+              ", Max: 128");
+    logger.log("VoiceManager/statistics", "info", 
+              "========================");
+}
+
+// ===== TESTING METHODS - adaptovanÃ© pro novou Voice tÅ™Ã­du =====
+
+/**
+ * @brief Single note test s live export moÅ¾nostÃ­
+ */
+void VoiceManager::runSingleNoteTest(Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/runSingleNoteTest", "error", 
+                  "System not initialized. Call loadAllInstruments() first.");
+        return;
+    }
+    
+    logger.log("VoiceManager/runSingleNoteTest", "info", "Starting single note test...");
+    
+    uint8_t testMidi = findValidTestMidiNote(logger);
+    uint8_t testVelocity = 100;
+    
+    logger.log("VoiceManager/runSingleNoteTest", "info", 
+              "Testing MIDI " + std::to_string(testMidi) + " with velocity " + std::to_string(testVelocity));
+    
+    // Note-on
+    setNoteState(testMidi, true, testVelocity);
+    logger.log("VoiceManager/runSingleNoteTest", "info", 
+              "Note-on sent. Active voices: " + std::to_string(getActiveVoicesCount()));
+    
+    // Simulate audio processing (shorter for testing)
+    const int blockSize = 512;
+    const int numBlocks = 5;
+    
+    for (int block = 0; block < numBlocks; ++block) {
+        float* leftBuffer = new float[blockSize];
+        float* rightBuffer = new float[blockSize];
+        
+        bool hasAudio = processBlock(leftBuffer, rightBuffer, blockSize);
+        
+        if (hasAudio) {
+            float maxL = 0.0f, maxR = 0.0f;
+            for (int i = 0; i < blockSize; ++i) {
+                maxL = std::max(maxL, std::abs(leftBuffer[i]));
+                maxR = std::max(maxR, std::abs(rightBuffer[i]));
+            }
+            
+            logger.log("VoiceManager/runSingleNoteTest", "info", 
+                      "Block " + std::to_string(block) + " - Peak L: " + std::to_string(maxL) + 
+                      ", Peak R: " + std::to_string(maxR));
+        } else {
+            logger.log("VoiceManager/runSingleNoteTest", "info", 
+                      "Block " + std::to_string(block) + " - Silent");
+        }
+        
+        delete[] leftBuffer;
+        delete[] rightBuffer;
+    }
+    
+    // Note-off
+    setNoteState(testMidi, false, 0);
+    logger.log("VoiceManager/runSingleNoteTest", "info", "Single note test completed");
+    
+    // Live export
+    logger.log("VoiceManager/runSingleNoteTest", "info", 
+              "Running live export for single note test...");
+    exportSingleNotePlayback(testMidi, testVelocity, "./exports", logger);
+}
+
+/**
+ * @brief Polyphony test s live export moÅ¾nostÃ­
+ */
+void VoiceManager::runPolyphonyTest(Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/runPolyphonyTest", "error", 
+                  "System not initialized. Call loadAllInstruments() first.");
+        return;
+    }
+    
+    logger.log("VoiceManager/runPolyphonyTest", "info", "Starting polyphony test...");
+    
+    std::vector<uint8_t> testNotes = findValidNotesForPolyphony(logger, 3);
+    
+    if (testNotes.size() >= 3) {
+        // Note-on for all notes
+        for (uint8_t note : testNotes) {
+            setNoteState(note, true, 100);
+            logger.log("VoiceManager/runPolyphonyTest", "info", 
+                      "Note-on MIDI " + std::to_string(note));
+        }
+        
+        logger.log("VoiceManager/runPolyphonyTest", "info", 
+                  "Active voices after chord: " + std::to_string(getActiveVoicesCount()));
+        
+        // Process one block for testing
+        const int blockSize = 512;
+        float* leftBuffer = new float[blockSize];
+        float* rightBuffer = new float[blockSize];
+        
+        if (processBlock(leftBuffer, rightBuffer, blockSize)) {
+            float maxL = 0.0f, maxR = 0.0f;
+            for (int i = 0; i < blockSize; ++i) {
+                maxL = std::max(maxL, std::abs(leftBuffer[i]));
+                maxR = std::max(maxR, std::abs(rightBuffer[i]));
+            }
+            
+            logger.log("VoiceManager/runPolyphonyTest", "info", 
+                      "Polyphonic audio - Peak L: " + std::to_string(maxL) + 
+                      ", Peak R: " + std::to_string(maxR));
+        }
+        
+        delete[] leftBuffer;
+        delete[] rightBuffer;
+        
+        // Note-off for all
+        for (uint8_t note : testNotes) {
+            setNoteState(note, false, 0);
+        }
+        
+        // Live export polyphony
+        logger.log("VoiceManager/runPolyphonyTest", "info", 
+                  "Running live export for polyphony test...");
+        exportPolyphonyPlayback(testNotes, "./exports", logger);
+    } else {
+        logger.log("VoiceManager/runPolyphonyTest", "warn", 
+                  "Not enough valid notes for polyphony test");
+    }
+    
+    logger.log("VoiceManager/runPolyphonyTest", "info", "Polyphony test completed");
+}
+
+/**
+ * @brief Edge case tests
+ */
+void VoiceManager::runEdgeCaseTests(Logger& logger) {
+    logger.log("VoiceManager/runEdgeCaseTests", "info", "Starting edge case tests...");
+    
+    // Invalid MIDI notes
+    setNoteState(200, true, 100);  // Invalid MIDI
+    setNoteState(60, true, 0);     // Zero velocity
+    setNoteState(61, true, 127);   // Max velocity
+    
+    logger.log("VoiceManager/runEdgeCaseTests", "info", 
+              "Active voices after edge cases: " + std::to_string(getActiveVoicesCount()));
+    
+    stopAllVoices();
+    logger.log("VoiceManager/runEdgeCaseTests", "info", "Edge case tests completed");
+}
+
+/**
+ * @brief Individual voice test
+ */
+void VoiceManager::runIndividualVoiceTest(Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/runIndividualVoiceTest", "error", 
+                  "System not initialized. Call loadAllInstruments() first.");
+        return;
+    }
+    
+    logger.log("VoiceManager/runIndividualVoiceTest", "info", "Starting individual voice test...");
+    
+    uint8_t testMidi = findValidTestMidiNote(logger);
+    Voice& voice = getVoice(testMidi);
+    
+    logger.log("VoiceManager/runIndividualVoiceTest", "info", 
+              "Voice " + std::to_string(testMidi) + " state: " + 
+              std::to_string(static_cast<int>(voice.getState())) + 
+              ", position: " + std::to_string(voice.getPosition()) + 
+              ", envelope gain: " + std::to_string(voice.getCurrentEnvelopeGain()) +
+              ", voice gain: " + std::to_string(voice.getCurrentVoiceGain()) +
+              ", final gain: " + std::to_string(voice.getFinalGain()));
+    
+    logger.log("VoiceManager/runIndividualVoiceTest", "info", "Individual voice test completed");
+}
+
+/**
+ * @brief Export test sample (pÅ¯vodnÃ­ raw sample data)
+ */
+void VoiceManager::exportTestSample(uint8_t midi, uint8_t vel, const std::string& exportDir, Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/exportTestSample", "error", 
+                  "System not initialized. Call loadAllInstruments() first.");
+        return;
+    }
+    
+    logger.log("VoiceManager/exportTestSample", "info", 
+              "Starting export test for MIDI " + std::to_string(midi) + 
+              " velocity " + std::to_string(vel));
+    
+    try {
+        const Instrument& instrument = instrumentLoader_.getInstrumentNote(midi);
+        if (instrument.velocityExists[vel]) {
+            WavExporter exporter(exportDir, logger);
+            std::string filename = "test_export_midi" + std::to_string(midi) + "_vel" + std::to_string(vel) + ".wav";
+            
+            float* exportBuffer = exporter.wavFileCreate(filename, currentSampleRate_, 512, true, true);
+            if (exportBuffer) {
+                sf_count_t totalFrames = instrument.get_frame_count(vel);
+                sf_count_t framesPerBuffer = 512;
+                sf_count_t remainingFrames = totalFrames;
+                float* sourceData = instrument.get_sample_begin_pointer(vel);
+                
+                while (remainingFrames > 0) {
+                    sf_count_t thisBufferFrames = std::min(framesPerBuffer, remainingFrames);
+                    size_t offset = (totalFrames - remainingFrames) * 2;
+                    
+                    for (sf_count_t i = 0; i < thisBufferFrames * 2; ++i) {
+                        exportBuffer[i] = sourceData[offset + i];
+                    }
+                    
+                    if (!exporter.wavFileWriteBuffer(exportBuffer, static_cast<int>(thisBufferFrames))) {
+                        logger.log("VoiceManager/exportTestSample", "error", "Export write failed");
+                        return;
+                    }
+                    
+                    remainingFrames -= thisBufferFrames;
+                }
+                
+                logger.log("VoiceManager/exportTestSample", "info", 
+                          "Export completed: " + filename);
+            }
+        } else {
+            logger.log("VoiceManager/exportTestSample", "warn", 
+                      "No sample found for MIDI " + std::to_string(midi) + " velocity " + std::to_string(vel));
+        }
+    } catch (...) {
+        logger.log("VoiceManager/exportTestSample", "error", "Export failed with exception");
+    }
+}
+
+/**
+ * @brief Export live single note playback
+ */
+void VoiceManager::exportSingleNotePlayback(uint8_t midi, uint8_t velocity, 
+                                           const std::string& exportDir, Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/exportSingleNotePlayback", "error", 
+                  "System not initialized. Call loadAllInstruments() first.");
+        return;
+    }
+    
+    logger.log("VoiceManager/exportSingleNotePlayback", "info", 
+              "Starting live export for MIDI " + std::to_string(midi) + 
+              " velocity " + std::to_string(velocity));
+    
+    try {
+        WavExporter exporter(exportDir, logger);
+        std::string filename = "live_single_midi" + std::to_string(midi) + 
+                              "_vel" + std::to_string(velocity) + ".wav";
+        
+        const int blockSize = 512;
+        float* exportBuffer = exporter.wavFileCreate(filename, currentSampleRate_, blockSize, true, true);
+        
+        if (!exportBuffer) {
+            logger.log("VoiceManager/exportSingleNotePlayback", "error", "Failed to create export buffer");
+            return;
+        }
+        
+        // Temporary buffers for audio processing
+        float* leftBuffer = new float[blockSize];
+        float* rightBuffer = new float[blockSize];
+        
+        // Start note
+        setNoteState(midi, true, velocity);
+        logger.log("VoiceManager/exportSingleNotePlayback", "info", "Note-on sent, capturing audio...");
+        
+        // Capture sustain phase (approximately 2 seconds)
+        const int sustainBlocks = (2 * currentSampleRate_) / blockSize;
+        for (int block = 0; block < sustainBlocks; ++block) {
+            if (processBlock(leftBuffer, rightBuffer, blockSize)) {
+                // Interleave for export
+                for (int i = 0; i < blockSize; ++i) {
+                    exportBuffer[i * 2] = leftBuffer[i];
+                    exportBuffer[i * 2 + 1] = rightBuffer[i];
+                }
+                
+                if (!exporter.wavFileWriteBuffer(exportBuffer, blockSize)) {
+                    logger.log("VoiceManager/exportSingleNotePlayback", "error", "Export write failed");
+                    break;
+                }
+            } else {
+                // Silent block - still export zeros
+                memset(exportBuffer, 0, blockSize * 2 * sizeof(float));
+                exporter.wavFileWriteBuffer(exportBuffer, blockSize);
+            }
+        }
+        
+        // Release note
+        setNoteState(midi, false, 0);
+        logger.log("VoiceManager/exportSingleNotePlayback", "info", "Note-off sent, capturing release...");
+        
+        // Capture release phase (approximately 1 second)
+        const int releaseBlocks = currentSampleRate_ / blockSize;
+        for (int block = 0; block < releaseBlocks; ++block) {
+            if (processBlock(leftBuffer, rightBuffer, blockSize)) {
+                for (int i = 0; i < blockSize; ++i) {
+                    exportBuffer[i * 2] = leftBuffer[i];
+                    exportBuffer[i * 2 + 1] = rightBuffer[i];
+                }
+                
+                if (!exporter.wavFileWriteBuffer(exportBuffer, blockSize)) {
+                    break;
+                }
+            } else {
+                // Voice finished
+                break;
+            }
+        }
+        
+        delete[] leftBuffer;
+        delete[] rightBuffer;
+        
+        logger.log("VoiceManager/exportSingleNotePlayback", "info", 
+                  "Live single note export completed: " + filename);
+        
+    } catch (...) {
+        logger.log("VoiceManager/exportSingleNotePlayback", "error", "Export failed with exception");
+    }
+}
+
+/**
+ * @brief Export live polyphony playback
+ */
+void VoiceManager::exportPolyphonyPlayback(const std::vector<uint8_t>& midiNotes, 
+                                          const std::string& exportDir, Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/exportPolyphonyPlayback", "error", 
+                  "System not initialized. Call loadAllInstruments() first.");
+        return;
+    }
+    
+    if (midiNotes.empty()) {
+        logger.log("VoiceManager/exportPolyphonyPlayback", "warn", "No MIDI notes provided");
+        return;
+    }
+    
+    logger.log("VoiceManager/exportPolyphonyPlayback", "info", 
+              "Starting live polyphony export for " + std::to_string(midiNotes.size()) + " notes");
+    
+    try {
+        WavExporter exporter(exportDir, logger);
+        std::string filename = "live_polyphony_" + std::to_string(midiNotes.size()) + "notes.wav";
+        
+        const int blockSize = 512;
+        float* exportBuffer = exporter.wavFileCreate(filename, currentSampleRate_, blockSize, true, true);
+        
+        if (!exportBuffer) {
+            logger.log("VoiceManager/exportPolyphonyPlayback", "error", "Failed to create export buffer");
+            return;
+        }
+        
+        float* leftBuffer = new float[blockSize];
+        float* rightBuffer = new float[blockSize];
+        
+        // Start chord (all notes at once)
+        for (uint8_t midi : midiNotes) {
+            setNoteState(midi, true, 100);
+            logger.log("VoiceManager/exportPolyphonyPlayback", "info", 
+                      "Note-on MIDI " + std::to_string(midi));
+        }
+        
+        logger.log("VoiceManager/exportPolyphonyPlayback", "info", 
+                  "Chord started, active voices: " + std::to_string(getActiveVoicesCount()));
+        
+        // Capture chord sustain (approximately 3 seconds)
+        const int sustainBlocks = (3 * currentSampleRate_) / blockSize;
+        for (int block = 0; block < sustainBlocks; ++block) {
+            if (processBlock(leftBuffer, rightBuffer, blockSize)) {
+                // Interleave for export
+                for (int i = 0; i < blockSize; ++i) {
+                    exportBuffer[i * 2] = leftBuffer[i];
+                    exportBuffer[i * 2 + 1] = rightBuffer[i];
+                }
+                
+                if (!exporter.wavFileWriteBuffer(exportBuffer, blockSize)) {
+                    logger.log("VoiceManager/exportPolyphonyPlayback", "error", "Export write failed");
+                    break;
+                }
+            } else {
+                memset(exportBuffer, 0, blockSize * 2 * sizeof(float));
+                exporter.wavFileWriteBuffer(exportBuffer, blockSize);
+            }
+        }
+        
+        // Release chord (all notes off)
+        for (uint8_t midi : midiNotes) {
+            setNoteState(midi, false, 0);
+        }
+        
+        logger.log("VoiceManager/exportPolyphonyPlayback", "info", "Chord released, capturing tail...");
+        
+        // Capture release phase (approximately 2 seconds)
+        const int releaseBlocks = (2 * currentSampleRate_) / blockSize;
+        for (int block = 0; block < releaseBlocks; ++block) {
+            if (processBlock(leftBuffer, rightBuffer, blockSize)) {
+                for (int i = 0; i < blockSize; ++i) {
+                    exportBuffer[i * 2] = leftBuffer[i];
+                    exportBuffer[i * 2 + 1] = rightBuffer[i];
+                }
+                
+                if (!exporter.wavFileWriteBuffer(exportBuffer, blockSize)) {
+                    break;
+                }
+            } else {
+                // All voices finished
+                break;
+            }
+        }
+        
+        delete[] leftBuffer;
+        delete[] rightBuffer;
+        
+        logger.log("VoiceManager/exportPolyphonyPlayback", "info", 
+                  "Live polyphony export completed: " + filename);
+        
+    } catch (...) {
+        logger.log("VoiceManager/exportPolyphonyPlayback", "error", "Export failed with exception");
+    }
+}
+
+// ===== PRIVATE HELPER METHODS =====
+
+/**
+ * @brief Inicializace vÅ¡ech voices s naÄtenÃ½mi instrumenty
+ * @param logger Reference na Logger
+ */
+void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
+    logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
+              "Initializing all 128 voices with loaded instruments...");
+    
+    for (int i = 0; i < 128; ++i) {
+        uint8_t midiNote = static_cast<uint8_t>(i);
+        const Instrument& inst = instrumentLoader_.getInstrumentNote(midiNote);
+        Voice& voice = voices_[i];
+        
+        // Initialize voice s odpovÃ­dajÃ­cÃ­m instrumentem
+        voice.initialize(inst, currentSampleRate_, logger);
+        
+        // NOVÃ‰: Prepare voice pro current buffer size (reasonable default)
+        voice.prepareToPlay(512); // Will be updated by explicit prepareToPlay() call
+    }
+    
+    logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
+              "All voices initialized with instruments successfully");
+}
+
+/**
+ * @brief Helper: Check if reinitialization needed
+ */
+bool VoiceManager::needsReinitialization(int targetSampleRate) const noexcept {
+    // Debug logging pro diagnostiku
+    bool currentMismatch = (currentSampleRate_ != targetSampleRate);
+    bool loaderMismatch = (instrumentLoader_.getActualSampleRate() != targetSampleRate);
+    
+    // Pro debugging - toto nenÃ­ RT-safe, ale pro diagnostiku OK
+    if (currentMismatch || loaderMismatch) {
+        // Pokud je potÅ™eba reinicializace, debug info se vypÃ­Å¡e v changeSampleRate()
+        return true;
+    }
+    
+    return false;
+}
+
+/**
+ * @brief Helper: Reinitialize if needed
+ */
+void VoiceManager::reinitializeIfNeeded(int targetSampleRate, Logger& logger) {
+    if (needsReinitialization(targetSampleRate)) {
+        changeSampleRate(targetSampleRate, logger);
+    }
+}
+
+/**
+ * @brief Helper: Find valid test MIDI note
+ */
+uint8_t VoiceManager::findValidTestMidiNote(Logger& logger) const {
+    for (int midi = 60; midi <= 80; ++midi) {
+        if (systemInitialized_) {
+            const Instrument& inst = instrumentLoader_.getInstrumentNote(midi);
+            for (int vel = 0; vel < 8; ++vel) {
+                if (inst.velocityExists[vel]) {
+                    logger.log("VoiceManager/findValidTestMidiNote", "info", 
+                              "Found valid test note: MIDI " + std::to_string(midi));
+                    return static_cast<uint8_t>(midi);
+                }
+            }
+        }
+    }
+    logger.log("VoiceManager/findValidTestMidiNote", "warn", 
+              "No valid test note found, using default MIDI 60");
+    return 60; // fallback
+}
+
+/**
+ * @brief Helper: Find valid notes for polyphony
+ */
+std::vector<uint8_t> VoiceManager::findValidNotesForPolyphony(Logger& logger, int maxNotes) const {
+    std::vector<uint8_t> notes;
+    for (int midi = 50; midi <= 80 && notes.size() < maxNotes; ++midi) {
+        if (systemInitialized_) {
+            const Instrument& inst = instrumentLoader_.getInstrumentNote(midi);
+            for (int vel = 0; vel < 8; ++vel) {
+                if (inst.velocityExists[vel]) {
+                    notes.push_back(static_cast<uint8_t>(midi));
+                    logger.log("VoiceManager/findValidNotesForPolyphony", "info", 
+                              "Added MIDI " + std::to_string(midi) + " for polyphony test");
+                    break;
+                }
+            }
+        }
+    }
+    return notes;
+}
+
+/**
+ * @brief NON-RT SAFE: Safe logging wrapper
+ */
+void VoiceManager::logSafe(const std::string& component, const std::string& severity, 
+                          const std::string& message, Logger& logger) const {
+    if (!rtMode_.load()) {
+        logger.log(component, severity, message);
+    }
+}
+
+// ===== PÅ®VODNÃ METHODS IMPLEMENTATION - UPRAVENÃ‰ PRO NOVOU VOICE TÅ˜ÃDU =====
+
 void VoiceManager::setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) noexcept {
     if (!isValidMidiNote(midiNote)) {
         return;
@@ -2785,21 +3733,20 @@ void VoiceManager::setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) n
             addActiveVoice(&voice);
         }
         voice.setNoteState(true, velocity);
-        
     } else {
         voice.setNoteState(false, velocity);
     }
 }
 
 /**
- * @brief RT-SAFE HLAVNÃ METODA: Procesuje audio blok s explicitnÃ­mi stereo buffery.
+ * @brief KRITICKÃ ÃšPRAVA: processBlock s pÅ™edÃ¡vÃ¡nÃ­m active voice count pro dynamic scaling
  */
 bool VoiceManager::processBlock(float* outputLeft, float* outputRight, int numSamples) noexcept {
     if (!outputLeft || !outputRight || numSamples <= 0) {
         return false;
     }
     
-    // VynulovÃ¡nÃ­ vÃ½stupnÃ­ch bufferÅ¯
+    // KRITICKÃ‰: Clear output buffers first - refaktorovanÃ¡ Voice pouÅ¾Ã­vÃ¡ += operace
     memset(outputLeft, 0, numSamples * sizeof(float));
     memset(outputRight, 0, numSamples * sizeof(float));
     
@@ -2809,9 +3756,13 @@ bool VoiceManager::processBlock(float* outputLeft, float* outputRight, int numSa
     
     bool anyActive = false;
     
+    // NOVÃ‰: Get active voice count for dynamic scaling
+    const int activeCount = static_cast<int>(activeVoices_.size());
+    
     for (Voice* voice : activeVoices_) {
         if (voice && voice->isActive()) {
-            if (voice->processBlock(outputLeft, outputRight, numSamples)) {
+            // KLÃÄŒOVÃ ZMÄšNA: Pass activeCount for dynamic gain scaling
+            if (voice->processBlock(outputLeft, outputRight, numSamples, activeCount)) {
                 anyActive = true;
             } else {
                 voicesToRemove_.push_back(voice);
@@ -2829,13 +3780,14 @@ bool VoiceManager::processBlock(float* outputLeft, float* outputRight, int numSa
 }
 
 /**
- * @brief RT-SAFE: AlternativnÃ­ processBlock s AudioData strukturou.
+ * @brief UPRAVENÃ‰: AudioData processBlock variant
  */
 bool VoiceManager::processBlock(AudioData* outputBuffer, int numSamples) noexcept {
     if (!outputBuffer || numSamples <= 0) {
         return false;
     }
     
+    // KRITICKÃ‰: Clear output buffer first
     for (int i = 0; i < numSamples; ++i) {
         outputBuffer[i].left = 0.0f;
         outputBuffer[i].right = 0.0f;
@@ -2866,9 +3818,6 @@ bool VoiceManager::processBlock(AudioData* outputBuffer, int numSamples) noexcep
     return anyActive;
 }
 
-/**
- * @brief RT-SAFE: Stopne vÅ¡echny aktivnÃ­ hlasy (panic button).
- */
 void VoiceManager::stopAllVoices() noexcept {
     for (Voice* voice : activeVoices_) {
         if (voice && voice->isActive()) {
@@ -2877,9 +3826,6 @@ void VoiceManager::stopAllVoices() noexcept {
     }
 }
 
-/**
- * @brief NON-RT SAFE: Resetuje vÅ¡echny hlasy na idle stav.
- */
 void VoiceManager::resetAllVoices(Logger& logger) {
     for (int i = 0; i < 128; ++i) {
         voices_[i].cleanup(logger);
@@ -2893,9 +3839,6 @@ void VoiceManager::resetAllVoices(Logger& logger) {
            "Reset all 128 voices to idle state", logger);
 }
 
-/**
- * @brief RT-SAFE: Getter pro poÄet sustaining voices.
- */
 int VoiceManager::getSustainingVoicesCount() const noexcept {
     int count = 0;
     for (const Voice* voice : activeVoices_) {
@@ -2906,9 +3849,6 @@ int VoiceManager::getSustainingVoicesCount() const noexcept {
     return count;
 }
 
-/**
- * @brief RT-SAFE: Getter pro poÄet releasing voices.
- */
 int VoiceManager::getReleasingVoicesCount() const noexcept {
     int count = 0;
     for (const Voice* voice : activeVoices_) {
@@ -2919,9 +3859,6 @@ int VoiceManager::getReleasingVoicesCount() const noexcept {
     return count;
 }
 
-/**
- * @brief RT-SAFE: Getter pro referenci na konkrÃ©tnÃ­ voice.
- */
 Voice& VoiceManager::getVoice(uint8_t midiNote) noexcept {
     #ifdef DEBUG
     if (!isValidMidiNote(midiNote)) {
@@ -2932,9 +3869,6 @@ Voice& VoiceManager::getVoice(uint8_t midiNote) noexcept {
     return voices_[midiNote];
 }
 
-/**
- * @brief RT-SAFE: Const getter pro referenci na konkrÃ©tnÃ­ voice.
- */
 const Voice& VoiceManager::getVoice(uint8_t midiNote) const noexcept {
     #ifdef DEBUG
     if (!isValidMidiNote(midiNote)) {
@@ -2945,34 +3879,11 @@ const Voice& VoiceManager::getVoice(uint8_t midiNote) const noexcept {
     return voices_[midiNote];
 }
 
-/**
- * @brief RT-SAFE: NastavÃ­ RT mode pro vÅ¡echny voices.
- */
 void VoiceManager::setRealTimeMode(bool enabled) noexcept {
     rtMode_.store(enabled);
     Voice::setRealTimeMode(enabled);
 }
 
-/**
- * @brief NON-RT SAFE: ZÃ­skÃ¡ detailnÃ­ statistiky pro debugging.
- */
-void VoiceManager::logStatistics(Logger& logger) const {
-    const int active = getActiveVoicesCount();
-    const int sustaining = getSustainingVoicesCount();
-    const int releasing = getReleasingVoicesCount();
-    
-    logSafe("VoiceManager/statistics", "info", 
-           "Voice Statistics - Active: " + std::to_string(active) +
-           ", Sustaining: " + std::to_string(sustaining) +
-           ", Releasing: " + std::to_string(releasing) +
-           ", Max: 128", logger);
-}
-
-// ===== PRIVATE OPTIMALIZOVANÃ‰ RT-SAFE METODY =====
-
-/**
- * @brief RT-SAFE: PÅ™idÃ¡ voice do active tracking.
- */
 void VoiceManager::addActiveVoice(Voice* voice) noexcept {
     if (!voice) return;
     
@@ -2983,9 +3894,6 @@ void VoiceManager::addActiveVoice(Voice* voice) noexcept {
     }
 }
 
-/**
- * @brief RT-SAFE: Odebere voice z active tracking.
- */
 void VoiceManager::removeActiveVoice(Voice* voice) noexcept {
     if (!voice) return;
     
@@ -2996,25 +3904,12 @@ void VoiceManager::removeActiveVoice(Voice* voice) noexcept {
     }
 }
 
-/**
- * @brief RT-SAFE: Cleanup neaktivnÃ­ch voices z active tracking.
- */
 void VoiceManager::cleanupInactiveVoices() noexcept {
     for (Voice* voice : voicesToRemove_) {
         removeActiveVoice(voice);
     }
     
     voicesToRemove_.clear();
-}
-
-/**
- * @brief NON-RT SAFE: Logging wrapper pro non-critical operations.
- */
-void VoiceManager::logSafe(const std::string& component, const std::string& severity, 
-                          const std::string& message, Logger& logger) const {
-    if (!rtMode_.load()) {
-        logger.log(component, severity, message);
-    }
 }
 
 
@@ -3025,8 +3920,8 @@ Path: C:\Users\jindr\IthacaCore\sampler\voice_manager.h
 #define VOICE_MANAGER_H
 
 #include "voice.h"
-#include "instrument_loader.h"
-#include "sampler.h"
+#include "instrument_loader.h"  // Pro stack allocated member
+#include "sampler.h"           // Pro SamplerIO stack allocated member
 #include <vector>
 #include <string>
 #include <atomic>
@@ -3034,18 +3929,43 @@ Path: C:\Users\jindr\IthacaCore\sampler\voice_manager.h
 
 class VoiceManager {
 public:
-    VoiceManager(const std::string& sampleDir, int sampleRate, Logger& logger);
+    VoiceManager(const std::string& sampleDir, Logger& logger);
 
-    // âœ… ODSTRANÄšNO: initializeAll() - bude se dÄ›lat manuÃ¡lnÄ›
-    // void initializeAll(Logger& logger);
+    // Dynamic sample rate management
+    void changeSampleRate(int newSampleRate, Logger& logger);
+    int getCurrentSampleRate() const noexcept { return currentSampleRate_; }
 
+    // NOVÃ‰: JUCE integration - prepare all voices for buffer size changes
+    void prepareToPlay(int maxBlockSize) noexcept;
+
+    // Initialization pipeline (nahradÃ­ runSampler logiku)
+    void initializeSystem(Logger& logger);
+    void loadAllInstruments(Logger& logger);
+    void validateSystemIntegrity(Logger& logger);
+
+    // Granular testing methods
+    void runSingleNoteTest(Logger& logger);
+    void runPolyphonyTest(Logger& logger);
+    void runEdgeCaseTests(Logger& logger);
+    void runIndividualVoiceTest(Logger& logger);
+
+    // Export and diagnostics
+    void exportTestSample(uint8_t midi, uint8_t vel, 
+                         const std::string& exportDir, Logger& logger);
+    void exportSingleNotePlayback(uint8_t midi, uint8_t velocity, 
+                                 const std::string& exportDir, Logger& logger);
+    void exportPolyphonyPlayback(const std::vector<uint8_t>& midiNotes, 
+                                const std::string& exportDir, Logger& logger);
+    void logSystemStatistics(Logger& logger);
+
+    // UPRAVENÃ‰ API - processBlock nynÃ­ pÅ™edÃ¡vÃ¡ active voice count
     void setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) noexcept;
     bool processBlock(float* outputLeft, float* outputRight, int numSamples) noexcept;
     bool processBlock(AudioData* outputBuffer, int numSamples) noexcept;
     void stopAllVoices() noexcept;
     void resetAllVoices(Logger& logger);
 
-    // Gettery
+    // Existing getters
     int getMaxVoices() const noexcept { return 128; }
     int getActiveVoicesCount() const noexcept { return activeVoicesCount_.load(); }
     int getSustainingVoicesCount() const noexcept;
@@ -3056,19 +3976,35 @@ public:
 
     void setRealTimeMode(bool enabled) noexcept;
     bool isRealTimeMode() const noexcept { return rtMode_.load(); }
-    void logStatistics(Logger& logger) const;
 
 private:
-    std::vector<Voice> voices_;
-    int sampleRate_;
-    std::string sampleDir_;
+    // Stack allocated encapsulated components
+    SamplerIO samplerIO_;              // Stack allocated SamplerIO instance
+    InstrumentLoader instrumentLoader_; // Stack allocated InstrumentLoader instance
 
+    // Sample rate management
+    int currentSampleRate_;
+    std::string sampleDir_;
+    bool systemInitialized_;           // Flag pro initialization state
+
+    // Voice management
+    std::vector<Voice> voices_;
     std::vector<Voice*> activeVoices_;
     std::vector<Voice*> voicesToRemove_;
     
     mutable std::atomic<int> activeVoicesCount_{0};
     std::atomic<bool> rtMode_{false};
 
+    // Helper methods pro dynamic sample rate
+    void reinitializeIfNeeded(int targetSampleRate, Logger& logger);
+    bool needsReinitialization(int targetSampleRate) const noexcept;
+    void initializeVoicesWithInstruments(Logger& logger);
+
+    // Test helper methods
+    uint8_t findValidTestMidiNote(Logger& logger) const;
+    std::vector<uint8_t> findValidNotesForPolyphony(Logger& logger, int maxNotes = 3) const;
+
+    // Voice management methods
     void addActiveVoice(Voice* voice) noexcept;
     void removeActiveVoice(Voice* voice) noexcept;
     void cleanupInactiveVoices() noexcept;

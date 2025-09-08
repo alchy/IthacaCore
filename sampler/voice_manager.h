@@ -2,8 +2,8 @@
 #define VOICE_MANAGER_H
 
 #include "voice.h"
-#include "instrument_loader.h"  // NOVÉ: Pro stack allocated member
-#include "sampler.h"           // NOVÉ: Pro SamplerIO stack allocated member
+#include "instrument_loader.h"  // Pro stack allocated member
+#include "sampler.h"           // Pro SamplerIO stack allocated member
 #include <vector>
 #include <string>
 #include <atomic>
@@ -13,22 +13,50 @@ class VoiceManager {
 public:
     VoiceManager(const std::string& sampleDir, Logger& logger);
 
-    // NOVÉ: Dynamic sample rate management
+    // Dynamic sample rate management
     void changeSampleRate(int newSampleRate, Logger& logger);
     int getCurrentSampleRate() const noexcept { return currentSampleRate_; }
 
-    // NOVÉ: Initialization pipeline (nahradí runSampler logiku)
+    // NOVÉ: JUCE integration - prepare all voices for buffer size changes
+    void prepareToPlay(int maxBlockSize) noexcept;
+
+    // Initialization pipeline (nahradí runSampler logiku)
     void initializeSystem(Logger& logger);
     void loadAllInstruments(Logger& logger);
     void validateSystemIntegrity(Logger& logger);
 
-    // NOVÉ: Granular testing methods
+    // NOVÉ: Granular testing methods with GAIN FOCUS
     void runSingleNoteTest(Logger& logger);
     void runPolyphonyTest(Logger& logger);
     void runEdgeCaseTests(Logger& logger);
     void runIndividualVoiceTest(Logger& logger);
 
-    // NOVÉ: Export and diagnostics
+    // NOVÉ: VELOCITY GAIN SPECIFIC testing methods
+    /**
+     * @brief NOVÁ metoda: Test velocity gain s různými hodnotami
+     * Testuje aplikaci MIDI velocity na hlasitost s detailním logováním.
+     * Testuje velocity: 1, 32, 64, 96, 127 a analyzuje výstupní hlasitost.
+     * @param logger Reference na Logger
+     */
+    void runVelocityGainTest(Logger& logger);
+
+    /**
+     * @brief NOVÁ metoda: Test master gain nastavení
+     * Testuje různé master gain hodnoty: 0.1, 0.3, 0.5, 0.8, 1.0
+     * s analýzou jejich dopadu na výstupní hlasitost.
+     * @param logger Reference na Logger
+     */
+    void runMasterGainTest(Logger& logger);
+
+    /**
+     * @brief ROZŠÍŘENÝ runSingleNoteTest s gain analýzou
+     * Kombinuje původní single note test s detailním monitoringem
+     * envelope, velocity a master gain během přehrávání.
+     * @param logger Reference na Logger
+     */
+    void runSingleNoteTestWithGain(Logger& logger);
+
+    // Export and diagnostics
     void exportTestSample(uint8_t midi, uint8_t vel, 
                          const std::string& exportDir, Logger& logger);
     void exportSingleNotePlayback(uint8_t midi, uint8_t velocity, 
@@ -37,7 +65,7 @@ public:
                                 const std::string& exportDir, Logger& logger);
     void logSystemStatistics(Logger& logger);
 
-    // Existing API - nezměněné
+    // UPRAVENÉ API - processBlock nyní předává active voice count
     void setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) noexcept;
     bool processBlock(float* outputLeft, float* outputRight, int numSamples) noexcept;
     bool processBlock(AudioData* outputBuffer, int numSamples) noexcept;
@@ -57,16 +85,16 @@ public:
     bool isRealTimeMode() const noexcept { return rtMode_.load(); }
 
 private:
-    // NOVÉ: Stack allocated encapsulated components
+    // Stack allocated encapsulated components
     SamplerIO samplerIO_;              // Stack allocated SamplerIO instance
     InstrumentLoader instrumentLoader_; // Stack allocated InstrumentLoader instance
 
-    // NOVÉ: Sample rate management
+    // Sample rate management
     int currentSampleRate_;
     std::string sampleDir_;
     bool systemInitialized_;           // Flag pro initialization state
 
-    // Existing members
+    // Voice management
     std::vector<Voice> voices_;
     std::vector<Voice*> activeVoices_;
     std::vector<Voice*> voicesToRemove_;
@@ -74,16 +102,16 @@ private:
     mutable std::atomic<int> activeVoicesCount_{0};
     std::atomic<bool> rtMode_{false};
 
-    // NOVÉ: Helper methods pro dynamic sample rate
+    // Helper methods pro dynamic sample rate
     void reinitializeIfNeeded(int targetSampleRate, Logger& logger);
     bool needsReinitialization(int targetSampleRate) const noexcept;
     void initializeVoicesWithInstruments(Logger& logger);
 
-    // NOVÉ: Test helper methods
+    // Test helper methods
     uint8_t findValidTestMidiNote(Logger& logger) const;
     std::vector<uint8_t> findValidNotesForPolyphony(Logger& logger, int maxNotes = 3) const;
 
-    // Existing private methods
+    // Voice management methods
     void addActiveVoice(Voice* voice) noexcept;
     void removeActiveVoice(Voice* voice) noexcept;
     void cleanupInactiveVoices() noexcept;
