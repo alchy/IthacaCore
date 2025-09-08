@@ -53,10 +53,14 @@ int runSampler(Logger& logger) {
 
         // Optional: Dynamic sample rate demonstration
         logger.log("runSampler", "info", "=== Dynamic Sample Rate Change Demo ===");
+        logger.log("runSampler", "info", "Current sample rate: " + std::to_string(voiceManager.getCurrentSampleRate()) + " Hz");
+        logger.log("runSampler", "info", "Changing to ALTERNATIVE_SAMPLE_RATE: " + std::to_string(ALTERNATIVE_SAMPLE_RATE) + " Hz");
         voiceManager.changeSampleRate(ALTERNATIVE_SAMPLE_RATE, logger);
         voiceManager.logSystemStatistics(logger);
 
         // Reset to original sample rate
+        logger.log("runSampler", "info", "Current sample rate: " + std::to_string(voiceManager.getCurrentSampleRate()) + " Hz");
+        logger.log("runSampler", "info", "Resetting to DEFAULT_SAMPLE_RATE: " + std::to_string(DEFAULT_SAMPLE_RATE) + " Hz");
         voiceManager.changeSampleRate(DEFAULT_SAMPLE_RATE, logger);
 
         logger.log("runSampler", "info", "Sampler workflow completed successfully via VoiceManager facade");
