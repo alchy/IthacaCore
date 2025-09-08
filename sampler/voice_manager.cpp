@@ -59,6 +59,14 @@ void VoiceManager::changeSampleRate(int newSampleRate, Logger& logger) {
         std::exit(1);
     }
     
+    // DEBUG: Detailní info o aktuálním stavu
+    logger.log("VoiceManager/changeSampleRate", "debug", 
+              "DEBUG: Requested sample rate: " + std::to_string(newSampleRate) + " Hz");
+    logger.log("VoiceManager/changeSampleRate", "debug", 
+              "DEBUG: Current sample rate (VoiceManager): " + std::to_string(currentSampleRate_) + " Hz");
+    logger.log("VoiceManager/changeSampleRate", "debug", 
+              "DEBUG: Current sample rate (InstrumentLoader): " + std::to_string(instrumentLoader_.getActualSampleRate()) + " Hz");
+    
     if (needsReinitialization(newSampleRate)) {
         logger.log("VoiceManager/changeSampleRate", "info", 
                   "Sample rate change detected: " + std::to_string(currentSampleRate_) + 
@@ -95,7 +103,8 @@ void VoiceManager::changeSampleRate(int newSampleRate, Logger& logger) {
         }
     } else {
         logger.log("VoiceManager/changeSampleRate", "info", 
-                  "Sample rate unchanged: " + std::to_string(newSampleRate) + " Hz");
+                  "Sample rate unchanged: " + std::to_string(newSampleRate) + 
+                  " Hz (no reinitialization needed)");
     }
 }
 
@@ -243,7 +252,7 @@ void VoiceManager::logSystemStatistics(Logger& logger) {
 // ===== TESTING METHODS =====
 
 /**
- * @brief NOVÉ: Single note test
+ * @brief NOVÉ: Single note test s live export možností
  */
 void VoiceManager::runSingleNoteTest(Logger& logger) {
     if (!systemInitialized_) {
@@ -265,7 +274,7 @@ void VoiceManager::runSingleNoteTest(Logger& logger) {
     logger.log("VoiceManager/runSingleNoteTest", "info", 
               "Note-on sent. Active voices: " + std::to_string(getActiveVoicesCount()));
     
-    // Simulate audio processing
+    // Simulate audio processing (shorter for testing)
     const int blockSize = 512;
     const int numBlocks = 5;
     
@@ -297,10 +306,15 @@ void VoiceManager::runSingleNoteTest(Logger& logger) {
     // Note-off
     setNoteState(testMidi, false, 0);
     logger.log("VoiceManager/runSingleNoteTest", "info", "Single note test completed");
+    
+    // NOVÉ: Live export
+    logger.log("VoiceManager/runSingleNoteTest", "info", 
+              "Running live export for single note test...");
+    exportSingleNotePlayback(testMidi, testVelocity, "./exports", logger);
 }
 
 /**
- * @brief NOVÉ: Polyphony test
+ * @brief NOVÉ: Polyphony test s live export možností
  */
 void VoiceManager::runPolyphonyTest(Logger& logger) {
     if (!systemInitialized_) {
@@ -324,7 +338,7 @@ void VoiceManager::runPolyphonyTest(Logger& logger) {
         logger.log("VoiceManager/runPolyphonyTest", "info", 
                   "Active voices after chord: " + std::to_string(getActiveVoicesCount()));
         
-        // Process one block
+        // Process one block for testing
         const int blockSize = 512;
         float* leftBuffer = new float[blockSize];
         float* rightBuffer = new float[blockSize];
@@ -348,6 +362,11 @@ void VoiceManager::runPolyphonyTest(Logger& logger) {
         for (uint8_t note : testNotes) {
             setNoteState(note, false, 0);
         }
+        
+        // NOVÉ: Live export polyphony
+        logger.log("VoiceManager/runPolyphonyTest", "info", 
+                  "Running live export for polyphony test...");
+        exportPolyphonyPlayback(testNotes, "./exports", logger);
     } else {
         logger.log("VoiceManager/runPolyphonyTest", "warn", 
                   "Not enough valid notes for polyphony test");
@@ -399,7 +418,7 @@ void VoiceManager::runIndividualVoiceTest(Logger& logger) {
 }
 
 /**
- * @brief NOVÉ: Export test sample
+ * @brief NOVÉ: Export test sample (původní raw sample data)
  */
 void VoiceManager::exportTestSample(uint8_t midi, uint8_t vel, const std::string& exportDir, Logger& logger) {
     if (!systemInitialized_) {
@@ -453,6 +472,196 @@ void VoiceManager::exportTestSample(uint8_t midi, uint8_t vel, const std::string
     }
 }
 
+/**
+ * @brief NOVÉ: Export live single note playback
+ */
+void VoiceManager::exportSingleNotePlayback(uint8_t midi, uint8_t velocity, 
+                                           const std::string& exportDir, Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/exportSingleNotePlayback", "error", 
+                  "System not initialized. Call loadAllInstruments() first.");
+        return;
+    }
+    
+    logger.log("VoiceManager/exportSingleNotePlayback", "info", 
+              "Starting live export for MIDI " + std::to_string(midi) + 
+              " velocity " + std::to_string(velocity));
+    
+    try {
+        WavExporter exporter(exportDir, logger);
+        std::string filename = "live_single_midi" + std::to_string(midi) + 
+                              "_vel" + std::to_string(velocity) + ".wav";
+        
+        const int blockSize = 512;
+        float* exportBuffer = exporter.wavFileCreate(filename, currentSampleRate_, blockSize, true, true);
+        
+        if (!exportBuffer) {
+            logger.log("VoiceManager/exportSingleNotePlayback", "error", "Failed to create export buffer");
+            return;
+        }
+        
+        // Temporary buffers for audio processing
+        float* leftBuffer = new float[blockSize];
+        float* rightBuffer = new float[blockSize];
+        
+        // Start note
+        setNoteState(midi, true, velocity);
+        logger.log("VoiceManager/exportSingleNotePlayback", "info", "Note-on sent, capturing audio...");
+        
+        // Capture sustain phase (approximately 2 seconds)
+        const int sustainBlocks = (2 * currentSampleRate_) / blockSize;
+        for (int block = 0; block < sustainBlocks; ++block) {
+            if (processBlock(leftBuffer, rightBuffer, blockSize)) {
+                // Interleave for export
+                for (int i = 0; i < blockSize; ++i) {
+                    exportBuffer[i * 2] = leftBuffer[i];
+                    exportBuffer[i * 2 + 1] = rightBuffer[i];
+                }
+                
+                if (!exporter.wavFileWriteBuffer(exportBuffer, blockSize)) {
+                    logger.log("VoiceManager/exportSingleNotePlayback", "error", "Export write failed");
+                    break;
+                }
+            } else {
+                // Silent block - still export zeros
+                memset(exportBuffer, 0, blockSize * 2 * sizeof(float));
+                exporter.wavFileWriteBuffer(exportBuffer, blockSize);
+            }
+        }
+        
+        // Release note
+        setNoteState(midi, false, 0);
+        logger.log("VoiceManager/exportSingleNotePlayback", "info", "Note-off sent, capturing release...");
+        
+        // Capture release phase (approximately 1 second)
+        const int releaseBlocks = currentSampleRate_ / blockSize;
+        for (int block = 0; block < releaseBlocks; ++block) {
+            if (processBlock(leftBuffer, rightBuffer, blockSize)) {
+                for (int i = 0; i < blockSize; ++i) {
+                    exportBuffer[i * 2] = leftBuffer[i];
+                    exportBuffer[i * 2 + 1] = rightBuffer[i];
+                }
+                
+                if (!exporter.wavFileWriteBuffer(exportBuffer, blockSize)) {
+                    break;
+                }
+            } else {
+                // Voice finished
+                break;
+            }
+        }
+        
+        delete[] leftBuffer;
+        delete[] rightBuffer;
+        
+        logger.log("VoiceManager/exportSingleNotePlayback", "info", 
+                  "Live single note export completed: " + filename);
+        
+    } catch (...) {
+        logger.log("VoiceManager/exportSingleNotePlayback", "error", "Export failed with exception");
+    }
+}
+
+/**
+ * @brief NOVÉ: Export live polyphony playback
+ */
+void VoiceManager::exportPolyphonyPlayback(const std::vector<uint8_t>& midiNotes, 
+                                          const std::string& exportDir, Logger& logger) {
+    if (!systemInitialized_) {
+        logger.log("VoiceManager/exportPolyphonyPlayback", "error", 
+                  "System not initialized. Call loadAllInstruments() first.");
+        return;
+    }
+    
+    if (midiNotes.empty()) {
+        logger.log("VoiceManager/exportPolyphonyPlayback", "warn", "No MIDI notes provided");
+        return;
+    }
+    
+    logger.log("VoiceManager/exportPolyphonyPlayback", "info", 
+              "Starting live polyphony export for " + std::to_string(midiNotes.size()) + " notes");
+    
+    try {
+        WavExporter exporter(exportDir, logger);
+        std::string filename = "live_polyphony_" + std::to_string(midiNotes.size()) + "notes.wav";
+        
+        const int blockSize = 512;
+        float* exportBuffer = exporter.wavFileCreate(filename, currentSampleRate_, blockSize, true, true);
+        
+        if (!exportBuffer) {
+            logger.log("VoiceManager/exportPolyphonyPlayback", "error", "Failed to create export buffer");
+            return;
+        }
+        
+        float* leftBuffer = new float[blockSize];
+        float* rightBuffer = new float[blockSize];
+        
+        // Start chord (all notes at once)
+        for (uint8_t midi : midiNotes) {
+            setNoteState(midi, true, 100);
+            logger.log("VoiceManager/exportPolyphonyPlayback", "info", 
+                      "Note-on MIDI " + std::to_string(midi));
+        }
+        
+        logger.log("VoiceManager/exportPolyphonyPlayback", "info", 
+                  "Chord started, active voices: " + std::to_string(getActiveVoicesCount()));
+        
+        // Capture chord sustain (approximately 3 seconds)
+        const int sustainBlocks = (3 * currentSampleRate_) / blockSize;
+        for (int block = 0; block < sustainBlocks; ++block) {
+            if (processBlock(leftBuffer, rightBuffer, blockSize)) {
+                // Interleave for export
+                for (int i = 0; i < blockSize; ++i) {
+                    exportBuffer[i * 2] = leftBuffer[i];
+                    exportBuffer[i * 2 + 1] = rightBuffer[i];
+                }
+                
+                if (!exporter.wavFileWriteBuffer(exportBuffer, blockSize)) {
+                    logger.log("VoiceManager/exportPolyphonyPlayback", "error", "Export write failed");
+                    break;
+                }
+            } else {
+                memset(exportBuffer, 0, blockSize * 2 * sizeof(float));
+                exporter.wavFileWriteBuffer(exportBuffer, blockSize);
+            }
+        }
+        
+        // Release chord (all notes off)
+        for (uint8_t midi : midiNotes) {
+            setNoteState(midi, false, 0);
+        }
+        
+        logger.log("VoiceManager/exportPolyphonyPlayback", "info", "Chord released, capturing tail...");
+        
+        // Capture release phase (approximately 2 seconds)
+        const int releaseBlocks = (2 * currentSampleRate_) / blockSize;
+        for (int block = 0; block < releaseBlocks; ++block) {
+            if (processBlock(leftBuffer, rightBuffer, blockSize)) {
+                for (int i = 0; i < blockSize; ++i) {
+                    exportBuffer[i * 2] = leftBuffer[i];
+                    exportBuffer[i * 2 + 1] = rightBuffer[i];
+                }
+                
+                if (!exporter.wavFileWriteBuffer(exportBuffer, blockSize)) {
+                    break;
+                }
+            } else {
+                // All voices finished
+                break;
+            }
+        }
+        
+        delete[] leftBuffer;
+        delete[] rightBuffer;
+        
+        logger.log("VoiceManager/exportPolyphonyPlayback", "info", 
+                  "Live polyphony export completed: " + filename);
+        
+    } catch (...) {
+        logger.log("VoiceManager/exportPolyphonyPlayback", "error", "Export failed with exception");
+    }
+}
+
 // ===== PRIVATE HELPER METHODS =====
 
 /**
@@ -480,12 +689,16 @@ void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
  * @brief Helper: Check if reinitialization needed
  */
 bool VoiceManager::needsReinitialization(int targetSampleRate) const noexcept {
-    if (currentSampleRate_ != targetSampleRate) {
+    // Debug logging pro diagnostiku
+    bool currentMismatch = (currentSampleRate_ != targetSampleRate);
+    bool loaderMismatch = (instrumentLoader_.getActualSampleRate() != targetSampleRate);
+    
+    // Pro debugging - toto není RT-safe, ale pro diagnostiku OK
+    if (currentMismatch || loaderMismatch) {
+        // Pokud je potřeba reinicializace, debug info se vypíše v changeSampleRate()
         return true;
     }
-    if (instrumentLoader_.getActualSampleRate() != targetSampleRate) {
-        return true;
-    }
+    
     return false;
 }
 
@@ -550,11 +763,9 @@ void VoiceManager::logSafe(const std::string& component, const std::string& seve
     }
 }
 
-// ===== ORIGINAL METHODS PLACEHOLDERS =====
-// Tyto metody musí být implementovány podle původního voice_manager.cpp
+// ===== ORIGINAL METHODS IMPLEMENTATION =====
 
 void VoiceManager::setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) noexcept {
-    // TODO: Implementovat podle původního kódu
     if (!isValidMidiNote(midiNote)) {
         return;
     }
