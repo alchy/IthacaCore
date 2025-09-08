@@ -107,7 +107,7 @@ bool SamplerIO::detectInterleavedFormat(const char* filename, Logger& logger) co
 }
 
 /**
- * @brief NOVÁ POMOCNÁ METODA: Detekce subformátu a potřeby konverze do float
+ * @brief Metoda pro detekci subformátu a potřeby konverze do float
  * @param filename Cesta k souboru
  * @param logger Reference na logger pro zaznamenávání
  * @return true pokud 16-bit PCM (potřebuje konverzi), false pokud již float
@@ -171,8 +171,8 @@ bool SamplerIO::detectFloatConversionNeed(const char* filename, Logger& logger) 
 }
 
 /**
- * @brief Prohledá adresář s WAV soubory a naplní seznam metadat (přejmenováno z loadSamples)
- * ROZŠÍŘENO: Nyní také detekuje interleaved formát a potřebu konverze
+ * @brief Prohledá adresář s WAV soubory a naplní seznam metadat
+ * @brief Také detekuje interleaved formát a potřebu konverze
  * @param directoryPath Cesta k adresáři se samples
  * @param logger Reference na logger pro zaznamenávání
  */

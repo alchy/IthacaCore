@@ -13,9 +13,7 @@ class VoiceManager {
 public:
     VoiceManager(const std::string& sampleDir, int sampleRate, Logger& logger);
 
-    // ✅ ODSTRANĚNO: initializeAll() - bude se dělat manuálně
-    // void initializeAll(Logger& logger);
-
+    // Metody
     void setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) noexcept;
     bool processBlock(float* outputLeft, float* outputRight, int numSamples) noexcept;
     bool processBlock(AudioData* outputBuffer, int numSamples) noexcept;
