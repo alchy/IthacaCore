@@ -23,7 +23,7 @@ THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
  * pro všechny velocity vrstvy jedné MIDI noty. Index v poli instruments[] odpovídá MIDI notě,
  * takže není potřeba ukládat midi_note hodnotu v struktuře.
  * 
- * DŮLEŽITÉ: Všechny buffery jsou VŽDY uloženy jako stereo interleaved 32-bit float formát!
+ * DŮLEŽITÉ: Všechny buffery jsou VÝDY uloženy jako stereo interleaved 32-bit float formát!
  * I původně mono samples jsou konvertovány na stereo (L=R duplikace).
  * Buffer formát: [L1,R1,L2,R2,L3,R3,...] pro přímou JUCE kompatibilitu.
  */
@@ -34,7 +34,7 @@ struct Instrument {
     SampleInfo* sample_ptr_sampleInfo[VELOCITY_LAYERS];
     
     // Pointery na načtená float data v RAM pro velocity 0-7
-    // Buffery jsou alokované pomocí malloc a obsahují VŽDY stereo interleaved 32-bit float
+    // Buffery jsou alokované pomocí malloc a obsahují VÝDY stereo interleaved 32-bit float
     // Velikost: frame_count_stereo * 2 * sizeof(float) (vždy stereo)
     // Formát: [L1,R1,L2,R2,...] i pro původně mono samples (L=R)
     float* sample_ptr_velocity[VELOCITY_LAYERS];
@@ -43,7 +43,7 @@ struct Instrument {
     // true = sample byl nalezen a načten jako stereo, false = sample neexistuje
     bool velocityExists[VELOCITY_LAYERS];
     
-    // NOVÁ METADATA - stereo informace (nezávislé na SampleInfo)
+    // NOVÉ METADATA - stereo informace (nezávislé na SampleInfo)
     // Počet stereo frame párů (každý frame = L+R sample)
     sf_count_t frame_count_stereo[VELOCITY_LAYERS];
     
@@ -133,27 +133,29 @@ struct Instrument {
  * 
  * PAMĚŤOVÁ SPRÁVA:
  * - Alokuje buffery pomocí malloc (C-style pro konzistenci)
- * - Automaticky uvolňuje v destruktoru
+ * - Automaticky uvolňuje při novém načítání nebo v destruktoru
  * - SampleInfo pointery patří SamplerIO (neuvolňují se)
  * 
  * BEZPEČNOST:
- * - Všechny gettery kontrolují rozsah indexů
+ * - Všechny gettery kontrolují rozsah indexů a inicializaci
  * - Chyby vedou k error logu a std::exit(1)
  * - Thread-safety není implementována (single-threaded design)
+ * 
+ * NOVÝ DESIGN:
+ * - Prázdný konstruktor, data se načítají pomocí loadInstrumentData()
+ * - Možnost opakovaného načítání s různými targetSampleRate
+ * - Automatické vyčištění při novém načítání
  */
 class InstrumentLoader {
 public:
     /**
-     * @brief Konstruktor InstrumentLoader
-     * @param sampler Reference na SamplerIO pro přístup k sample metadatům
-     * @param targetSampleRate Požadovaná frekvence vzorkování (např. 44100 Hz)
-     * @param logger Reference na Logger pro zaznamenávání
+     * @brief Prázdný konstruktor InstrumentLoader
      * 
      * Inicializuje pole instruments[128] na nullptr/false.
-     * Uloží reference pro pozdější použití v loadInstrument().
-     * Zaloguje inicializační zprávu s targetSampleRate.
+     * Nastaví actual_samplerate_ na 0 (indikuje neinicializovaný stav).
+     * Pro načítání dat je třeba zavolat loadInstrumentData().
      */
-    InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger);
+    InstrumentLoader();
 
     /**
      * @brief Destruktor - uvolní alokovanou paměť
@@ -161,18 +163,29 @@ public:
      * Prochází všechny MIDI noty 0-127 a velocity 0-7:
      * - Pokud velocityExists[vel] == true, uvolní free(sample_ptr_velocity[vel])
      * - NEUVOLŇUJE SampleInfo pointery (patří SamplerIO)
-     * - Zaloguje počet uvolněných samplů
+     * - Zaloguje počet uvolněných samplů (pokud je logger dostupný)
      */
     ~InstrumentLoader();
 
     /**
-     * @brief Hlavní metoda pro načtení všech instrumentů
+     * @brief Hlavní metoda pro načítání dat instrumentů
+     * @param sampler Reference na SamplerIO pro přístup k sample metadatům
+     * @param targetSampleRate Požadovaná frekvence vzorkování (44100 nebo 48000 Hz)
+     * @param logger Reference na Logger pro zaznamenávání
      * 
-     * Načte všechny MIDI noty 0-127 (včetně těch bez samplů - jen inicializuje null/false).
+     * Validuje parametry:
+     * - Kontroluje platnost reference na sampler (není nullptr)
+     * - Kontroluje targetSampleRate (povoleno jen 44100 nebo 48000)
+     * - Při chybě loguje error a volá std::exit(1)
+     * 
+     * Pokud už jsou data načtená, automaticky je vyčistí voláním clear().
+     * Poté načte všechny MIDI noty 0-127 stejným algoritmem jako původní loadInstrument().
      * 
      * Algoritmus:
-     * 1. Pro každou MIDI notu (MIDI_NOTE_MIN to MIDI_NOTE_MAX)
-     * 2. Pro každou velocity 0-7:
+     * 1. Validace parametrů
+     * 2. Automatické vyčištění předchozích dat (pokud existují)
+     * 3. Pro každou MIDI notu (MIDI_NOTE_MIN to MIDI_NOTE_MAX)
+     * 4. Pro každou velocity 0-7:
      *    a) Vyhledá index = sampler.findSampleInSampleList(midi, vel, targetSampleRate)
      *    b) Pokud index != -1:
      *       - Zavolá loadSampleToBuffer(index, vel, midi) pro načtení
@@ -182,16 +195,18 @@ public:
      *       - Warning log "Sample pro MIDI [midi] velocity [vel] nenalezen"
      * 
      * Loguje progress info a summary na konci.
+     * Uloží targetSampleRate do actual_samplerate_.
      */
-    void loadInstrument();
+    void loadInstrumentData(SamplerIO& sampler, int targetSampleRate, Logger& logger);
 
     /**
      * @brief Getter pro přístup k Instrument struktuře podle MIDI noty
      * @param midi_note MIDI nota (0-127)
      * @return Reference na Instrument strukturu
      * 
+     * Kontroluje inicializaci (actual_samplerate_ != 0).
      * Kontroluje platnost rozsahu MIDI noty.
-     * Při neplatném rozsahu: log error a std::exit(1).
+     * Při neinicializaci nebo neplatném rozsahu: log error a std::exit(1).
      */
     Instrument& getInstrumentNote(uint8_t midi_note);
 
@@ -203,45 +218,47 @@ public:
     const Instrument& getInstrumentNote(uint8_t midi_note) const;
 
     /**
-     * @brief Getter pro získání target sample rate
-     * @return Nastavenou target sample rate v Hz
+     * @brief Getter pro získání aktuální sample rate
+     * @return Nastavenou actual sample rate v Hz (0 = neinicializováno)
      */
-    int getTargetSampleRate() const { return targetSampleRate_; }
+    int getActualSampleRate() const { return actual_samplerate_; }
 
     /**
      * @brief Getter pro celkový počet načtených samplů
      * @return Počet úspěšně načtených samplů
+     * Kontroluje inicializaci - při neinicializaci loguje error a volá std::exit(1).
      */
-    int getTotalLoadedSamples() const { return totalLoadedSamples_; }
+    int getTotalLoadedSamples() const;
 
     /**
      * @brief Getter pro počet mono samplů
      * @return Počet načtených mono samplů
+     * Kontroluje inicializaci - při neinicializaci loguje error a volá std::exit(1).
      */
-    int getMonoSamplesCount() const { return monoSamplesCount_; }
+    int getMonoSamplesCount() const;
 
     /**
      * @brief Getter pro počet stereo samplů  
      * @return Počet načtených stereo samplů
+     * Kontroluje inicializaci - při neinicializaci loguje error a volá std::exit(1).
      */
-    int getStereoSamplesCount() const { return stereoSamplesCount_; }
+    int getStereoSamplesCount() const;
 
     /**
      * @brief Validace, že všechny načtené buffery jsou skutečně stereo
      * Kontroluje konzistenci mezi metadaty a skutečnými buffery.
      * Při selhání validace: zaloguje chyby a volá std::exit(1).
+     * Kontroluje inicializaci - při neinicializaci loguje error a volá std::exit(1).
      */
-    void validateStereoConsistency();
+    void validateStereoConsistency(Logger& logger);
 
 private:
-    // Reference na SamplerIO pro přístup k metadatům
-    SamplerIO& sampler_;
+    // Aktuální frekvence vzorkování (0 = neinicializováno)
+    int actual_samplerate_;
     
-    // Požadovaná frekvence vzorkování
-    int targetSampleRate_;
-    
-    // Reference na Logger pro zaznamenávání
-    Logger& logger_;
+    // Pointery na SamplerIO a Logger (uložené z posledního volání loadInstrumentData)
+    SamplerIO* sampler_;
+    Logger* logger_;
     
     // Pole Instrument struktur pro MIDI noty 0-127
     // Index pole odpovídá MIDI notě
@@ -255,13 +272,35 @@ private:
     int stereoSamplesCount_;
 
     /**
+     * @brief Vyčistí všechna načtená data
+     * @param logger Reference na Logger pro zaznamenávání
+     * 
+     * Uvolní všechny alokované float buffery pomocí free().
+     * Vynuluje všechny pointery a počítadla.
+     * Resetuje actual_samplerate_ na 0.
+     * Loguje informace o uvolňování.
+     * 
+     * Volá se automaticky při novém načítání.
+     */
+    void clear(Logger& logger);
+
+    /**
+     * @brief Vyčistí všechna načtená data bez loggingu
+     * 
+     * Stejná funkcionalita jako clear(), ale bez loggingu.
+     * Používá se v destruktoru kde logger nemusí být dostupný.
+     */
+    void clearWithoutLogging();
+
+    /**
      * @brief Načte jeden sample do bufferu
      * @param sampleIndex Index samplu v SamplerIO
      * @param velocity Velocity vrstva (0-7)
      * @param midi_note MIDI nota (0-127)
+     * @param logger Reference na Logger pro zaznamenávání
      * @return true při úspěchu, false při chybě (s error logem a exit)
      * 
-     * Algoritmus:
+     * Algoritmus stejný jako v původní verzi:
      * 1. Otevře soubor pomocí openSampleFile()
      * 2. Alokuje temporary buffer pro načtení
      * 3. Načte data pomocí sf_readf_float (automatická PCM->float konverze)
@@ -273,13 +312,14 @@ private:
      * Loguje všechny konverze (i když neproběhly) a úspěšné přiřazení.
      * Při chybě alokace/načtení: log error a std::exit(1).
      */
-    bool loadSampleToBuffer(int sampleIndex, uint8_t velocity, uint8_t midi_note);
+    bool loadSampleToBuffer(int sampleIndex, uint8_t velocity, uint8_t midi_note, Logger& logger);
 
     /**
      * @brief Otevře sample soubor pro čtení
      * @param sampleIndex Index samplu v SamplerIO
      * @param sndfile Reference na SNDFILE pointer (výstup)
      * @param sfinfo Reference na SF_INFO strukturu (výstup)
+     * @param logger Reference na Logger pro zaznamenávání
      * @return true při úspěchu, false při chybě (s error logem a exit)
      * 
      * Použije getFilename(sampleIndex) pro získání cesty.
@@ -287,25 +327,54 @@ private:
      * Při úspěchu: log info "Soubor [filename] otevřen úspěšně"
      * Při chybě: log error s sf_strerror() a std::exit(1)
      */
-    bool openSampleFile(int sampleIndex, SNDFILE*& sndfile, SF_INFO& sfinfo);
+    bool openSampleFile(int sampleIndex, SNDFILE*& sndfile, SF_INFO& sfinfo, Logger& logger);
 
     /**
      * @brief Validuje velocity parametr
      * @param velocity Velocity hodnota k validaci
      * @param functionName Název funkce pro error log
+     * @param logger Reference na Logger pro error log
      * 
      * Kontroluje rozsah 0-7. Při neplatné hodnotě: log error a std::exit(1).
      */
-    void validateVelocity(uint8_t velocity, const char* functionName) const;
+    void validateVelocity(uint8_t velocity, const char* functionName, Logger& logger) const;
 
     /**
      * @brief Validuje MIDI note parametr
      * @param midi_note MIDI nota k validaci
      * @param functionName Název funkce pro error log
+     * @param logger Reference na Logger pro error log
      * 
      * Kontroluje rozsah MIDI_NOTE_MIN-MIDI_NOTE_MAX. Při neplatné hodnotě: log error a std::exit(1).
      */
-    void validateMidiNote(uint8_t midi_note, const char* functionName) const;
+    void validateMidiNote(uint8_t midi_note, const char* functionName, Logger& logger) const;
+
+    /**
+     * @brief Kontroluje inicializaci objektu
+     * @param functionName Název funkce pro error log
+     * 
+     * Kontroluje actual_samplerate_ != 0. Při neinicializaci: log error a std::exit(1).
+     */
+    void checkInitialization(const char* functionName) const;
+
+    /**
+     * @brief Validuje referenci na SamplerIO
+     * @param sampler Reference na SamplerIO k validaci
+     * @param logger Reference na Logger pro error log
+     * 
+     * Kontroluje, že reference není nullptr (teoreticky nemožné u referencí,
+     * ale pro jistotu). Při chybě: log error a std::exit(1).
+     */
+    void validateSamplerReference(SamplerIO& sampler, Logger& logger);
+
+    /**
+     * @brief Validuje targetSampleRate
+     * @param targetSampleRate Sample rate k validaci
+     * @param logger Reference na Logger pro error log
+     * 
+     * Kontroluje, že je 44100 nebo 48000. Při chybě: log error a std::exit(1).
+     */
+    void validateTargetSampleRate(int targetSampleRate, Logger& logger);
 };
 
 #endif  // INSTRUMENT_LOADER_H

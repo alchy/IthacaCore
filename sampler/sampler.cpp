@@ -30,13 +30,13 @@ int runSampler(Logger& logger) {
 
     /* ======= Hlavní workflow: Inicializace a načtení samples ====== */
     // Krok 1: Inicializace SamplerIO a prohledání adresáře
-    SamplerIO sampler;
+    SamplerIO sampler; // prázdný konstruktor
     logger.log("runSampler", "info", "Scanning sample directory: " + sampleDir);
     sampler.scanSampleDirectory(sampleDir, logger);
 
     // Krok 2: Načtení do paměti jako stereo buffery
-    InstrumentLoader instrument(sampler, targetSampleRate, logger);
-    instrument.loadInstrument();
+    InstrumentLoader instrument;  // prázdný konstruktor
+    instrument.loadInstrumentData(sampler, targetSampleRate, logger);  // načtení dat
 
     /* ======= PŘESUNUTÉ A OPRAVENÉ: Voice Management testy PŘED destrukcí InstrumentLoader ====== */
     try {
