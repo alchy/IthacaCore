@@ -122,9 +122,8 @@ Path: C:\Users\jindr\IthacaCore\.vscode\tasks.json
 Path: C:\Users\jindr\IthacaCore\sampler\envelopes\envelope.cpp
 =====
 /*
- * envelope.cpp - Implementace s runtime generovÃ¡nÃ­m a optimalizovanou alokacÃ­ pamÄ›ti
- * Generuje identickÃ¡ data jako Python script, ale za bÄ›hu pÅ™i startu
- * OPTIMALIZACE: Alokuje pouze potÅ™ebnou pamÄ›Å¥ pro kaÅ¾dÃ© MIDI a sample rate
+ * envelope.cpp - ADSR envelope s fixnÃ­mi parametry
+ * REFAKTOROVÃNO: OdstranÄ›n per-MIDI kÃ³d, nahrazen fixnÃ­mi ADSR parametry
  */
 
 #include "envelope.h"
@@ -135,96 +134,211 @@ Path: C:\Users\jindr\IthacaCore\sampler\envelopes\envelope.cpp
 /**
  * @brief PrÃ¡zdnÃ½ konstruktor - vytvoÅ™Ã­ neinicializovanÃ½ Envelope
  */
-Envelope::Envelope() : sample_rate_index_(-1), bitrate_(0) {
-    // Alokace prostoru pro vÅ¡echna MIDI data (ale prÃ¡zdnÃ¡)
-    attack_data_.resize(128);
-    release_data_.resize(128);
-    
+Envelope::Envelope() : attack_time_ms_(0.0f), decay_time_ms_(0.0f), 
+                       sustain_level_(0.0f), release_time_ms_(0.0f),
+                       sample_rate_index_(-1), bitrate_(0) {
     // Data se vygenerujÃ­ aÅ¾ pÅ™i volÃ¡nÃ­ initialize()
 }
 
 /**
- * @brief Plny konstruktor - vole inicializaci
+ * @brief Konstruktor s ADSR parametry
  */
-Envelope::Envelope(Logger& logger) : sample_rate_index_(-1), bitrate_(0) {
-    // Alokace prostoru pro vÅ¡echna MIDI data
-    attack_data_.resize(128);
-    release_data_.resize(128);
+Envelope::Envelope(float attack_ms, float decay_ms, float sustain_level, float release_ms)
+    : attack_time_ms_(attack_ms), decay_time_ms_(decay_ms), 
+      sustain_level_(sustain_level), release_time_ms_(release_ms),
+      sample_rate_index_(-1), bitrate_(0) {
     
-    // Delegace na initialize pro generovÃ¡nÃ­ dat
-    initialize(logger);
+    // Validace parametrÅ¯
+    attack_time_ms_ = std::max(1.0f, attack_time_ms_);     // Min 1ms
+    decay_time_ms_ = std::max(1.0f, decay_time_ms_);       // Min 1ms
+    sustain_level_ = std::max(0.0f, std::min(1.0f, sustain_level_)); // 0.0-1.0
+    release_time_ms_ = std::max(1.0f, release_time_ms_);    // Min 1ms
+    
+    // Data se vygenerujÃ­ aÅ¾ pÅ™i volÃ¡nÃ­ initialize() nebo setEnvelopeFrequency()
 }
 
-
 /**
- * @brief Inicializace envelope dat - pÅ™esunutÃ¡ logika z pÅ¯vodnÃ­ho konstruktoru
+ * @brief Inicializace envelope dat s ADSR parametry
  */
-void Envelope::initialize(Logger& logger) {
+void Envelope::initialize(Logger& logger, float attack_ms, float decay_ms, 
+                         float sustain_level, float release_ms) {
     auto start_time = std::chrono::high_resolution_clock::now();
     
     logger.log("Envelope/initialize", "info", 
-                "Starting runtime envelope data generation with optimized memory allocation...");
+              "Starting ADSR envelope initialization with fixed parameters...");
     
-    // Generuj vÅ¡echna envelope data
-    generateAllEnvelopes();
+    // NastavenÃ­ parametrÅ¯ s validacÃ­
+    attack_time_ms_ = std::max(1.0f, attack_ms);
+    decay_time_ms_ = std::max(1.0f, decay_ms);
+    sustain_level_ = std::max(0.0f, std::min(1.0f, sustain_level));
+    release_time_ms_ = std::max(1.0f, release_ms);
     
-    // CelÃ½ ten dlouhÃ½ blok s timing, memory calculation, validacÃ­ atd.
-    // (zkopÃ­rujte celou logiku z pÅ¯vodnÃ­ho konstruktoru)
+    logger.log("Envelope/initialize", "info", 
+              "ADSR Parameters - Attack: " + std::to_string(attack_time_ms_) + "ms, " +
+              "Decay: " + std::to_string(decay_time_ms_) + "ms, " +
+              "Sustain: " + std::to_string(sustain_level_) + ", " +
+              "Release: " + std::to_string(release_time_ms_) + "ms");
     
-    logger.log("Envelope/initialize", "info", "Data validation OK - ready for setEnvelopeFrequency");
+    // Generuj envelope data pro oba sample rates
+    generateAttackEnvelope();
+    generateReleaseEnvelope();
+    
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    
+    logger.log("Envelope/initialize", "info", 
+              "ADSR envelope initialization completed in " + std::to_string(duration_ms) + "ms");
 }
 
 /**
- * @brief VypoÄÃ­tÃ¡ tau konstantu pro danÃ© MIDI (stejnÄ› jako Python)
+ * @brief NastavÃ­ frekvenci vzorkovÃ¡nÃ­
  */
-float Envelope::calculateTau(uint8_t midi) const {
-    if (midi == 0) return 0.0f;
-    return (midi / 127.0f) * (TOTAL_DURATION / TAU_DIVISOR);
+void Envelope::setEnvelopeFrequency(int freq, Logger& logger) {
+    bitrate_ = freq;
+    
+    if (freq == 44100) {
+        sample_rate_index_ = 0;
+        logger.log("Envelope/setEnvelopeFrequency", "info", 
+                   "Envelope frequency set to 44100 Hz (index=0)");
+    } else if (freq == 48000) {
+        sample_rate_index_ = 1;
+        logger.log("Envelope/setEnvelopeFrequency", "info", 
+                   "Envelope frequency set to 48000 Hz (index=1)");
+    } else {
+        logger.log("Envelope/setEnvelopeFrequency", "error", 
+                   "Invalid frequency " + std::to_string(freq) + " Hz - only 44100/48000 supported. Terminating.");
+        std::exit(1);
+    }
 }
 
 /**
- * @brief Generuje envelope data pro jedno MIDI a sample rate (stejnÃ½ algoritmus jako Python)
+ * @brief ZÃ­skÃ¡ attack envelope data od zadanÃ© pozice
  */
-void Envelope::generateEnvelopeData(uint8_t midi, int sample_rate, bool is_attack, 
-                                  std::vector<float>& output, int& num_samples) const {
-    float tau = calculateTau(midi);
-    float target_val = is_attack ? 1.0f : 0.0f;
-    
-    if (midi == 0) {
-        // SpeciÃ¡lnÃ­ pÅ™Ã­pad MIDI 0: immediate response, single sample at target
-        output = {target_val};
-        num_samples = 1;
-        return;
+bool Envelope::getAttackGains(float* gainBuffer, int numSamples, sf_count_t position) const noexcept {
+    if (sample_rate_index_ == -1 || !gainBuffer || numSamples <= 0) {
+        // Fallback: vyplÅˆ 0.0f
+        std::fill(gainBuffer, gainBuffer + numSamples, 0.0f);
+        return false;
     }
     
-    // VÃ½poÄet stable time (stejnÄ› jako Python)
-    float log_threshold = -std::log(THRESHOLD);  // â‰ˆ4.605 for threshold=0.01
-    float t_stable = tau * log_threshold;
-    t_stable = std::min(t_stable, TOTAL_DURATION);
+    fillBufferFromFixedData(attack_envelope_, gainBuffer, numSamples, position, true);
     
-    // PoÄet vzorkÅ¯: sample_rate * t_stable, rounded up for inclusion, with safety limits
-    int max_len = (sample_rate == 44100) ? MAX_LEN_44100 : MAX_LEN_48000;
-    num_samples = std::max(1, std::min(static_cast<int>(sample_rate * t_stable) + 1, max_len));
+    // Zkontroluj, zda envelope pokraÄuje
+    sf_count_t envelopeLength = getAttackLength();
+    return (position + numSamples) < envelopeLength;
+}
+
+/**
+ * @brief ZÃ­skÃ¡ release envelope data od zadanÃ© pozice
+ */
+bool Envelope::getReleaseGains(float* gainBuffer, int numSamples, sf_count_t position) const noexcept {
+    if (sample_rate_index_ == -1 || !gainBuffer || numSamples <= 0) {
+        // Fallback: vyplÅˆ 0.0f
+        std::fill(gainBuffer, gainBuffer + numSamples, 0.0f);
+        return false;
+    }
     
-    // Generuj data
-    output.resize(num_samples);
-    for (int i = 0; i < num_samples; ++i) {
-        float t = (i * t_stable) / (num_samples - 1);  // Time array up to t_stable
+    fillBufferFromFixedData(release_envelope_, gainBuffer, numSamples, position, false);
+    
+    // Zkontroluj, zda envelope pokraÄuje
+    sf_count_t envelopeLength = getReleaseLength();
+    return (position + numSamples) < envelopeLength;
+}
+
+/**
+ * @brief Getter pro dÃ©lku attack envelope
+ */
+sf_count_t Envelope::getAttackLength() const noexcept {
+    if (sample_rate_index_ == 0) {
+        return attack_envelope_.len_44100;
+    } else if (sample_rate_index_ == 1) {
+        return attack_envelope_.len_48000;
+    }
+    return 0;
+}
+
+/**
+ * @brief Getter pro dÃ©lku release envelope
+ */
+sf_count_t Envelope::getReleaseLength() const noexcept {
+    if (sample_rate_index_ == 0) {
+        return release_envelope_.len_44100;
+    } else if (sample_rate_index_ == 1) {
+        return release_envelope_.len_48000;
+    }
+    return 0;
+}
+
+/**
+ * @brief Generuje attack envelope pro oba sample rates
+ */
+void Envelope::generateAttackEnvelope() {
+    std::vector<float> temp_data;
+    
+    // Generuj pro 44100 Hz
+    generateEnvelopeForSampleRate(44100, true, temp_data, attack_envelope_.len_44100);
+    attack_envelope_.data_44100 = std::make_unique<float[]>(attack_envelope_.len_44100);
+    std::copy(temp_data.begin(), temp_data.end(), attack_envelope_.data_44100.get());
+    
+    // Generuj pro 48000 Hz
+    generateEnvelopeForSampleRate(48000, true, temp_data, attack_envelope_.len_48000);
+    attack_envelope_.data_48000 = std::make_unique<float[]>(attack_envelope_.len_48000);
+    std::copy(temp_data.begin(), temp_data.end(), attack_envelope_.data_48000.get());
+}
+
+/**
+ * @brief Generuje release envelope pro oba sample rates
+ */
+void Envelope::generateReleaseEnvelope() {
+    std::vector<float> temp_data;
+    
+    // Generuj pro 44100 Hz
+    generateEnvelopeForSampleRate(44100, false, temp_data, release_envelope_.len_44100);
+    release_envelope_.data_44100 = std::make_unique<float[]>(release_envelope_.len_44100);
+    std::copy(temp_data.begin(), temp_data.end(), release_envelope_.data_44100.get());
+    
+    // Generuj pro 48000 Hz
+    generateEnvelopeForSampleRate(48000, false, temp_data, release_envelope_.len_48000);
+    release_envelope_.data_48000 = std::make_unique<float[]>(release_envelope_.len_48000);
+    std::copy(temp_data.begin(), temp_data.end(), release_envelope_.data_48000.get());
+}
+
+/**
+ * @brief Generuje envelope data pro danÃ½ sample rate
+ */
+void Envelope::generateEnvelopeForSampleRate(int sampleRate, bool isAttack, 
+                                           std::vector<float>& output, int& numSamples) const {
+    float time_ms = isAttack ? attack_time_ms_ : release_time_ms_;
+    float time_seconds = time_ms / 1000.0f;
+    
+    // PoÄet samples pro danÃ½ Äas
+    numSamples = static_cast<int>(sampleRate * time_seconds);
+    numSamples = std::max(1, numSamples);  // Min 1 sample
+    
+    output.resize(numSamples);
+    
+    // ExponenciÃ¡lnÃ­ kÅ™ivka s tau = time_seconds / 3 (cca 95% za danÃ½ Äas)
+    float tau = time_seconds / 3.0f;
+    
+    for (int i = 0; i < numSamples; ++i) {
+        float t = (static_cast<float>(i) / static_cast<float>(numSamples - 1)) * time_seconds;
         
-        if (is_attack) {
+        if (isAttack) {
+            // Attack: 0 â†’ 1 exponenciÃ¡lnÄ›
             output[i] = 1.0f - std::exp(-t / tau);
         } else {
+            // Release: 1 â†’ 0 exponenciÃ¡lnÄ›
             output[i] = std::exp(-t / tau);
         }
         
-        // Normalize to 0-1, clamp
+        // Clamp na [0, 1]
         output[i] = std::max(0.0f, std::min(1.0f, output[i]));
     }
     
-    // Truncate to where it meets threshold - OPRAVENO (stejnÄ› jako v Python)
+    // Truncate na threshold
     int converge_idx = -1;
-    for (int i = 0; i < num_samples; ++i) {
-        if (is_attack) {
+    for (int i = 0; i < numSamples; ++i) {
+        if (isAttack) {
             if (output[i] >= (1.0f - THRESHOLD)) {  // >= 0.99
                 converge_idx = i;
                 break;
@@ -238,101 +352,17 @@ void Envelope::generateEnvelopeData(uint8_t midi, int sample_rate, bool is_attac
     }
     
     if (converge_idx > 0) {
-        num_samples = converge_idx + 1;
-        output.resize(num_samples);  // OÅ™Ã­zni na skuteÄnou dÃ©lku
-    }
-    
-    // ODSTRANENO: NÃ¡silnÃ© nastavenÃ­ poslednÃ­ho vzorku (jako v Python verzi)
-    // PonechÃ¡vÃ¡me pÅ™irozenou konvergenci exponenciÃ¡lnÃ­ kÅ™ivky
-}
-
-/**
- * @brief Generuje vÅ¡echna envelope data s optimalizovanou alokacÃ­ (volanÃ© v konstruktoru)
- */
-void Envelope::generateAllEnvelopes() {
-    for (int midi = 0; midi < 128; ++midi) {
-        std::vector<float> temp_data;
-        
-        // Attack envelopes pro oba sample rates
-        generateEnvelopeData(midi, 44100, true, temp_data, attack_data_[midi].len_44100);
-        attack_data_[midi].data_44100 = std::make_unique<float[]>(attack_data_[midi].len_44100);
-        std::copy(temp_data.begin(), temp_data.end(), attack_data_[midi].data_44100.get());
-        
-        generateEnvelopeData(midi, 48000, true, temp_data, attack_data_[midi].len_48000);
-        attack_data_[midi].data_48000 = std::make_unique<float[]>(attack_data_[midi].len_48000);
-        std::copy(temp_data.begin(), temp_data.end(), attack_data_[midi].data_48000.get());
-        
-        // Release envelopes pro oba sample rates
-        generateEnvelopeData(midi, 44100, false, temp_data, release_data_[midi].len_44100);
-        release_data_[midi].data_44100 = std::make_unique<float[]>(release_data_[midi].len_44100);
-        std::copy(temp_data.begin(), temp_data.end(), release_data_[midi].data_44100.get());
-        
-        generateEnvelopeData(midi, 48000, false, temp_data, release_data_[midi].len_48000);
-        release_data_[midi].data_48000 = std::make_unique<float[]>(release_data_[midi].len_48000);
-        std::copy(temp_data.begin(), temp_data.end(), release_data_[midi].data_48000.get());
+        numSamples = converge_idx + 1;
+        output.resize(numSamples);
     }
 }
 
 /**
- * @brief NastavÃ­ frekvenci (stejnÄ› jako pÅ¯vodnÃ­ implementace)
+ * @brief Helper: VyplnÃ­ buffer s envelope daty
  */
-void Envelope::setEnvelopeFrequency(int freq, Logger& logger) {
-    bitrate_ = freq;  // UloÅ¾enÃ­ bitrate pro rozhodovÃ¡nÃ­ a logovÃ¡nÃ­
-    
-    if (freq == 44100) {
-        sample_rate_index_ = 0;
-        logger.log("Envelope/setEnvelopeFrequency", "info", 
-                   "Bitrate changed to 44100 Hz (index=0)");
-    } else if (freq == 48000) {
-        sample_rate_index_ = 1;
-        logger.log("Envelope/setEnvelopeFrequency", "info", 
-                   "Bitrate changed to 48000 Hz (index=1)");
-    } else {
-        logger.log("Envelope/setEnvelopeFrequency", "error", 
-                   "Invalid frequency " + std::to_string(freq) + " Hz - only 44100/48000 supported. Terminating.");
-        std::exit(1);
-    }
-}
-
-/**
- * @brief VyplnÃ­ gainBuffer pro attack fÃ¡zi s optimalizovanÃ½m pÅ™Ã­stupem k datÅ¯m
- */
-void Envelope::getGainBufferAttack(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed) const noexcept {
-    if (sample_rate_index_ == -1 || midi > 127 || numSamples <= 0 || !gainBuffer) {
-        // Fallback: VyplÅˆ 0.0f
-        std::fill(gainBuffer, gainBuffer + numSamples, 0.0f);
-        return;
-    }
-    
-    const auto& env = attack_data_[midi];
-    fillBufferFromData(env, gainBuffer, numSamples, start_elapsed, true);  // true = isAttack
-}
-
-/**
- * @brief VyplnÃ­ gainBuffer pro release fÃ¡zi s optimalizovanÃ½m pÅ™Ã­stupem k datÅ¯m
- */
-void Envelope::getGainBufferRelease(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed) const noexcept {
-    if (sample_rate_index_ == -1 || midi > 127 || numSamples <= 0 || !gainBuffer) {
-        // Fallback: VyplÅˆ 0.0f
-        std::fill(gainBuffer, gainBuffer + numSamples, 0.0f);
-        return;
-    }
-    
-    const auto& env = release_data_[midi];
-    fillBufferFromData(env, gainBuffer, numSamples, start_elapsed, false);  // false = isAttack
-}
-
-/**
- * @brief PomocnÃ¡: VyplnÃ­ buffer s optimalizovanÃ½m pÅ™Ã­stupem k dynamicky alokovanÃ½m datÅ¯m
- * RT-safe: JednoduchÃ½ loop s array access (bez memcpy pro univerzÃ¡lnost s clampem).
- * @param env Envelope data pro danÃ© MIDI s optimalizovanou alokacÃ­.
- * @param gainBuffer Buffer k vyplnÄ›nÃ­.
- * @param numSamples PoÄet samples.
- * @param start_elapsed AbsolutnÃ­ start samples.
- * @param isAttack True pro attack (konstantnÃ­ 1.0f pÅ™i len=1), false pro release (0.0f).
- */
-void Envelope::fillBufferFromData(const EnvelopeData& env, float* gainBuffer, int numSamples, sf_count_t start_elapsed, bool isAttack) const noexcept {
-    // Vyber sprÃ¡vnÃ¡ data a dÃ©lku podle sample rate
+void Envelope::fillBufferFromFixedData(const FixedEnvelopeData& env, float* gainBuffer, 
+                                      int numSamples, sf_count_t position, bool isAttack) const noexcept {
+    // Vyber sprÃ¡vnÃ¡ data podle sample rate
     const float* src_data;
     int len;
     
@@ -345,18 +375,23 @@ void Envelope::fillBufferFromData(const EnvelopeData& env, float* gainBuffer, in
     }
     
     if (len <= 1) {
-        // SpeciÃ¡lnÃ­ pÅ™Ã­pad pro MIDI 0 (len=1): RozliÅ¡ podle typu
+        // SpeciÃ¡lnÃ­ pÅ™Ã­pad pro velmi krÃ¡tkÃ© envelope
         float constant_value = isAttack ? 1.0f : 0.0f;
         std::fill(gainBuffer, gainBuffer + numSamples, constant_value);
         return;
     }
     
-    // RT-safe vyplnÄ›nÃ­ s clampem (stejnÃ© jako pÅ¯vodnÃ­)
+    // RT-safe vyplnÄ›nÃ­ s clampem
     for (int i = 0; i < numSamples; ++i) {
-        sf_count_t idx = start_elapsed + static_cast<sf_count_t>(i);
+        sf_count_t idx = position + static_cast<sf_count_t>(i);
+        
         // Clamp idx na [0, len-1]
-        idx = std::max(static_cast<sf_count_t>(0), std::min(static_cast<sf_count_t>(len - 1), idx));
-        gainBuffer[i] = src_data[static_cast<int>(idx)];
+        if (idx >= len) {
+            // Po konci envelope: konstantnÃ­ target hodnota
+            gainBuffer[i] = isAttack ? 1.0f : 0.0f;
+        } else {
+            gainBuffer[i] = src_data[static_cast<int>(idx)];
+        }
     }
 }
 
@@ -365,14 +400,10 @@ void Envelope::fillBufferFromData(const EnvelopeData& env, float* gainBuffer, in
 Path: C:\Users\jindr\IthacaCore\sampler\envelopes\envelope.h
 =====
 /*
- * envelope.h - RT-safe envelope lookup z runtime-generated dat pro attack a release.
- * ZMÄšNA: MÃ­sto naÄÃ­tÃ¡nÃ­ z envelopes.h generuje identickÃ¡ data za bÄ›hu pÅ™i startu.
- * OPTIMALIZACE: DynamickÃ¡ alokace podle skuteÄnÃ© dÃ©lky pro kaÅ¾dÃ½ sample rate.
- * DvÄ› separÃ¡tnÃ­ metody: getGainBufferAttack a getGainBufferRelease.
- * Podpora dynamickÃ© zmÄ›ny sample rate pÅ™es setEnvelopeFrequency.
- * getGainBuffer* bere absolutnÃ­ start samples a vyplnÃ­ buffer pro blok (okno).
- * LogovÃ¡nÃ­: V konstruktoru (generovanÃ¡ data) a setEnvelopeFrequency (zmÄ›na bitrate).
- * Velikost binÃ¡ru: ~0 MB mÃ­sto 497 MB, pamÄ›Å¥ optimalizovÃ¡na podle skuteÄnÃ½ch dÃ©lek.
+ * envelope.h - RT-safe ADSR envelope s fixnÃ­mi parametry
+ * REFAKTOROVÃNO: MÃ­sto per-MIDI kÅ™ivek pouÅ¾Ã­vÃ¡ fixnÃ­ ADSR parametry
+ * JednoduchÃ¡ konfigurace: attack_ms, decay_ms, sustain_level, release_ms
+ * Position tracking pÅ™esunut do Voice tÅ™Ã­dy pro lepÅ¡Ã­ kontrolu
  */
 
 #ifndef ENVELOPE_H
@@ -385,64 +416,35 @@ Path: C:\Users\jindr\IthacaCore\sampler\envelopes\envelope.h
 #include <memory>
 #include <cmath>
 
-// Parametry z Python kÃ³du pro runtime generovÃ¡nÃ­
-static constexpr float TOTAL_DURATION = 12.0f;         // seconds  
-static constexpr float TAU_DIVISOR = 5.0f;             // For ~99% change
+// Konstanty pro ADSR envelope
+static constexpr float DEFAULT_ATTACK_MS = 500.0f;     // Default 500ms attack
+static constexpr float DEFAULT_DECAY_MS = 300.0f;      // Default 300ms decay  
+static constexpr float DEFAULT_SUSTAIN_LEVEL = 0.7f;   // Default 70% sustain
+static constexpr float DEFAULT_RELEASE_MS = 1000.0f;   // Default 1000ms release
 static constexpr float THRESHOLD = 0.01f;              // 99% convergence
-static constexpr int MAX_LEN_44100 = int(44100 * 12.0) + 1;  // Max for 44100 Hz
-static constexpr int MAX_LEN_48000 = int(48000 * 12.0) + 1;  // Max for 48000 Hz
-
-// Runtime envelope data structure - OPTIMALIZOVANÃ s dynamickou alokacÃ­
-struct EnvelopeData {
-    std::unique_ptr<float[]> data_44100;  // Dynamicky alokovÃ¡no podle skuteÄnÃ© dÃ©lky
-    std::unique_ptr<float[]> data_48000;  // Dynamicky alokovÃ¡no podle skuteÄnÃ© dÃ©lky
-    int len_44100;                        // SkuteÄnÃ½ poÄet vzorkÅ¯ pro 44100 Hz
-    int len_48000;                        // SkuteÄnÃ½ poÄet vzorkÅ¯ pro 48000 Hz
-    
-    // Konstruktor pro inicializaci
-    EnvelopeData() : len_44100(0), len_48000(0) {}
-    
-    // Move konstruktor a assignment pro std::unique_ptr
-    EnvelopeData(EnvelopeData&& other) noexcept 
-        : data_44100(std::move(other.data_44100))
-        , data_48000(std::move(other.data_48000))
-        , len_44100(other.len_44100)
-        , len_48000(other.len_48000) {}
-    
-    EnvelopeData& operator=(EnvelopeData&& other) noexcept {
-        if (this != &other) {
-            data_44100 = std::move(other.data_44100);
-            data_48000 = std::move(other.data_48000);
-            len_44100 = other.len_44100;
-            len_48000 = other.len_48000;
-        }
-        return *this;
-    }
-    
-    // ZakÃ¡zÃ¡nÃ­ copy konstruktoru/assignment (kvÅ¯li unique_ptr)
-    EnvelopeData(const EnvelopeData&) = delete;
-    EnvelopeData& operator=(const EnvelopeData&) = delete;
-};
 
 /**
  * @class Envelope
- * @brief UniverzÃ¡lnÃ­ tÅ™Ã­da pro RT-safe gain buffer vyplnÄ›nÃ­ pro attack/release.
+ * @brief ADSR envelope s fixnÃ­mi parametry pro vÅ¡echny MIDI noty
  * 
- * ZMÄšNA: Generuje data za bÄ›hu v konstruktoru mÃ­sto naÄÃ­tÃ¡nÃ­ z envelopes.h (uÅ¡etÅ™Ã­ 497 MB v binÃ¡ru).
- * OPTIMALIZACE: Alokuje pouze potÅ™ebnou pamÄ›Å¥ pro kaÅ¾dÃ© MIDI a sample rate.
- * Nastav index pro sample rate separÃ¡tnÄ› pÅ™es setEnvelopeFrequency (s logovÃ¡nÃ­m zmÄ›ny bitrate).
- * getGainBufferAttack/getGainBufferRelease vyplnÃ­ gainBuffer pro numSamples poÄÃ­naje start_elapsed 
- * (absolutnÃ­ indexace do pole pro danÃ© MIDI).
- * PouÅ¾ije pÅ™Ã­mÃ½ access data[idx] s clampem na 0..len-1 (nearest neighbor pro RT-safe).
- * sampleRateIndex: InternÄ› 0=44100Hz, 1=48000Hz (nastaveno v setEnvelopeFrequency).
- * bitrate_: Private Älen pro uchovÃ¡nÃ­ aktuÃ¡lnÃ­ frekvence (pro logovÃ¡nÃ­ a rozhodovÃ¡nÃ­).
- * RT-safe: PÅ™Ã­mÃ½ array access v loopu, Å¾Ã¡dnÃ© logovÃ¡nÃ­ v runtime metodÃ¡ch.
- * 
- * PouÅ¾itÃ­: V VoiceManager: Envelope envelope(logger); envelope.setEnvelopeFrequency(sample_rate, logger);
- * V calculateBlockGains (Releasing): envelope.getGainBufferRelease(midi_note_, gainBuffer, numSamples, releaseElapsed);
+ * NOVÃ DESIGN:
+ * - FixnÃ­ ADSR parametry v milisekundÃ¡ch
+ * - Generuje pouze 2 kÅ™ivky (attack + release) mÃ­sto 256 (128Ã—2)
+ * - Position tracking v Voice, ne v Envelope
+ * - KonfigurovatelnÃ© parametry pro rÅ¯znÃ© zvuky
+ * - RT-safe metody bez MIDI parametru
  */
 class Envelope {
 public:
+    /**
+     * @brief Konstruktor s fixnÃ­mi ADSR parametry
+     * @param attack_ms Attack time v milisekundÃ¡ch
+     * @param decay_ms Decay time v milisekundÃ¡ch  
+     * @param sustain_level Sustain level (0.0-1.0)
+     * @param release_ms Release time v milisekundÃ¡ch
+     */
+    Envelope(float attack_ms, float decay_ms, float sustain_level, float release_ms);
+             
     /**
      * @brief PrÃ¡zdnÃ½ konstruktor pro delayed initialization
      * Envelope se vytvoÅ™Ã­ v neinicializovanÃ©m stavu, musÃ­ se zavolat initialize()
@@ -450,69 +452,108 @@ public:
     Envelope();
 
     /**
-     * @brief Konstruktor: Generuje attack a release data za bÄ›hu, loguje informace o datech.
-     * ZMÄšNA: MÃ­sto naÄÃ­tÃ¡nÃ­ z const arrays generuje identickÃ¡ data v pamÄ›ti s optimalizovanou alokacÃ­.
-     * Nenastavuje frekvenci (index = -1, bitrate = 0).
-     * @param logger Reference pro logovÃ¡nÃ­ (informace o generovanÃ½ch datech a ÃºspoÅ™e pamÄ›ti).
-     */
-    explicit Envelope(Logger& logger);
-
-    /**
-     * @brief Inicializace envelope dat (pro prÃ¡zdnÃ½ konstruktor)
-     * VolÃ¡ se po prÃ¡zdnÃ©m konstruktoru pro vygenerovÃ¡nÃ­ dat
+     * @brief Inicializace envelope dat s ADSR parametry
      * @param logger Reference na Logger pro logovÃ¡nÃ­
+     * @param attack_ms Attack time v milisekundÃ¡ch (default 500ms)
+     * @param decay_ms Decay time v milisekundÃ¡ch (default 300ms)
+     * @param sustain_level Sustain level 0.0-1.0 (default 0.7)
+     * @param release_ms Release time v milisekundÃ¡ch (default 1000ms)
      */
-    void initialize(Logger& logger);
+    void initialize(Logger& logger, float attack_ms = DEFAULT_ATTACK_MS, 
+                   float decay_ms = DEFAULT_DECAY_MS, float sustain_level = DEFAULT_SUSTAIN_LEVEL, 
+                   float release_ms = DEFAULT_RELEASE_MS);
 
     /**
-     * @brief NastavÃ­ frekvenci vzorkovÃ¡nÃ­ (bitrate) a odpovÃ­dajÃ­cÃ­ index (0 pro 44100, 1 pro 48000).
-     * Loguje zmÄ›nu bitrate a index.
-     * VolÃ¡no po konstruktoru nebo pÅ™i zmÄ›nÄ› sample rate v programu.
-     * @param freq Frekvence v Hz (pouze 44100 nebo 48000).
-     * @param logger Reference pro logovÃ¡nÃ­ zmÄ›ny (nebo error pÅ™i neplatnÃ© freq).
+     * @brief NastavÃ­ frekvenci vzorkovÃ¡nÃ­ (44100 nebo 48000 Hz)
+     * @param freq Frekvence v Hz
+     * @param logger Reference na Logger
      */
     void setEnvelopeFrequency(int freq, Logger& logger);
 
     /**
-     * @brief VyplnÃ­ gainBuffer gainy pro attack fÃ¡zi poÄÃ­naje absolutnÃ­ pozicÃ­ v samplech (pro danÃ© MIDI).
-     * PÅ™Ã­mÃ¡ indexace: pro i=0..numSamples-1: gainBuffer[i] = data[start_elapsed + i] (s clampem).
-     * Pro len=1 (MIDI 0): VyplnÃ­ 1.0f (okamÅ¾itÃ½ nÃ¡rÅ¯st).
-     * PouÅ¾ije aktuÃ¡lnÃ­ sample_rate_index_; pokud nenÃ­ nastaven (-1), vyplnÃ­ 0.0f.
-     * @param midi MIDI hodnota (0-127).
-     * @param gainBuffer Buffer k vyplnÄ›nÃ­ (mÅ¯Å¾e bÃ½t nullptr pro validaci).
-     * @param numSamples PoÄet samples v bufferu (napÅ™. 512).
-     * @param start_elapsed AbsolutnÃ­ start samples od zaÄÃ¡tku attack fÃ¡ze.
+     * @brief ZÃ­skÃ¡ attack envelope data od zadanÃ© pozice
+     * @param gainBuffer Buffer pro vÃ½stup
+     * @param numSamples PoÄet samples
+     * @param position Pozice v envelope (spravuje Voice)
+     * @return true pokud envelope pokraÄuje
      */
-    void getGainBufferAttack(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed) const noexcept;
+    bool getAttackGains(float* gainBuffer, int numSamples, sf_count_t position) const noexcept;
 
     /**
-     * @brief VyplnÃ­ gainBuffer gainy pro release fÃ¡zi poÄÃ­naje absolutnÃ­ pozicÃ­ v samplech (pro danÃ© MIDI).
-     * PÅ™Ã­mÃ¡ indexace: pro i=0..numSamples-1: gainBuffer[i] = data[start_elapsed + i] (s clampem).
-     * Pro len=1 (MIDI 0): VyplnÃ­ 0.0f (okamÅ¾itÃ½ Ãºtlum).
-     * PouÅ¾ije aktuÃ¡lnÃ­ sample_rate_index_; pokud nenÃ­ nastaven (-1), vyplnÃ­ 0.0f.
-     * @param midi MIDI hodnota (0-127).
-     * @param gainBuffer Buffer k vyplnÄ›nÃ­ (mÅ¯Å¾e bÃ½t nullptr pro validaci).
-     * @param numSamples PoÄet samples v bufferu (napÅ™. 512).
-     * @param start_elapsed AbsolutnÃ­ start samples od zaÄÃ¡tku release fÃ¡ze (napÅ™. releaseElapsed).
+     * @brief ZÃ­skÃ¡ release envelope data od zadanÃ© pozice
+     * @param gainBuffer Buffer pro vÃ½stup
+     * @param numSamples PoÄet samples
+     * @param position Pozice v envelope (spravuje Voice)
+     * @return true pokud envelope pokraÄuje
      */
-    void getGainBufferRelease(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed) const noexcept;
+    bool getReleaseGains(float* gainBuffer, int numSamples, sf_count_t position) const noexcept;
+
+    /**
+     * @brief Getter pro sustain level
+     * @return Sustain level (0.0-1.0)
+     */
+    float getSustainLevel() const noexcept { return sustain_level_; }
+
+    /**
+     * @brief Gettery pro dÃ©lky envelope v samples pÅ™i aktuÃ¡lnÃ­ frekvenci
+     */
+    sf_count_t getAttackLength() const noexcept;
+    sf_count_t getReleaseLength() const noexcept;
 
 private:
-    int sample_rate_index_ = -1;        // InternÃ­ index: 0=44100, 1=48000, -1=nevalidnÃ­
-    int bitrate_ = 0;                   // AktuÃ¡lnÃ­ bitrate (Hz) pro rozhodovÃ¡nÃ­ a logovÃ¡nÃ­ (nastavenÃ½ v setteru)
+    // FixnÃ­ ADSR parametry v milisekundÃ¡ch
+    float attack_time_ms_;
+    float decay_time_ms_;
+    float sustain_level_;      // 0.0-1.0
+    float release_time_ms_;
     
-    // Runtime generovanÃ¡ data (optimalizovanÃ¡ alokace podle skuteÄnÃ½ch dÃ©lek)
-    std::vector<EnvelopeData> attack_data_;   // [128] MIDI hodnot s dynamickou alokacÃ­
-    std::vector<EnvelopeData> release_data_;  // [128] MIDI hodnot s dynamickou alokacÃ­
+    // Frekvence management
+    int sample_rate_index_ = -1;        // 0=44100, 1=48000, -1=nevalidnÃ­
+    int bitrate_ = 0;                   // AktuÃ¡lnÃ­ bitrate (Hz)
     
-    // GenerovacÃ­ metody (volanÃ© v konstruktoru)
-    float calculateTau(uint8_t midi) const;
-    void generateEnvelopeData(uint8_t midi, int sample_rate, bool is_attack, 
-                            std::vector<float>& output, int& num_samples) const;
-    void generateAllEnvelopes();
+    // Simplified envelope data struktura
+    struct FixedEnvelopeData {
+        std::unique_ptr<float[]> data_44100;
+        std::unique_ptr<float[]> data_48000;
+        int len_44100;
+        int len_48000;
+        
+        FixedEnvelopeData() : len_44100(0), len_48000(0) {}
+        
+        // Move konstruktor a assignment pro std::unique_ptr
+        FixedEnvelopeData(FixedEnvelopeData&& other) noexcept 
+            : data_44100(std::move(other.data_44100))
+            , data_48000(std::move(other.data_48000))
+            , len_44100(other.len_44100)
+            , len_48000(other.len_48000) {}
+        
+        FixedEnvelopeData& operator=(FixedEnvelopeData&& other) noexcept {
+            if (this != &other) {
+                data_44100 = std::move(other.data_44100);
+                data_48000 = std::move(other.data_48000);
+                len_44100 = other.len_44100;
+                len_48000 = other.len_48000;
+            }
+            return *this;
+        }
+        
+        // ZakÃ¡zÃ¡nÃ­ copy konstruktoru/assignment
+        FixedEnvelopeData(const FixedEnvelopeData&) = delete;
+        FixedEnvelopeData& operator=(const FixedEnvelopeData&) = delete;
+    };
     
-    // PomocnÃ¡ metoda pro vyplnÄ›nÃ­ bufferu z envelope dat (spoleÄnÃ¡ pro attack/release)
-    void fillBufferFromData(const EnvelopeData& env, float* gainBuffer, int numSamples, sf_count_t start_elapsed, bool isAttack) const noexcept;
+    FixedEnvelopeData attack_envelope_;
+    FixedEnvelopeData release_envelope_;
+    
+    // GenerovacÃ­ metody
+    void generateAttackEnvelope();
+    void generateReleaseEnvelope();
+    void generateEnvelopeForSampleRate(int sampleRate, bool isAttack, 
+                                      std::vector<float>& output, int& numSamples) const;
+    
+    // Helper metoda pro vyplnÄ›nÃ­ bufferu
+    void fillBufferFromFixedData(const FixedEnvelopeData& env, float* gainBuffer, 
+                                int numSamples, sf_count_t position, bool isAttack) const noexcept;
 };
 
 #endif  // ENVELOPE_H
@@ -2927,36 +2968,44 @@ Path: C:\Users\jindr\IthacaCore\sampler\voice.cpp
 // Static member initialization
 std::atomic<bool> Voice::rtMode_{false};
 
-// Default konstruktor - OPRAVENÃ inicializace gain
+// Default konstruktor - AKTUALIZOVÃNA inicializace s envelope positions
 Voice::Voice() : midiNote_(0), instrument_(nullptr), sampleRate_(0),
                  state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
-                 envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(0.8f),  // NOVÃ‰
-                 releaseStartPosition_(0), releaseSamples_(0) {
-    // Å½Ã¡dnÃ¡ akce - ÄekÃ¡ na initialize pro plnou inicializaci
+                 envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(0.8f),
+                 envelope_(nullptr),
+                 envelope_attack_position_(0), envelope_release_position_(0), releaseSamples_(0) {
 }
 
-// Konstruktor pro VoiceManager (pool mÃ³d) - bez loggeru, inicializuje se pozdÄ›ji
+// Konstruktor pro VoiceManager (pool mÃ³d)
 Voice::Voice(uint8_t midiNote)
     : midiNote_(midiNote), instrument_(nullptr), sampleRate_(0),
       state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
-      envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(0.8f),  // NOVÃ‰
-      releaseStartPosition_(0), releaseSamples_(0) {
-    // Logger se pÅ™edÃ¡ pÅ™i initialize
+      envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(0.8f),
+      envelope_(nullptr),
+      envelope_attack_position_(0), envelope_release_position_(0), releaseSamples_(0) {
 }
 
 /**
- * @brief Inicializuje voice s instrumentem a sample rate.
- * NON-RT SAFE: Obsahuje logging operations.
+ * @brief AKTUALIZOVANÃ initialize s envelope validation
  */
-void Voice::initialize(const Instrument& instrument, int sampleRate, Logger& logger) {
+void Voice::initialize(const Instrument& instrument, int sampleRate, 
+                      const Envelope& envelope, Logger& logger) {
     instrument_ = &instrument;
     sampleRate_ = sampleRate;
+    envelope_ = &envelope;
     
-    // Validace sampleRate - musÃ­ bÃ½t kladnÃ½ pro sprÃ¡vnÃ© vÃ½poÄty obÃ¡lky
+    // Validace sampleRate
     if (sampleRate_ <= 0) {
         logSafe("Voice/initialize", "error", 
                "Invalid sampleRate " + std::to_string(sampleRate_) + 
                " - must be > 0. Terminating.", logger);
+        std::exit(1);
+    }
+    
+    // Validace envelope
+    if (!envelope_) {
+        logSafe("Voice/initialize", "error", 
+               "Envelope reference is null. Terminating.", logger);
         std::exit(1);
     }
     
@@ -2965,20 +3014,20 @@ void Voice::initialize(const Instrument& instrument, int sampleRate, Logger& log
     position_ = 0;
     currentVelocityLayer_ = 0;
     envelope_gain_ = 0.0f;
-    velocity_gain_ = 0.0f;  // NOVÃ‰ - reset velocity gain
-    master_gain_ = 0.8f;    // NOVÃ‰ - default master gain
-    releaseStartPosition_ = 0;
+    velocity_gain_ = 0.0f;
+    master_gain_ = 0.8f;
     
-    calculateReleaseSamples();  // RT-safe calculation
+    // NOVÃ‰: Reset envelope positions
+    envelope_attack_position_ = 0;
+    envelope_release_position_ = 0;
     
-    // Initialize gain buffer with reasonable default size
-    // Will be properly sized by prepareToPlay()
+    calculateReleaseSamples();
     gainBuffer_.reserve(512);
     
     logSafe("Voice/initialize", "info", 
            "Voice initialized for MIDI " + std::to_string(midiNote_) + 
-           " with sampleRate " + std::to_string(sampleRate_) +
-           ", master gain " + std::to_string(master_gain_), logger);
+           " with ADSR envelope system (A:" + std::to_string(envelope_->getAttackLength()) + 
+           ", R:" + std::to_string(envelope_->getReleaseLength()) + " samples)", logger);
 }
 
 /**
@@ -3000,64 +3049,63 @@ void Voice::prepareToPlay(int maxBlockSize) noexcept {
 }
 
 /**
- * @brief Cleanup: Reset na idle stav, zastavÃ­ pÅ™ehrÃ¡vÃ¡nÃ­.
- * NON-RT SAFE: Obsahuje logging operations.
+ * @brief AKTUALIZOVANÃ cleanup s envelope position reset
  */
 void Voice::cleanup(Logger& logger) {
     state_ = VoiceState::Idle;
     position_ = 0;
     envelope_gain_ = 0.0f;
-    velocity_gain_ = 0.0f;  // NOVÃ‰ - reset velocity gain
-    master_gain_ = 0.8f;    // NOVÃ‰ - reset na default
-    releaseStartPosition_ = 0;
+    velocity_gain_ = 0.0f;
+    master_gain_ = 0.8f;
+    
+    // NOVÃ‰: Reset envelope positions
+    envelope_attack_position_ = 0;
+    envelope_release_position_ = 0;
+    
     
     logSafe("Voice/cleanup", "info", 
            "Voice cleaned up and reset to idle for MIDI " + std::to_string(midiNote_), logger);
 }
 
 /**
- * @brief Reinicializuje s novÃ½m instrumentem a sample rate.
- * NON-RT SAFE: Deleguje na initialize s loggingem.
+ * @brief AKTUALIZOVANÃ reinitialize s envelope
  */
-void Voice::reinitialize(const Instrument& instrument, int sampleRate, Logger& logger) {
-    initialize(instrument, sampleRate, logger);
+void Voice::reinitialize(const Instrument& instrument, int sampleRate,
+                         const Envelope& envelope, Logger& logger) {
+    initialize(instrument, sampleRate, envelope, logger);
     logSafe("Voice/reinitialize", "info", 
-           "Voice reinitialized with new instrument and sampleRate for MIDI " + std::to_string(midiNote_), logger);
+           "Voice reinitialized with new instrument, sampleRate and ADSR envelope for MIDI " + std::to_string(midiNote_), logger);
 }
 
 /**
- * @brief OPRAVENÃ setNoteState: NynÃ­ SPRÃVNÄš aplikuje velocity na hlasitost.
- * RT-SAFE: Å½Ã¡dnÃ© alokace, Å¾Ã¡dnÃ© string operations, pure state management.
+ * @brief REFAKTOROVANÃ setNoteState s envelope position reset
  */
 void Voice::setNoteState(bool isOn, uint8_t velocity) noexcept {
-    if (!instrument_ || sampleRate_ <= 0) {
-        // RT-safe: Å¾Ã¡dnÃ© logging, jen return
+    if (!instrument_ || sampleRate_ <= 0 || !envelope_) {
         return;
     }
     
-    // MapovÃ¡nÃ­ velocity 0-127 na layer 0-7: 0-15 â†’ 0, 16-31 â†’ 1, ..., 112-127 â†’ 7
     currentVelocityLayer_ = std::min(static_cast<uint8_t>(velocity / 16), static_cast<uint8_t>(7));
     
     if (isOn) {
-        // KRITICKÃ OPRAVA: Velocity nynÃ­ ovlivÅˆuje hlasitost
-        updateVelocityGain(velocity);  // NOVÃ‰ - nastavÃ­ velocity_gain_
+        updateVelocityGain(velocity);
+        state_ = VoiceState::Attacking;
+        position_ = 0;
+        envelope_gain_ = 0.0f;
         
-        state_ = VoiceState::Sustaining;
-        position_ = 0;  // ZaÄÃ¡tek sample
-        envelope_gain_ = 1.0f;  // PlnÃ½ envelope gain pro sustain
+        // NOVÃ‰: Reset attack envelope position
+        envelope_attack_position_ = 0;
         
     } else {
-        // Stop note: PÅ™ejdi do release, pokud byl aktivnÃ­
         if (state_ == VoiceState::Sustaining || state_ == VoiceState::Attacking) {
             state_ = VoiceState::Releasing;
-            releaseStartPosition_ = position_;  // UloÅ¾it aktuÃ¡lnÃ­ pozici pro Ãºtlum
-            // envelope_gain_ will be calculated dynamically in calculateBlockGains
+            envelope_release_position_ = 0;
         }
     }
 }
 
 /**
- * @brief RT-SAFE: Pre-calculates envelope gains for entire block
+ * @brief KOMPLETNÄš REFAKTOROVANÃ calculateBlockGains pro ADSR envelope
  */
 bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
     if (state_ == VoiceState::Idle || !gainBuffer || numSamples <= 0) {
@@ -3065,41 +3113,57 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
     }
     
     switch (state_) {
-        case VoiceState::Sustaining:
         case VoiceState::Attacking: {
-            // Constant gain for sustain/attack
-            const float constantGain = envelope_gain_;
-            for (int i = 0; i < numSamples; ++i) {
-                gainBuffer[i] = constantGain;
+            // NOVÃ‰: PouÅ¾Ã­t ADSR envelope API bez MIDI parametru
+            bool attackContinues = envelope_->getAttackGains(gainBuffer, numSamples, envelope_attack_position_);
+            
+            // Increment pozice pro dalÅ¡Ã­ blok
+            envelope_attack_position_ += numSamples;
+            
+            // Zkontroluj dokonÄenÃ­ attack
+            if (!attackContinues || gainBuffer[numSamples - 1] >= 0.99f) {
+                state_ = VoiceState::Sustaining;
+                // DokonÄit blok sustain hodnotami
+                const float sustainLevel = envelope_->getSustainLevel();
+                for (int i = 0; i < numSamples; ++i) {
+                    if (gainBuffer[i] >= 0.99f) gainBuffer[i] = sustainLevel;
+                }
             }
+            
+            envelope_gain_ = gainBuffer[numSamples - 1];
+            return true;
+        }
+        
+        case VoiceState::Sustaining: {
+            // NOVÃ‰: KonstantnÃ­ sustain level z envelope parametrÅ¯
+            const float sustainLevel = envelope_->getSustainLevel();
+            for (int i = 0; i < numSamples; ++i) {
+                gainBuffer[i] = sustainLevel;
+            }
+            envelope_gain_ = sustainLevel;
             return true;
         }
         
         case VoiceState::Releasing: {
-            // Linear release fade
+            // NOVÃ‰: PouÅ¾Ã­t ADSR envelope API pro release
+            bool releaseContinues = envelope_->getReleaseGains(gainBuffer, numSamples, envelope_release_position_);
+            
+            // Increment pozice pro dalÅ¡Ã­ blok
+            envelope_release_position_ += numSamples;
+            
+            // Aplikovat minimum pro bezpeÄnost
             constexpr float targetGain = 0.001f;
-            constexpr float estimatedStartGain = 1.0f;
-            
-            const sf_count_t releaseElapsed = position_ - releaseStartPosition_;
-            
             for (int i = 0; i < numSamples; ++i) {
-                const float elapsedLocal = static_cast<float>(releaseElapsed + i);
-                
-                if (releaseSamples_ <= 0 || elapsedLocal >= static_cast<float>(releaseSamples_)) {
-                    gainBuffer[i] = targetGain;
-                } else {
-                    const float progress = elapsedLocal / static_cast<float>(releaseSamples_);
-                    gainBuffer[i] = estimatedStartGain * (1.0f - progress) + targetGain * progress;
-                    gainBuffer[i] = std::max(gainBuffer[i], targetGain);
-                    gainBuffer[i] = std::min(gainBuffer[i], estimatedStartGain);
-                }
+                gainBuffer[i] = std::max(gainBuffer[i], targetGain);
             }
             
-            // Update envelope_gain_ to last calculated value for getter consistency
             envelope_gain_ = gainBuffer[numSamples - 1];
             
-            // Check if release is complete
-            return envelope_gain_ > targetGain * 1.1f;
+            // Zkontroluj dokonÄenÃ­ release
+            if (!releaseContinues || envelope_gain_ <= targetGain * 1.1f) {
+                return false;  // Voice dokonÄen
+            }
+            return true;
         }
         
         default:
@@ -3210,9 +3274,13 @@ bool Voice::processBlock(float* outputLeft, float* outputRight,
     const float baseGain = velocity_gain_ * master_gain_ * voiceScaling;
     
     for (int i = 0; i < samplesToProcess; ++i) {
-        // KompletnÃ­ gain chain: envelope (per-sample) * velocity * master * voiceScaling
-        const float finalGain = gainBuffer_.data()[i] * baseGain * 0.8;
+        
+        // srcIndex pro 2 kanal
         const int srcIndex = i * 2;
+        
+        // KompletnÃ­ gain chain: envelope (per-sample) * velocity * master * voiceScaling
+        const float envelopeGain = 1.0; //gainBuffer_.data()[i];
+        const float finalGain = envelopeGain * velocity_gain_ * master_gain_ * voiceScaling;
         
         // Mixdown: Add to shared output buffers (multiple voices sum together)
         outputLeft[i] += srcPtr[srcIndex] * finalGain;
@@ -3369,6 +3437,7 @@ Path: C:\Users\jindr\IthacaCore\sampler\voice.h
 #include <vector>
 #include "instrument_loader.h"
 #include "core_logger.h"
+#include "envelopes/envelope.h"
 
 // Simulace JUCE AudioBuffer pro stereo vÃ½stup (bez zÃ¡vislosti na JUCE)
 struct AudioData {
@@ -3426,7 +3495,7 @@ public:
      * @param sampleRate Frekvence vzorkovÃ¡nÃ­ (napÅ™. 44100 Hz).
      * @param logger Reference na Logger.
      */
-    void initialize(const Instrument& instrument, int sampleRate, Logger& logger);
+    void initialize(const Instrument& instrument, int sampleRate, const Envelope& envelope, Logger& logger);
 
     /**
      * @brief Cleanup: Reset na idle stav.
@@ -3442,7 +3511,7 @@ public:
      * @param sampleRate NovÃ½ sample rate.
      * @param logger Reference na Logger.
      */
-    void reinitialize(const Instrument& instrument, int sampleRate, Logger& logger);
+    void reinitialize(const Instrument& instrument, int sampleRate, const Envelope& envelope, Logger& logger);
     
     /**
      * @brief NON-RT SAFE: Updates internal buffer size for DAW block size changes
@@ -3549,20 +3618,24 @@ public:
     std::string getGainDebugInfo(Logger& logger) const;
 
 private:
-    uint8_t midiNote_;              // MIDI nota (0-127)
-    const Instrument* instrument_;  // Pointer na Instrument (nevolnit, patÅ™Ã­ Loader)
-    int sampleRate_;                // Frekvence vzorkovÃ¡nÃ­ pro obÃ¡lku (Hz)
-    VoiceState state_;              // AktuÃ¡lnÃ­ stav
-    sf_count_t position_;           // Pozice ve sample (frames)
-    uint8_t currentVelocityLayer_;  // AktuÃ¡lnÃ­ velocity layer (0-7)
+    uint8_t midiNote_;                  // MIDI nota (0-127)
+    const Instrument* instrument_;      // Pointer na Instrument (nevolnit, patÅ™Ã­ Loader)
+    int sampleRate_;                    // Frekvence vzorkovÃ¡nÃ­ pro obÃ¡lku (Hz)
+    VoiceState state_;                  // AktuÃ¡lnÃ­ stav
+    sf_count_t position_;               // Pozice ve sample (frames)
+    uint8_t currentVelocityLayer_;      // AktuÃ¡lnÃ­ velocity layer (0-7)
     
-    // OPRAVENÃ‰: OddÄ›lenÃ© gain komponenty s jasnou strukturou
-    float envelope_gain_;           // DynamickÃ¡ obÃ¡lka (attack/sustain/release): 0.0-1.0
-    float velocity_gain_;          // MIDI velocity gain (0-127 â†’ 0.0-1.0): NOVÃ‰
-    float master_gain_;            // Master volume kontrola (default 0.8f): NOVÃ‰
-    
-    sf_count_t releaseStartPosition_; // Pozice startu release pro lineÃ¡rnÃ­ Ãºtlum
-    sf_count_t releaseSamples_;     // DÃ©lka release v samplech (napÅ™. 0.5 * sampleRate)
+    float envelope_gain_;               // DynamickÃ¡ obÃ¡lka (attack/sustain/release): 0.0-1.0
+    float velocity_gain_;               // MIDI velocity gain (0-127 â†’ 0.0-1.0): NOVÃ‰
+    float master_gain_;                 // Master volume kontrola (default 0.8f): NOVÃ‰
+
+    const Envelope* envelope_;          // Pointer na Envelope (non-owning)
+
+    // PÅ˜IDAT TYTO Å˜ÃDKY:
+    sf_count_t envelope_attack_position_;   // Pozice v attack envelope
+    sf_count_t envelope_release_position_;  // Pozice v release envelope
+
+    sf_count_t releaseSamples_;             // DÃ©lka release v samplech (napÅ™. 0.5 * sampleRate)
     
     // RT-SAFE: Pre-allocated buffer pro gain calculations
     // Resized pouze bÄ›hem prepareToPlay() calls, nikdy bÄ›hem RT processing
@@ -3970,22 +4043,22 @@ void VoiceManager::setRealTimeMode(bool enabled) noexcept {
  */
 void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
     logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
-              "Initializing all 128 voices with loaded instruments...");
+              "Initializing all 128 voices with loaded instruments and envelope system...");
     
     for (int i = 0; i < 128; ++i) {
         uint8_t midiNote = static_cast<uint8_t>(i);
         const Instrument& inst = instrumentLoader_.getInstrumentNote(midiNote);
         Voice& voice = voices_[i];
         
-        // Initialize voice s odpovÃ­dajÃ­cÃ­m instrumentem
-        voice.initialize(inst, currentSampleRate_, logger);
+        // AKTUALIZOVÃNO: Initialize voice s odpovÃ­dajÃ­cÃ­m instrumentem A envelope
+        voice.initialize(inst, currentSampleRate_, envelope_, logger);
         
-        // NOVÃ‰: Prepare voice pro current buffer size (reasonable default)
-        voice.prepareToPlay(512); // Will be updated by explicit prepareToPlay() call
+        // Prepare voice pro current buffer size
+        voice.prepareToPlay(512);
     }
     
     logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
-              "All voices initialized with instruments successfully");
+              "All voices initialized with instruments and envelope system successfully");
 }
 
 /**

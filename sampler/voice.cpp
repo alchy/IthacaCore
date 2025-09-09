@@ -10,8 +10,7 @@ Voice::Voice() : midiNote_(0), instrument_(nullptr), sampleRate_(0),
                  state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
                  envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(0.8f),
                  envelope_(nullptr),
-                 envelope_attack_position_(0), envelope_release_position_(0),  // NOVÉ
-                 releaseStartPosition_(0), releaseSamples_(0) {
+                 envelope_attack_position_(0), envelope_release_position_(0), releaseSamples_(0) {
 }
 
 // Konstruktor pro VoiceManager (pool mód)
@@ -20,8 +19,7 @@ Voice::Voice(uint8_t midiNote)
       state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
       envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(0.8f),
       envelope_(nullptr),
-      envelope_attack_position_(0), envelope_release_position_(0),  // NOVÉ
-      releaseStartPosition_(0), releaseSamples_(0) {
+      envelope_attack_position_(0), envelope_release_position_(0), releaseSamples_(0) {
 }
 
 /**
@@ -60,7 +58,6 @@ void Voice::initialize(const Instrument& instrument, int sampleRate,
     envelope_attack_position_ = 0;
     envelope_release_position_ = 0;
     
-    releaseStartPosition_ = 0;
     calculateReleaseSamples();
     gainBuffer_.reserve(512);
     
@@ -102,7 +99,6 @@ void Voice::cleanup(Logger& logger) {
     envelope_attack_position_ = 0;
     envelope_release_position_ = 0;
     
-    releaseStartPosition_ = 0;
     
     logSafe("Voice/cleanup", "info", 
            "Voice cleaned up and reset to idle for MIDI " + std::to_string(midiNote_), logger);
@@ -140,9 +136,6 @@ void Voice::setNoteState(bool isOn, uint8_t velocity) noexcept {
     } else {
         if (state_ == VoiceState::Sustaining || state_ == VoiceState::Attacking) {
             state_ = VoiceState::Releasing;
-            releaseStartPosition_ = position_;
-            
-            // NOVÉ: Reset release envelope position
             envelope_release_position_ = 0;
         }
     }
@@ -249,8 +242,8 @@ bool Voice::getCurrentAudioData(AudioData& data) const noexcept {
     // KRITICKÁ OPRAVA: Aplikuj všechny gain komponenty
     const float finalGain = envelope_gain_ * velocity_gain_ * master_gain_;
     const sf_count_t idx = position_ * 2;
-    data.left = stereoPtr[idx] * finalGain;
-    data.right = stereoPtr[idx + 1] * finalGain;
+    data.left = stereoPtr[idx]; // xxx * finalGain;
+    data.right = stereoPtr[idx + 1]; // xxx * finalGain;
     
     return true;
 }
@@ -323,12 +316,12 @@ bool Voice::processBlock(float* outputLeft, float* outputRight,
         const int srcIndex = i * 2;
         
         // Kompletní gain chain: envelope (per-sample) * velocity * master * voiceScaling
-        const float envelopeGain = gainBuffer_.data()[i];
+        const float envelopeGain = 1.0; // xxx gainBuffer_.data()[i];
         const float finalGain = envelopeGain * velocity_gain_ * master_gain_ * voiceScaling;
         
         // Mixdown: Add to shared output buffers (multiple voices sum together)
-        outputLeft[i] += srcPtr[srcIndex] * finalGain;
-        outputRight[i] += srcPtr[srcIndex + 1] * finalGain;
+        outputLeft[i] += srcPtr[srcIndex]; // xxx * finalGain;
+        outputRight[i] += srcPtr[srcIndex + 1]; // xxx * finalGain;
     }
     
     // Batch position update - once per block instead of per sample

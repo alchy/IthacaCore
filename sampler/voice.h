@@ -206,9 +206,8 @@ private:
     // PŘIDAT TYTO ŘÁDKY:
     sf_count_t envelope_attack_position_;   // Pozice v attack envelope
     sf_count_t envelope_release_position_;  // Pozice v release envelope
-    
-    sf_count_t releaseStartPosition_;   // Pozice startu release pro lineární útlum
-    sf_count_t releaseSamples_;         // Délka release v samplech (např. 0.5 * sampleRate)
+
+    sf_count_t releaseSamples_;             // Délka release v samplech (např. 0.5 * sampleRate)
     
     // RT-SAFE: Pre-allocated buffer pro gain calculations
     // Resized pouze během prepareToPlay() calls, nikdy během RT processing
