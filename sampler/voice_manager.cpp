@@ -1,7 +1,6 @@
 #include "voice_manager.h"
 #include "sampler.h"            // Pro stack allocated SamplerIO
 #include "instrument_loader.h"  // Pro stack allocated InstrumentLoader
-#include "wav_file_exporter.h"  // Pro exportTestSample
 #include <algorithm>
 #include <cmath>
 
@@ -263,745 +262,7 @@ void VoiceManager::logSystemStatistics(Logger& logger) {
               "========================");
 }
 
-// ===== NOVÉ TESTING METHODS - GAIN SPECIFIC =====
-
-/**
- * @brief NOVÁ metoda: Test velocity gain s různými hodnotami
- * Testuje aplikaci MIDI velocity na hlasitost s detailním logováním.
- */
-void VoiceManager::runVelocityGainTest(Logger& logger) {
-    if (!systemInitialized_) {
-        logger.log("VoiceManager/runVelocityGainTest", "error", 
-                  "System not initialized. Call loadAllInstruments() first.");
-        return;
-    }
-    
-    logger.log("VoiceManager/runVelocityGainTest", "info", 
-              "=== STARTING VELOCITY GAIN TEST ===");
-    
-    uint8_t testMidi = findValidTestMidiNote(logger);
-    
-    // Test různých velocity hodnot: 1, 32, 64, 96, 127
-    std::vector<uint8_t> testVelocities = {1, 32, 64, 96, 127};
-    
-    const int blockSize = 512;
-    float* leftBuffer = new float[blockSize];
-    float* rightBuffer = new float[blockSize];
-    
-    for (uint8_t velocity : testVelocities) {
-        logger.log("VoiceManager/runVelocityGainTest", "info", 
-                  "Testing velocity " + std::to_string(velocity) + " for MIDI " + std::to_string(testMidi));
-        
-        // Note-on s testovanou velocity
-        setNoteState(testMidi, true, velocity);
-        
-        Voice& voice = getVoice(testMidi);
-        
-        // Debug gain informace
-        voice.getGainDebugInfo(logger);
-        
-        // Process jeden blok pro měření výstupní hlasitosti
-        memset(leftBuffer, 0, blockSize * sizeof(float));
-        memset(rightBuffer, 0, blockSize * sizeof(float));
-        
-        if (processBlock(leftBuffer, rightBuffer, blockSize)) {
-            // Analýza peak level
-            float peakL = 0.0f, peakR = 0.0f;
-            float rmsL = 0.0f, rmsR = 0.0f;
-            
-            for (int i = 0; i < blockSize; ++i) {
-                peakL = std::max(peakL, std::abs(leftBuffer[i]));
-                peakR = std::max(peakR, std::abs(rightBuffer[i]));
-                rmsL += leftBuffer[i] * leftBuffer[i];
-                rmsR += rightBuffer[i] * rightBuffer[i];
-            }
-            
-            rmsL = std::sqrt(rmsL / blockSize);
-            rmsR = std::sqrt(rmsR / blockSize);
-            
-            logger.log("VoiceManager/runVelocityGainTest", "info", 
-                      "Velocity " + std::to_string(velocity) + 
-                      " - Peak L: " + std::to_string(peakL) + 
-                      ", Peak R: " + std::to_string(peakR) +
-                      ", RMS L: " + std::to_string(rmsL) +
-                      ", RMS R: " + std::to_string(rmsR) +
-                      ", Voice Final Gain: " + std::to_string(voice.getFinalGain()));
-                      
-            // Očekávaný růst hlasitosti s velocity
-            float expectedGain = std::sqrt(static_cast<float>(velocity) / 127.0f) * voice.getMasterGain();
-            logger.log("VoiceManager/runVelocityGainTest", "info", 
-                      "Expected gain: " + std::to_string(expectedGain) + 
-                      ", Actual velocity gain: " + std::to_string(voice.getVelocityGain()));
-        }
-        
-        // Note-off
-        setNoteState(testMidi, false, 0);
-        
-        // Krátká pauza pro cleanup
-        for (int i = 0; i < 3; ++i) {
-            processBlock(leftBuffer, rightBuffer, blockSize);
-        }
-    }
-    
-    delete[] leftBuffer;
-    delete[] rightBuffer;
-    
-    logger.log("VoiceManager/runVelocityGainTest", "info", 
-              "=== VELOCITY GAIN TEST COMPLETED ===");
-}
-
-/**
- * @brief NOVÁ metoda: Test master gain nastavení
- */
-void VoiceManager::runMasterGainTest(Logger& logger) {
-    if (!systemInitialized_) {
-        logger.log("VoiceManager/runMasterGainTest", "error", 
-                  "System not initialized. Call loadAllInstruments() first.");
-        return;
-    }
-    
-    logger.log("VoiceManager/runMasterGainTest", "info", 
-              "=== STARTING MASTER GAIN TEST ===");
-    
-    uint8_t testMidi = findValidTestMidiNote(logger);
-    Voice& voice = getVoice(testMidi);
-    
-    // Test různých master gain hodnot
-    std::vector<float> testGains = {0.1f, 0.3f, 0.5f, 0.8f, 1.0f};
-    
-    for (float masterGain : testGains) {
-        logger.log("VoiceManager/runMasterGainTest", "info", 
-                  "Testing master gain " + std::to_string(masterGain));
-        
-        // Nastavení master gain
-        voice.setMasterGain(masterGain, logger);
-        
-        // Test s pevnou velocity (100)
-        setNoteState(testMidi, true, 100);
-        
-        // Debug informace
-        voice.getGainDebugInfo(logger);
-        
-        // Krátký test
-        const int blockSize = 256;
-        float* leftBuffer = new float[blockSize];
-        float* rightBuffer = new float[blockSize];
-        
-        memset(leftBuffer, 0, blockSize * sizeof(float));
-        memset(rightBuffer, 0, blockSize * sizeof(float));
-        
-        if (processBlock(leftBuffer, rightBuffer, blockSize)) {
-            float peakL = 0.0f;
-            for (int i = 0; i < blockSize; ++i) {
-                peakL = std::max(peakL, std::abs(leftBuffer[i]));
-            }
-            
-            logger.log("VoiceManager/runMasterGainTest", "info", 
-                      "Master gain " + std::to_string(masterGain) + 
-                      " → Peak output: " + std::to_string(peakL));
-        }
-        
-        delete[] leftBuffer;
-        delete[] rightBuffer;
-        
-        setNoteState(testMidi, false, 0);
-    }
-    
-    logger.log("VoiceManager/runMasterGainTest", "info", 
-              "=== MASTER GAIN TEST COMPLETED ===");
-}
-
-/**
- * @brief ROZŠÍŘENÝ runSingleNoteTest s gain analýzou
- */
-void VoiceManager::runSingleNoteTestWithGain(Logger& logger) {
-    if (!systemInitialized_) {
-        logger.log("VoiceManager/runSingleNoteTestWithGain", "error", 
-                  "System not initialized. Call loadAllInstruments() first.");
-        return;
-    }
-    
-    logger.log("VoiceManager/runSingleNoteTestWithGain", "info", 
-              "=== STARTING ENHANCED SINGLE NOTE TEST ===");
-    
-    uint8_t testMidi = findValidTestMidiNote(logger);
-    uint8_t testVelocity = 100;
-    
-    logger.log("VoiceManager/runSingleNoteTestWithGain", "info", 
-              "Testing MIDI " + std::to_string(testMidi) + 
-              " with velocity " + std::to_string(testVelocity) + 
-              " (enhanced gain monitoring)");
-    
-    Voice& voice = getVoice(testMidi);
-    
-    // Note-on
-    setNoteState(testMidi, true, testVelocity);
-    
-    // Detailní gain monitoring
-    logger.log("VoiceManager/runSingleNoteTestWithGain", "info", 
-              "After note-on: " + voice.getGainDebugInfo(logger));
-    
-    const int blockSize = 512;
-    const int numBlocks = 8;  // Více bloků pro sledování envelope
-    float* leftBuffer = new float[blockSize];
-    float* rightBuffer = new float[blockSize];
-    
-    for (int block = 0; block < numBlocks; ++block) {
-        memset(leftBuffer, 0, blockSize * sizeof(float));
-        memset(rightBuffer, 0, blockSize * sizeof(float));
-        
-        bool hasAudio = processBlock(leftBuffer, rightBuffer, blockSize);
-        
-        if (hasAudio) {
-            float maxL = 0.0f;
-            for (int i = 0; i < blockSize; ++i) {
-                maxL = std::max(maxL, std::abs(leftBuffer[i]));
-            }
-            
-            logger.log("VoiceManager/runSingleNoteTestWithGain", "info", 
-                      "Block " + std::to_string(block) + 
-                      " - Peak: " + std::to_string(maxL) + 
-                      ", Voice gains: Env=" + std::to_string(voice.getCurrentEnvelopeGain()) +
-                      ", Vel=" + std::to_string(voice.getVelocityGain()) +
-                      ", Final=" + std::to_string(voice.getFinalGain()));
-        }
-        
-        // Release po polovině bloků
-        if (block == numBlocks / 2) {
-            setNoteState(testMidi, false, 0);
-            logger.log("VoiceManager/runSingleNoteTestWithGain", "info", 
-                      "Note-off sent - monitoring release envelope");
-        }
-    }
-    
-    delete[] leftBuffer;
-    delete[] rightBuffer;
-    
-    logger.log("VoiceManager/runSingleNoteTestWithGain", "info", 
-              "=== ENHANCED SINGLE NOTE TEST COMPLETED ===");
-}
-
-// ===== PŮVODNÍ TESTING METHODS - adaptované pro novou Voice třídu =====
-
-/**
- * @brief Single note test s live export možností
- */
-void VoiceManager::runSingleNoteTest(Logger& logger) {
-    if (!systemInitialized_) {
-        logger.log("VoiceManager/runSingleNoteTest", "error", 
-                  "System not initialized. Call loadAllInstruments() first.");
-        return;
-    }
-    
-    logger.log("VoiceManager/runSingleNoteTest", "info", "Starting single note test...");
-    
-    uint8_t testMidi = findValidTestMidiNote(logger);
-    uint8_t testVelocity = 100;
-    
-    logger.log("VoiceManager/runSingleNoteTest", "info", 
-              "Testing MIDI " + std::to_string(testMidi) + " with velocity " + std::to_string(testVelocity));
-    
-    // Note-on
-    setNoteState(testMidi, true, testVelocity);
-    logger.log("VoiceManager/runSingleNoteTest", "info", 
-              "Note-on sent. Active voices: " + std::to_string(getActiveVoicesCount()));
-    
-    // Simulate audio processing (shorter for testing)
-    const int blockSize = 512;
-    const int numBlocks = 5;
-    
-    for (int block = 0; block < numBlocks; ++block) {
-        float* leftBuffer = new float[blockSize];
-        float* rightBuffer = new float[blockSize];
-        
-        bool hasAudio = processBlock(leftBuffer, rightBuffer, blockSize);
-        
-        if (hasAudio) {
-            float maxL = 0.0f, maxR = 0.0f;
-            for (int i = 0; i < blockSize; ++i) {
-                maxL = std::max(maxL, std::abs(leftBuffer[i]));
-                maxR = std::max(maxR, std::abs(rightBuffer[i]));
-            }
-            
-            logger.log("VoiceManager/runSingleNoteTest", "info", 
-                      "Block " + std::to_string(block) + " - Peak L: " + std::to_string(maxL) + 
-                      ", Peak R: " + std::to_string(maxR));
-        } else {
-            logger.log("VoiceManager/runSingleNoteTest", "info", 
-                      "Block " + std::to_string(block) + " - Silent");
-        }
-        
-        delete[] leftBuffer;
-        delete[] rightBuffer;
-    }
-    
-    // Note-off
-    setNoteState(testMidi, false, 0);
-    logger.log("VoiceManager/runSingleNoteTest", "info", "Single note test completed");
-    
-    // Live export
-    logger.log("VoiceManager/runSingleNoteTest", "info", 
-              "Running live export for single note test...");
-    exportSingleNotePlayback(testMidi, testVelocity, "./exports", logger);
-}
-
-/**
- * @brief Polyphony test s live export možností
- */
-void VoiceManager::runPolyphonyTest(Logger& logger) {
-    if (!systemInitialized_) {
-        logger.log("VoiceManager/runPolyphonyTest", "error", 
-                  "System not initialized. Call loadAllInstruments() first.");
-        return;
-    }
-    
-    logger.log("VoiceManager/runPolyphonyTest", "info", "Starting polyphony test...");
-    
-    std::vector<uint8_t> testNotes = findValidNotesForPolyphony(logger, 2);
-    
-    if (testNotes.size() >= 2) {
-        // Note-on for all notes
-        for (uint8_t note : testNotes) {
-            setNoteState(note, true, 90);
-            logger.log("VoiceManager/runPolyphonyTest", "info", 
-                      "Note-on MIDI " + std::to_string(note));
-        }
-        
-        logger.log("VoiceManager/runPolyphonyTest", "info", 
-                  "Active voices after chord: " + std::to_string(getActiveVoicesCount()));
-        
-        // Process one block for testing
-        const int blockSize = 512;
-        float* leftBuffer = new float[blockSize];
-        float* rightBuffer = new float[blockSize];
-        
-        if (processBlock(leftBuffer, rightBuffer, blockSize)) {
-            float maxL = 0.0f, maxR = 0.0f;
-            for (int i = 0; i < blockSize; ++i) {
-                maxL = std::max(maxL, std::abs(leftBuffer[i]));
-                maxR = std::max(maxR, std::abs(rightBuffer[i]));
-            }
-            
-            logger.log("VoiceManager/runPolyphonyTest", "info", 
-                      "Polyphonic audio - Peak L: " + std::to_string(maxL) + 
-                      ", Peak R: " + std::to_string(maxR));
-        }
-        
-        delete[] leftBuffer;
-        delete[] rightBuffer;
-        
-        // Note-off for all
-        for (uint8_t note : testNotes) {
-            setNoteState(note, false, 0);
-        }
-        
-        // Live export polyphony
-        logger.log("VoiceManager/runPolyphonyTest", "info", 
-                  "Running live export for polyphony test...");
-        exportPolyphonyPlayback(testNotes, "./exports", logger);
-    } else {
-        logger.log("VoiceManager/runPolyphonyTest", "warn", 
-                  "Not enough valid notes for polyphony test");
-    }
-    
-    logger.log("VoiceManager/runPolyphonyTest", "info", "Polyphony test completed");
-}
-
-/**
- * @brief Edge case tests
- */
-void VoiceManager::runEdgeCaseTests(Logger& logger) {
-    logger.log("VoiceManager/runEdgeCaseTests", "info", "Starting edge case tests...");
-    
-    // Invalid MIDI notes
-    setNoteState(200, true, 100);  // Invalid MIDI
-    setNoteState(60, true, 0);     // Zero velocity
-    setNoteState(61, true, 127);   // Max velocity
-    
-    logger.log("VoiceManager/runEdgeCaseTests", "info", 
-              "Active voices after edge cases: " + std::to_string(getActiveVoicesCount()));
-    
-    stopAllVoices();
-    logger.log("VoiceManager/runEdgeCaseTests", "info", "Edge case tests completed");
-}
-
-/**
- * @brief Individual voice test
- */
-void VoiceManager::runIndividualVoiceTest(Logger& logger) {
-    if (!systemInitialized_) {
-        logger.log("VoiceManager/runIndividualVoiceTest", "error", 
-                  "System not initialized. Call loadAllInstruments() first.");
-        return;
-    }
-    
-    logger.log("VoiceManager/runIndividualVoiceTest", "info", "Starting individual voice test...");
-    
-    uint8_t testMidi = findValidTestMidiNote(logger);
-    Voice& voice = getVoice(testMidi);
-    
-    logger.log("VoiceManager/runIndividualVoiceTest", "info", 
-              "Voice " + std::to_string(testMidi) + " state: " + 
-              std::to_string(static_cast<int>(voice.getState())) + 
-              ", position: " + std::to_string(voice.getPosition()) + 
-              ", envelope gain: " + std::to_string(voice.getCurrentEnvelopeGain()) +
-              ", velocity gain: " + std::to_string(voice.getVelocityGain()) +
-              ", master gain: " + std::to_string(voice.getMasterGain()) +
-              ", final gain: " + std::to_string(voice.getFinalGain()));
-    
-    logger.log("VoiceManager/runIndividualVoiceTest", "info", "Individual voice test completed");
-}
-
-/**
- * @brief Export test sample (původní raw sample data)
- */
-void VoiceManager::exportTestSample(uint8_t midi, uint8_t vel, const std::string& exportDir, Logger& logger) {
-    if (!systemInitialized_) {
-        logger.log("VoiceManager/exportTestSample", "error", 
-                  "System not initialized. Call loadAllInstruments() first.");
-        return;
-    }
-    
-    logger.log("VoiceManager/exportTestSample", "info", 
-              "Starting export test for MIDI " + std::to_string(midi) + 
-              " velocity " + std::to_string(vel));
-    
-    try {
-        const Instrument& instrument = instrumentLoader_.getInstrumentNote(midi);
-        if (instrument.velocityExists[vel]) {
-            WavExporter exporter(exportDir, logger);
-            std::string filename = "test_export_midi" + std::to_string(midi) + "_vel" + std::to_string(vel) + ".wav";
-            
-            float* exportBuffer = exporter.wavFileCreate(filename, currentSampleRate_, 512, true, true);
-            if (exportBuffer) {
-                sf_count_t totalFrames = instrument.get_frame_count(vel);
-                sf_count_t framesPerBuffer = 512;
-                sf_count_t remainingFrames = totalFrames;
-                float* sourceData = instrument.get_sample_begin_pointer(vel);
-                
-                while (remainingFrames > 0) {
-                    sf_count_t thisBufferFrames = std::min(framesPerBuffer, remainingFrames);
-                    size_t offset = (totalFrames - remainingFrames) * 2;
-                    
-                    for (sf_count_t i = 0; i < thisBufferFrames * 2; ++i) {
-                        exportBuffer[i] = sourceData[offset + i];
-                    }
-                    
-                    if (!exporter.wavFileWriteBuffer(exportBuffer, static_cast<int>(thisBufferFrames))) {
-                        logger.log("VoiceManager/exportTestSample", "error", "Export write failed");
-                        return;
-                    }
-                    
-                    remainingFrames -= thisBufferFrames;
-                }
-                
-                logger.log("VoiceManager/exportTestSample", "info", 
-                          "Export completed: " + filename);
-            }
-        } else {
-            logger.log("VoiceManager/exportTestSample", "warn", 
-                      "No sample found for MIDI " + std::to_string(midi) + " velocity " + std::to_string(vel));
-        }
-    } catch (...) {
-        logger.log("VoiceManager/exportTestSample", "error", "Export failed with exception");
-    }
-}
-
-/**
- * @brief Export live single note playback
- */
-void VoiceManager::exportSingleNotePlayback(uint8_t midi, uint8_t velocity, 
-                                           const std::string& exportDir, Logger& logger) {
-    if (!systemInitialized_) {
-        logger.log("VoiceManager/exportSingleNotePlayback", "error", 
-                  "System not initialized. Call loadAllInstruments() first.");
-        return;
-    }
-    
-    logger.log("VoiceManager/exportSingleNotePlayback", "info", 
-              "Starting live export for MIDI " + std::to_string(midi) + 
-              " velocity " + std::to_string(velocity));
-    
-    try {
-        WavExporter exporter(exportDir, logger);
-        std::string filename = "live_single_midi" + std::to_string(midi) + 
-                              "_vel" + std::to_string(velocity) + ".wav";
-        
-        const int blockSize = 512;
-        float* exportBuffer = exporter.wavFileCreate(filename, currentSampleRate_, blockSize, true, true);
-        
-        if (!exportBuffer) {
-            logger.log("VoiceManager/exportSingleNotePlayback", "error", "Failed to create export buffer");
-            return;
-        }
-        
-        // Temporary buffers for audio processing
-        float* leftBuffer = new float[blockSize];
-        float* rightBuffer = new float[blockSize];
-        
-        // Start note
-        setNoteState(midi, true, velocity);
-        logger.log("VoiceManager/exportSingleNotePlayback", "info", "Note-on sent, capturing audio...");
-        
-        // Capture sustain phase (approximately 2 seconds)
-        const int sustainBlocks = (2 * currentSampleRate_) / blockSize;
-        for (int block = 0; block < sustainBlocks; ++block) {
-            if (processBlock(leftBuffer, rightBuffer, blockSize)) {
-                // Interleave for export
-                for (int i = 0; i < blockSize; ++i) {
-                    exportBuffer[i * 2] = leftBuffer[i];
-                    exportBuffer[i * 2 + 1] = rightBuffer[i];
-                }
-                
-                if (!exporter.wavFileWriteBuffer(exportBuffer, blockSize)) {
-                    logger.log("VoiceManager/exportSingleNotePlayback", "error", "Export write failed");
-                    break;
-                }
-            } else {
-                // Silent block - still export zeros
-                memset(exportBuffer, 0, blockSize * 2 * sizeof(float));
-                exporter.wavFileWriteBuffer(exportBuffer, blockSize);
-            }
-        }
-        
-        // Release note
-        setNoteState(midi, false, 0);
-        logger.log("VoiceManager/exportSingleNotePlayback", "info", "Note-off sent, capturing release...");
-        
-        // Capture release phase (approximately 1 second)
-        const int releaseBlocks = currentSampleRate_ / blockSize;
-        for (int block = 0; block < releaseBlocks; ++block) {
-            if (processBlock(leftBuffer, rightBuffer, blockSize)) {
-                for (int i = 0; i < blockSize; ++i) {
-                    exportBuffer[i * 2] = leftBuffer[i];
-                    exportBuffer[i * 2 + 1] = rightBuffer[i];
-                }
-                
-                if (!exporter.wavFileWriteBuffer(exportBuffer, blockSize)) {
-                    break;
-                }
-            } else {
-                // Voice finished
-                break;
-            }
-        }
-        
-        delete[] leftBuffer;
-        delete[] rightBuffer;
-        
-        logger.log("VoiceManager/exportSingleNotePlayback", "info", 
-                  "Live single note export completed: " + filename);
-        
-    } catch (...) {
-        logger.log("VoiceManager/exportSingleNotePlayback", "error", "Export failed with exception");
-    }
-}
-
-/**
- * @brief Export live polyphony playback
- */
-void VoiceManager::exportPolyphonyPlayback(const std::vector<uint8_t>& midiNotes, 
-                                          const std::string& exportDir, Logger& logger) {
-    if (!systemInitialized_) {
-        logger.log("VoiceManager/exportPolyphonyPlayback", "error", 
-                  "System not initialized. Call loadAllInstruments() first.");
-        return;
-    }
-    
-    if (midiNotes.empty()) {
-        logger.log("VoiceManager/exportPolyphonyPlayback", "warn", "No MIDI notes provided");
-        return;
-    }
-    
-    logger.log("VoiceManager/exportPolyphonyPlayback", "info", 
-              "Starting live polyphony export for " + std::to_string(midiNotes.size()) + " notes");
-    
-    try {
-        WavExporter exporter(exportDir, logger);
-        std::string filename = "live_polyphony_" + std::to_string(midiNotes.size()) + "notes.wav";
-        
-        const int blockSize = 512;
-        float* exportBuffer = exporter.wavFileCreate(filename, currentSampleRate_, blockSize, true, true);
-        
-        if (!exportBuffer) {
-            logger.log("VoiceManager/exportPolyphonyPlayback", "error", "Failed to create export buffer");
-            return;
-        }
-        
-        float* leftBuffer = new float[blockSize];
-        float* rightBuffer = new float[blockSize];
-        
-        // Start chord (all notes at once)
-        for (uint8_t midi : midiNotes) {
-            setNoteState(midi, true, 100);
-            logger.log("VoiceManager/exportPolyphonyPlayback", "info", 
-                      "Note-on MIDI " + std::to_string(midi));
-        }
-        
-        logger.log("VoiceManager/exportPolyphonyPlayback", "info", 
-                  "Chord started, active voices: " + std::to_string(getActiveVoicesCount()));
-        
-        // Capture chord sustain (approximately 3 seconds)
-        const int sustainBlocks = (3 * currentSampleRate_) / blockSize;
-        for (int block = 0; block < sustainBlocks; ++block) {
-            if (processBlock(leftBuffer, rightBuffer, blockSize)) {
-                // Interleave for export
-                for (int i = 0; i < blockSize; ++i) {
-                    exportBuffer[i * 2] = leftBuffer[i];
-                    exportBuffer[i * 2 + 1] = rightBuffer[i];
-                }
-                
-                if (!exporter.wavFileWriteBuffer(exportBuffer, blockSize)) {
-                    logger.log("VoiceManager/exportPolyphonyPlayback", "error", "Export write failed");
-                    break;
-                }
-            } else {
-                memset(exportBuffer, 0, blockSize * 2 * sizeof(float));
-                exporter.wavFileWriteBuffer(exportBuffer, blockSize);
-            }
-        }
-        
-        // Release chord (all notes off)
-        for (uint8_t midi : midiNotes) {
-            setNoteState(midi, false, 0);
-        }
-        
-        logger.log("VoiceManager/exportPolyphonyPlayback", "info", "Chord released, capturing tail...");
-        
-        // Capture release phase (approximately 2 seconds)
-        const int releaseBlocks = (2 * currentSampleRate_) / blockSize;
-        for (int block = 0; block < releaseBlocks; ++block) {
-            if (processBlock(leftBuffer, rightBuffer, blockSize)) {
-                for (int i = 0; i < blockSize; ++i) {
-                    exportBuffer[i * 2] = leftBuffer[i];
-                    exportBuffer[i * 2 + 1] = rightBuffer[i];
-                }
-                
-                if (!exporter.wavFileWriteBuffer(exportBuffer, blockSize)) {
-                    break;
-                }
-            } else {
-                // All voices finished
-                break;
-            }
-        }
-        
-        delete[] leftBuffer;
-        delete[] rightBuffer;
-        
-        logger.log("VoiceManager/exportPolyphonyPlayback", "info", 
-                  "Live polyphony export completed: " + filename);
-        
-    } catch (...) {
-        logger.log("VoiceManager/exportPolyphonyPlayback", "error", "Export failed with exception");
-    }
-}
-
-// ===== PRIVATE HELPER METHODS =====
-
-/**
- * @brief Inicializace všech voices s načtenými instrumenty
- * @param logger Reference na Logger
- */
-void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
-    logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
-              "Initializing all 128 voices with loaded instruments...");
-    
-    for (int i = 0; i < 128; ++i) {
-        uint8_t midiNote = static_cast<uint8_t>(i);
-        const Instrument& inst = instrumentLoader_.getInstrumentNote(midiNote);
-        Voice& voice = voices_[i];
-        
-        // Initialize voice s odpovídajícím instrumentem
-        voice.initialize(inst, currentSampleRate_, logger);
-        
-        // NOVÉ: Prepare voice pro current buffer size (reasonable default)
-        voice.prepareToPlay(512); // Will be updated by explicit prepareToPlay() call
-    }
-    
-    logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
-              "All voices initialized with instruments successfully");
-}
-
-/**
- * @brief Helper: Check if reinitialization needed
- */
-bool VoiceManager::needsReinitialization(int targetSampleRate) const noexcept {
-    // Debug logging pro diagnostiku
-    bool currentMismatch = (currentSampleRate_ != targetSampleRate);
-    bool loaderMismatch = (instrumentLoader_.getActualSampleRate() != targetSampleRate);
-    
-    // Pro debugging - toto není RT-safe, ale pro diagnostiku OK
-    if (currentMismatch || loaderMismatch) {
-        // Pokud je potřeba reinicializace, debug info se vypíše v changeSampleRate()
-        return true;
-    }
-    
-    return false;
-}
-
-/**
- * @brief Helper: Reinitialize if needed
- */
-void VoiceManager::reinitializeIfNeeded(int targetSampleRate, Logger& logger) {
-    if (needsReinitialization(targetSampleRate)) {
-        changeSampleRate(targetSampleRate, logger);
-    }
-}
-
-/**
- * @brief Helper: Find valid test MIDI note
- */
-uint8_t VoiceManager::findValidTestMidiNote(Logger& logger) const {
-    for (int midi = 60; midi <= 80; ++midi) {
-        if (systemInitialized_) {
-            const Instrument& inst = instrumentLoader_.getInstrumentNote(midi);
-            for (int vel = 0; vel < 8; ++vel) {
-                if (inst.velocityExists[vel]) {
-                    logger.log("VoiceManager/findValidTestMidiNote", "info", 
-                              "Found valid test note: MIDI " + std::to_string(midi));
-                    return static_cast<uint8_t>(midi);
-                }
-            }
-        }
-    }
-    logger.log("VoiceManager/findValidTestMidiNote", "warn", 
-              "No valid test note found, using default MIDI 60");
-    return 60; // fallback
-}
-
-/**
- * @brief Helper: Find valid notes for polyphony
- */
-std::vector<uint8_t> VoiceManager::findValidNotesForPolyphony(Logger& logger, int maxNotes) const {
-    std::vector<uint8_t> notes;
-    for (int midi = 70; midi <= 80 && notes.size() < maxNotes; ++midi) {
-        if (systemInitialized_) {
-            const Instrument& inst = instrumentLoader_.getInstrumentNote(midi);
-            for (int vel = 0; vel < 8; ++vel) {
-                if (inst.velocityExists[vel]) {
-                    notes.push_back(static_cast<uint8_t>(midi));
-                    logger.log("VoiceManager/findValidNotesForPolyphony", "info", 
-                              "Added MIDI " + std::to_string(midi) + " for polyphony test");
-                    break;
-                }
-            }
-        }
-    }
-    return notes;
-}
-
-/**
- * @brief NON-RT SAFE: Safe logging wrapper
- */
-void VoiceManager::logSafe(const std::string& component, const std::string& severity, 
-                          const std::string& message, Logger& logger) const {
-    if (!rtMode_.load()) {
-        logger.log(component, severity, message);
-    }
-}
-
-// ===== PŮVODNÍ METHODS IMPLEMENTATION - UPRAVENÉ PRO NOVOU VOICE TŘÍDU =====
+// ===== CORE AUDIO API IMPLEMENTATION =====
 
 void VoiceManager::setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) noexcept {
     if (!isValidMidiNote(midiNote)) {
@@ -1166,6 +427,58 @@ void VoiceManager::setRealTimeMode(bool enabled) noexcept {
     Voice::setRealTimeMode(enabled);
 }
 
+// ===== PRIVATE HELPER METHODS =====
+
+/**
+ * @brief Inicializace všech voices s načtenými instrumenty
+ * @param logger Reference na Logger
+ */
+void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
+    logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
+              "Initializing all 128 voices with loaded instruments...");
+    
+    for (int i = 0; i < 128; ++i) {
+        uint8_t midiNote = static_cast<uint8_t>(i);
+        const Instrument& inst = instrumentLoader_.getInstrumentNote(midiNote);
+        Voice& voice = voices_[i];
+        
+        // Initialize voice s odpovídajícím instrumentem
+        voice.initialize(inst, currentSampleRate_, logger);
+        
+        // NOVÉ: Prepare voice pro current buffer size (reasonable default)
+        voice.prepareToPlay(512); // Will be updated by explicit prepareToPlay() call
+    }
+    
+    logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
+              "All voices initialized with instruments successfully");
+}
+
+/**
+ * @brief Helper: Check if reinitialization needed
+ */
+bool VoiceManager::needsReinitialization(int targetSampleRate) const noexcept {
+    // Debug logging pro diagnostiku
+    bool currentMismatch = (currentSampleRate_ != targetSampleRate);
+    bool loaderMismatch = (instrumentLoader_.getActualSampleRate() != targetSampleRate);
+    
+    // Pro debugging - toto není RT-safe, ale pro diagnostiku OK
+    if (currentMismatch || loaderMismatch) {
+        // Pokud je potřeba reinicializace, debug info se vypíše v changeSampleRate()
+        return true;
+    }
+    
+    return false;
+}
+
+/**
+ * @brief Helper: Reinitialize if needed
+ */
+void VoiceManager::reinitializeIfNeeded(int targetSampleRate, Logger& logger) {
+    if (needsReinitialization(targetSampleRate)) {
+        changeSampleRate(targetSampleRate, logger);
+    }
+}
+
 void VoiceManager::addActiveVoice(Voice* voice) noexcept {
     if (!voice) return;
     
@@ -1192,4 +505,14 @@ void VoiceManager::cleanupInactiveVoices() noexcept {
     }
     
     voicesToRemove_.clear();
+}
+
+/**
+ * @brief NON-RT SAFE: Safe logging wrapper
+ */
+void VoiceManager::logSafe(const std::string& component, const std::string& severity, 
+                          const std::string& message, Logger& logger) const {
+    if (!rtMode_.load()) {
+        logger.log(component, severity, message);
+    }
 }

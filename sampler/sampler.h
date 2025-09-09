@@ -1,6 +1,9 @@
 #ifndef SAMPLER_H
 #define SAMPLER_H
 
+// Globální flag pro testovací modul - definován vždy
+#define ENABLE_TESTS
+
 #include <cstdint>
 #include <cstddef>
 #include <string>
@@ -110,6 +113,25 @@ private:
     bool detectFloatConversionNeed(const char* filename, Logger& logger) const;
 };
 
+// Forward declarations pro testovací systém
+#ifdef ENABLE_TESTS
+class VoiceManagerTester;
+class InstrumentLoader;
+
+/**
+ * @brief Spustí VoiceManager testy s předaným test managerem
+ * @param testManager Reference na VoiceManagerTester instanci
+ * @param loader Reference na InstrumentLoader pro inicializaci
+ * @param logger Reference na Logger pro výstupy
+ * @return int Počet selhání (0 = úspěch)
+ * 
+ * Vytvoří VoiceManagerTest testManager, zavolá testManager.initializeAll(loader),
+ * spustí testManager.runAllTests(loader) a vrátí počet selhání.
+ * Loguje summary výsledků.
+ */
+int runVoiceManagerTests(VoiceManagerTester& testManager, InstrumentLoader& loader, Logger& logger);
+#endif
+
 /**
  * @brief REFAKTOROVANÝ: runSampler jako thin wrapper pro VoiceManager testing
  * 
@@ -119,8 +141,9 @@ private:
  * 2. System initialization 
  * 3. Instrument loading
  * 4. Validation
- * 5. Granular testing
- * 6. Statistics
+ * 5. NOVÉ: VoiceManager testy (pokud ENABLE_TESTS)
+ * 6. Granular testing
+ * 7. Statistics
  * 
  * @param logger Reference na Logger pro zaznamenávání
  * @return 0 při úspěchu, 1 při chybě

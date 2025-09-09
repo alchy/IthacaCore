@@ -438,3 +438,11 @@ git submodule update --init --recursive
 ```
 git submodule add https://github.com/libsndfile/libsndfile libsndfile
 ```
+
+## Grep z logu
+
+```
+# Sleduje log soubor v reálném čase a filtruje řádky obsahující "VoiceManagerTester"
+Get-Content -Path "C:\Users\jindr\IthacaCore\build\Debug\Debug\core_logger\core_logger.log" -Tail 10 -Wait | 
+Where-Object { $_ -match "VoiceManagerTester" }
+```

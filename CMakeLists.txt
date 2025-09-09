@@ -48,9 +48,13 @@ add_executable(IthacaCore
     sampler/voice.cpp
     sampler/voice.h
     
-    # VoiceManager module (nové)
+    # VoiceManager module
     sampler/voice_manager.cpp
     sampler/voice_manager.h
+
+    # VoiceManager pro test
+    sampler/voice_manager_tests.cpp
+    sampler/voice_manager_tests.h
 )
 
 # Include directories pro kompilaci a IntelliSense
