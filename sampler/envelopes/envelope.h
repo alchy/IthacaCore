@@ -1,12 +1,8 @@
 /*
- * envelope.h - RT-safe envelope lookup z runtime-generated dat pro attack a release.
- * ZMĚNA: Místo načítání z envelopes.h generuje identická data za běhu při startu.
- * OPTIMALIZACE: Dynamická alokace podle skutečné délky pro každý sample rate.
- * Dvě separátní metody: getGainBufferAttack a getGainBufferRelease.
- * Podpora dynamické změny sample rate přes setEnvelopeFrequency.
- * getGainBuffer* bere absolutní start samples a vyplní buffer pro blok (okno).
- * Logování: V konstruktoru (generovaná data) a setEnvelopeFrequency (změna bitrate).
- * Velikost bináru: ~0 MB místo 497 MB, paměť optimalizována podle skutečných délek.
+ * envelope.h - RT-safe ADSR envelope s fixními parametry
+ * REFAKTOROVÁNO: Místo per-MIDI křivek používá fixní ADSR parametry
+ * Jednoduchá konfigurace: attack_ms, decay_ms, sustain_level, release_ms
+ * Position tracking přesunut do Voice třídy pro lepší kontrolu
  */
 
 #ifndef ENVELOPE_H
@@ -19,64 +15,35 @@
 #include <memory>
 #include <cmath>
 
-// Parametry z Python kódu pro runtime generování
-static constexpr float TOTAL_DURATION = 12.0f;         // seconds  
-static constexpr float TAU_DIVISOR = 5.0f;             // For ~99% change
+// Konstanty pro ADSR envelope
+static constexpr float DEFAULT_ATTACK_MS = 500.0f;     // Default 500ms attack
+static constexpr float DEFAULT_DECAY_MS = 300.0f;      // Default 300ms decay  
+static constexpr float DEFAULT_SUSTAIN_LEVEL = 0.7f;   // Default 70% sustain
+static constexpr float DEFAULT_RELEASE_MS = 1000.0f;   // Default 1000ms release
 static constexpr float THRESHOLD = 0.01f;              // 99% convergence
-static constexpr int MAX_LEN_44100 = int(44100 * 12.0) + 1;  // Max for 44100 Hz
-static constexpr int MAX_LEN_48000 = int(48000 * 12.0) + 1;  // Max for 48000 Hz
-
-// Runtime envelope data structure - OPTIMALIZOVANÁ s dynamickou alokací
-struct EnvelopeData {
-    std::unique_ptr<float[]> data_44100;  // Dynamicky alokováno podle skutečné délky
-    std::unique_ptr<float[]> data_48000;  // Dynamicky alokováno podle skutečné délky
-    int len_44100;                        // Skutečný počet vzorků pro 44100 Hz
-    int len_48000;                        // Skutečný počet vzorků pro 48000 Hz
-    
-    // Konstruktor pro inicializaci
-    EnvelopeData() : len_44100(0), len_48000(0) {}
-    
-    // Move konstruktor a assignment pro std::unique_ptr
-    EnvelopeData(EnvelopeData&& other) noexcept 
-        : data_44100(std::move(other.data_44100))
-        , data_48000(std::move(other.data_48000))
-        , len_44100(other.len_44100)
-        , len_48000(other.len_48000) {}
-    
-    EnvelopeData& operator=(EnvelopeData&& other) noexcept {
-        if (this != &other) {
-            data_44100 = std::move(other.data_44100);
-            data_48000 = std::move(other.data_48000);
-            len_44100 = other.len_44100;
-            len_48000 = other.len_48000;
-        }
-        return *this;
-    }
-    
-    // Zakázání copy konstruktoru/assignment (kvůli unique_ptr)
-    EnvelopeData(const EnvelopeData&) = delete;
-    EnvelopeData& operator=(const EnvelopeData&) = delete;
-};
 
 /**
  * @class Envelope
- * @brief Univerzální třída pro RT-safe gain buffer vyplnění pro attack/release.
+ * @brief ADSR envelope s fixními parametry pro všechny MIDI noty
  * 
- * ZMĚNA: Generuje data za běhu v konstruktoru místo načítání z envelopes.h (ušetří 497 MB v bináru).
- * OPTIMALIZACE: Alokuje pouze potřebnou paměť pro každé MIDI a sample rate.
- * Nastav index pro sample rate separátně přes setEnvelopeFrequency (s logováním změny bitrate).
- * getGainBufferAttack/getGainBufferRelease vyplní gainBuffer pro numSamples počínaje start_elapsed 
- * (absolutní indexace do pole pro dané MIDI).
- * Použije přímý access data[idx] s clampem na 0..len-1 (nearest neighbor pro RT-safe).
- * sampleRateIndex: Interně 0=44100Hz, 1=48000Hz (nastaveno v setEnvelopeFrequency).
- * bitrate_: Private člen pro uchování aktuální frekvence (pro logování a rozhodování).
- * RT-safe: Přímý array access v loopu, žádné logování v runtime metodách.
- * 
- * Použití: V VoiceManager: Envelope envelope(logger); envelope.setEnvelopeFrequency(sample_rate, logger);
- * V calculateBlockGains (Releasing): envelope.getGainBufferRelease(midi_note_, gainBuffer, numSamples, releaseElapsed);
+ * NOVÝ DESIGN:
+ * - Fixní ADSR parametry v milisekundách
+ * - Generuje pouze 2 křivky (attack + release) místo 256 (128×2)
+ * - Position tracking v Voice, ne v Envelope
+ * - Konfigurovatelné parametry pro různé zvuky
+ * - RT-safe metody bez MIDI parametru
  */
 class Envelope {
 public:
+    /**
+     * @brief Konstruktor s fixními ADSR parametry
+     * @param attack_ms Attack time v milisekundách
+     * @param decay_ms Decay time v milisekundách  
+     * @param sustain_level Sustain level (0.0-1.0)
+     * @param release_ms Release time v milisekundách
+     */
+    Envelope(float attack_ms, float decay_ms, float sustain_level, float release_ms);
+             
     /**
      * @brief Prázdný konstruktor pro delayed initialization
      * Envelope se vytvoří v neinicializovaném stavu, musí se zavolat initialize()
@@ -84,69 +51,108 @@ public:
     Envelope();
 
     /**
-     * @brief Konstruktor: Generuje attack a release data za běhu, loguje informace o datech.
-     * ZMĚNA: Místo načítání z const arrays generuje identická data v paměti s optimalizovanou alokací.
-     * Nenastavuje frekvenci (index = -1, bitrate = 0).
-     * @param logger Reference pro logování (informace o generovaných datech a úspoře paměti).
-     */
-    explicit Envelope(Logger& logger);
-
-    /**
-     * @brief Inicializace envelope dat (pro prázdný konstruktor)
-     * Volá se po prázdném konstruktoru pro vygenerování dat
+     * @brief Inicializace envelope dat s ADSR parametry
      * @param logger Reference na Logger pro logování
+     * @param attack_ms Attack time v milisekundách (default 500ms)
+     * @param decay_ms Decay time v milisekundách (default 300ms)
+     * @param sustain_level Sustain level 0.0-1.0 (default 0.7)
+     * @param release_ms Release time v milisekundách (default 1000ms)
      */
-    void initialize(Logger& logger);
+    void initialize(Logger& logger, float attack_ms = DEFAULT_ATTACK_MS, 
+                   float decay_ms = DEFAULT_DECAY_MS, float sustain_level = DEFAULT_SUSTAIN_LEVEL, 
+                   float release_ms = DEFAULT_RELEASE_MS);
 
     /**
-     * @brief Nastaví frekvenci vzorkování (bitrate) a odpovídající index (0 pro 44100, 1 pro 48000).
-     * Loguje změnu bitrate a index.
-     * Voláno po konstruktoru nebo při změně sample rate v programu.
-     * @param freq Frekvence v Hz (pouze 44100 nebo 48000).
-     * @param logger Reference pro logování změny (nebo error při neplatné freq).
+     * @brief Nastaví frekvenci vzorkování (44100 nebo 48000 Hz)
+     * @param freq Frekvence v Hz
+     * @param logger Reference na Logger
      */
     void setEnvelopeFrequency(int freq, Logger& logger);
 
     /**
-     * @brief Vyplní gainBuffer gainy pro attack fázi počínaje absolutní pozicí v samplech (pro dané MIDI).
-     * Přímá indexace: pro i=0..numSamples-1: gainBuffer[i] = data[start_elapsed + i] (s clampem).
-     * Pro len=1 (MIDI 0): Vyplní 1.0f (okamžitý nárůst).
-     * Použije aktuální sample_rate_index_; pokud není nastaven (-1), vyplní 0.0f.
-     * @param midi MIDI hodnota (0-127).
-     * @param gainBuffer Buffer k vyplnění (může být nullptr pro validaci).
-     * @param numSamples Počet samples v bufferu (např. 512).
-     * @param start_elapsed Absolutní start samples od začátku attack fáze.
+     * @brief Získá attack envelope data od zadané pozice
+     * @param gainBuffer Buffer pro výstup
+     * @param numSamples Počet samples
+     * @param position Pozice v envelope (spravuje Voice)
+     * @return true pokud envelope pokračuje
      */
-    void getGainBufferAttack(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed) const noexcept;
+    bool getAttackGains(float* gainBuffer, int numSamples, sf_count_t position) const noexcept;
 
     /**
-     * @brief Vyplní gainBuffer gainy pro release fázi počínaje absolutní pozicí v samplech (pro dané MIDI).
-     * Přímá indexace: pro i=0..numSamples-1: gainBuffer[i] = data[start_elapsed + i] (s clampem).
-     * Pro len=1 (MIDI 0): Vyplní 0.0f (okamžitý útlum).
-     * Použije aktuální sample_rate_index_; pokud není nastaven (-1), vyplní 0.0f.
-     * @param midi MIDI hodnota (0-127).
-     * @param gainBuffer Buffer k vyplnění (může být nullptr pro validaci).
-     * @param numSamples Počet samples v bufferu (např. 512).
-     * @param start_elapsed Absolutní start samples od začátku release fáze (např. releaseElapsed).
+     * @brief Získá release envelope data od zadané pozice
+     * @param gainBuffer Buffer pro výstup
+     * @param numSamples Počet samples
+     * @param position Pozice v envelope (spravuje Voice)
+     * @return true pokud envelope pokračuje
      */
-    void getGainBufferRelease(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed) const noexcept;
+    bool getReleaseGains(float* gainBuffer, int numSamples, sf_count_t position) const noexcept;
+
+    /**
+     * @brief Getter pro sustain level
+     * @return Sustain level (0.0-1.0)
+     */
+    float getSustainLevel() const noexcept { return sustain_level_; }
+
+    /**
+     * @brief Gettery pro délky envelope v samples při aktuální frekvenci
+     */
+    sf_count_t getAttackLength() const noexcept;
+    sf_count_t getReleaseLength() const noexcept;
 
 private:
-    int sample_rate_index_ = -1;        // Interní index: 0=44100, 1=48000, -1=nevalidní
-    int bitrate_ = 0;                   // Aktuální bitrate (Hz) pro rozhodování a logování (nastavený v setteru)
+    // Fixní ADSR parametry v milisekundách
+    float attack_time_ms_;
+    float decay_time_ms_;
+    float sustain_level_;      // 0.0-1.0
+    float release_time_ms_;
     
-    // Runtime generovaná data (optimalizovaná alokace podle skutečných délek)
-    std::vector<EnvelopeData> attack_data_;   // [128] MIDI hodnot s dynamickou alokací
-    std::vector<EnvelopeData> release_data_;  // [128] MIDI hodnot s dynamickou alokací
+    // Frekvence management
+    int sample_rate_index_ = -1;        // 0=44100, 1=48000, -1=nevalidní
+    int bitrate_ = 0;                   // Aktuální bitrate (Hz)
     
-    // Generovací metody (volané v konstruktoru)
-    float calculateTau(uint8_t midi) const;
-    void generateEnvelopeData(uint8_t midi, int sample_rate, bool is_attack, 
-                            std::vector<float>& output, int& num_samples) const;
-    void generateAllEnvelopes();
+    // Simplified envelope data struktura
+    struct FixedEnvelopeData {
+        std::unique_ptr<float[]> data_44100;
+        std::unique_ptr<float[]> data_48000;
+        int len_44100;
+        int len_48000;
+        
+        FixedEnvelopeData() : len_44100(0), len_48000(0) {}
+        
+        // Move konstruktor a assignment pro std::unique_ptr
+        FixedEnvelopeData(FixedEnvelopeData&& other) noexcept 
+            : data_44100(std::move(other.data_44100))
+            , data_48000(std::move(other.data_48000))
+            , len_44100(other.len_44100)
+            , len_48000(other.len_48000) {}
+        
+        FixedEnvelopeData& operator=(FixedEnvelopeData&& other) noexcept {
+            if (this != &other) {
+                data_44100 = std::move(other.data_44100);
+                data_48000 = std::move(other.data_48000);
+                len_44100 = other.len_44100;
+                len_48000 = other.len_48000;
+            }
+            return *this;
+        }
+        
+        // Zakázání copy konstruktoru/assignment
+        FixedEnvelopeData(const FixedEnvelopeData&) = delete;
+        FixedEnvelopeData& operator=(const FixedEnvelopeData&) = delete;
+    };
     
-    // Pomocná metoda pro vyplnění bufferu z envelope dat (společná pro attack/release)
-    void fillBufferFromData(const EnvelopeData& env, float* gainBuffer, int numSamples, sf_count_t start_elapsed, bool isAttack) const noexcept;
+    FixedEnvelopeData attack_envelope_;
+    FixedEnvelopeData release_envelope_;
+    
+    // Generovací metody
+    void generateAttackEnvelope();
+    void generateReleaseEnvelope();
+    void generateEnvelopeForSampleRate(int sampleRate, bool isAttack, 
+                                      std::vector<float>& output, int& numSamples) const;
+    
+    // Helper metoda pro vyplnění bufferu
+    void fillBufferFromFixedData(const FixedEnvelopeData& env, float* gainBuffer, 
+                                int numSamples, sf_count_t position, bool isAttack) const noexcept;
 };
 
 #endif  // ENVELOPE_H

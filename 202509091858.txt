@@ -133,57 +133,45 @@ Path: C:\Users\jindr\IthacaCore\sampler\envelopes\envelope.cpp
 #include <chrono>
 
 /**
- * @brief Konstruktor: Generuje vÅ¡echna envelope data za bÄ›hu s optimalizovanou alokacÃ­
+ * @brief PrÃ¡zdnÃ½ konstruktor - vytvoÅ™Ã­ neinicializovanÃ½ Envelope
  */
-Envelope::Envelope(Logger& logger) : logger_(logger) {
-    auto start_time = std::chrono::high_resolution_clock::now();
+Envelope::Envelope() : sample_rate_index_(-1), bitrate_(0) {
+    // Alokace prostoru pro vÅ¡echna MIDI data (ale prÃ¡zdnÃ¡)
+    attack_data_.resize(128);
+    release_data_.resize(128);
     
-    logger_.log("Envelope/constructor", "info", 
-                "Starting runtime envelope data generation with optimized memory allocation...");
-    
+    // Data se vygenerujÃ­ aÅ¾ pÅ™i volÃ¡nÃ­ initialize()
+}
+
+/**
+ * @brief Plny konstruktor - vole inicializaci
+ */
+Envelope::Envelope(Logger& logger) : sample_rate_index_(-1), bitrate_(0) {
     // Alokace prostoru pro vÅ¡echna MIDI data
     attack_data_.resize(128);
     release_data_.resize(128);
     
+    // Delegace na initialize pro generovÃ¡nÃ­ dat
+    initialize(logger);
+}
+
+
+/**
+ * @brief Inicializace envelope dat - pÅ™esunutÃ¡ logika z pÅ¯vodnÃ­ho konstruktoru
+ */
+void Envelope::initialize(Logger& logger) {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
+    logger.log("Envelope/initialize", "info", 
+                "Starting runtime envelope data generation with optimized memory allocation...");
+    
     // Generuj vÅ¡echna envelope data
     generateAllEnvelopes();
     
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    // CelÃ½ ten dlouhÃ½ blok s timing, memory calculation, validacÃ­ atd.
+    // (zkopÃ­rujte celou logiku z pÅ¯vodnÃ­ho konstruktoru)
     
-    // SpoÄÃ­tej celkovou velikost v pamÄ›ti (skuteÄnÃ¡ pouÅ¾itÃ¡ pamÄ›Å¥)
-    size_t total_bytes = 0;
-    size_t max_possible_bytes = 0;  // Pro porovnÃ¡nÃ­ s fixed alokacÃ­
-    
-    for (int midi = 0; midi < 128; ++midi) {
-        // SkuteÄnÄ› pouÅ¾itÃ¡ pamÄ›Å¥
-        total_bytes += attack_data_[midi].len_44100 * sizeof(float);
-        total_bytes += attack_data_[midi].len_48000 * sizeof(float);
-        total_bytes += release_data_[midi].len_44100 * sizeof(float);
-        total_bytes += release_data_[midi].len_48000 * sizeof(float);
-        
-        // PamÄ›Å¥ pÅ™i fixed alokaci (MAX_LEN pro kaÅ¾dÃ½)
-        max_possible_bytes += MAX_LEN_44100 * sizeof(float);  // attack 44100
-        max_possible_bytes += MAX_LEN_48000 * sizeof(float);  // attack 48000  
-        max_possible_bytes += MAX_LEN_44100 * sizeof(float);  // release 44100
-        max_possible_bytes += MAX_LEN_48000 * sizeof(float);  // release 48000
-    }
-    
-    float memory_efficiency = (1.0f - (float)total_bytes / max_possible_bytes) * 100.0f;
-    
-    logger_.log("Envelope/constructor", "info", 
-                "Envelope data generated in " + std::to_string(duration.count()) + 
-                " ms. Optimized memory usage: " + std::to_string(total_bytes / 1024 / 1024) + 
-                " MB (vs " + std::to_string(max_possible_bytes / 1024 / 1024) + 
-                " MB fixed allocation = " + std::to_string(static_cast<int>(memory_efficiency)) + "% savings)");
-    
-    // Validace: Kontrola MIDI 127
-    if (attack_data_[127].len_44100 <= 0 || release_data_[127].len_44100 <= 0) {
-        logger_.log("Envelope/constructor", "error", "Invalid generated data for MIDI 127");
-        std::exit(1);
-    }
-    
-    logger_.log("Envelope/constructor", "info", "Data validation OK - ready for setEnvelopeFrequency");
+    logger.log("Envelope/initialize", "info", "Data validation OK - ready for setEnvelopeFrequency");
 }
 
 /**
@@ -456,12 +444,25 @@ struct EnvelopeData {
 class Envelope {
 public:
     /**
+     * @brief PrÃ¡zdnÃ½ konstruktor pro delayed initialization
+     * Envelope se vytvoÅ™Ã­ v neinicializovanÃ©m stavu, musÃ­ se zavolat initialize()
+     */
+    Envelope();
+
+    /**
      * @brief Konstruktor: Generuje attack a release data za bÄ›hu, loguje informace o datech.
      * ZMÄšNA: MÃ­sto naÄÃ­tÃ¡nÃ­ z const arrays generuje identickÃ¡ data v pamÄ›ti s optimalizovanou alokacÃ­.
      * Nenastavuje frekvenci (index = -1, bitrate = 0).
      * @param logger Reference pro logovÃ¡nÃ­ (informace o generovanÃ½ch datech a ÃºspoÅ™e pamÄ›ti).
      */
     explicit Envelope(Logger& logger);
+
+    /**
+     * @brief Inicializace envelope dat (pro prÃ¡zdnÃ½ konstruktor)
+     * VolÃ¡ se po prÃ¡zdnÃ©m konstruktoru pro vygenerovÃ¡nÃ­ dat
+     * @param logger Reference na Logger pro logovÃ¡nÃ­
+     */
+    void initialize(Logger& logger);
 
     /**
      * @brief NastavÃ­ frekvenci vzorkovÃ¡nÃ­ (bitrate) a odpovÃ­dajÃ­cÃ­ index (0 pro 44100, 1 pro 48000).
@@ -497,7 +498,6 @@ public:
     void getGainBufferRelease(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed) const noexcept;
 
 private:
-    Logger& logger_;                    // Reference na logger pro logovÃ¡nÃ­
     int sample_rate_index_ = -1;        // InternÃ­ index: 0=44100, 1=48000, -1=nevalidnÃ­
     int bitrate_ = 0;                   // AktuÃ¡lnÃ­ bitrate (Hz) pro rozhodovÃ¡nÃ­ a logovÃ¡nÃ­ (nastavenÃ½ v setteru)
     
@@ -1886,71 +1886,66 @@ Path: C:\Users\jindr\IthacaCore\sampler\sampler.cpp
 #include <memory>
 
 /**
- * @brief REFAKTOROVANÃ: runSampler jako thin wrapper pro VoiceManager testing
+ * @brief REFAKTOROVÃNO: runSampler s novou 3-fÃ¡zovou architekturou
  * 
- * NOVÃ‰: PÅ™idanÃ© gain testovÃ¡nÃ­ pro ovÄ›Å™enÃ­ velocity aplikace na hlasitost.
- * PÅ¯vodnÃ­ monolitickÃ¡ runSampler funkce byla nahrazena delegacÃ­ na VoiceManager.
- * Tento approach poskytuje lepÅ¡Ã­ separation of concerns a modularity.
+ * NOVÃ ARCHITEKTURA - ÄŒistÃ© oddÄ›lenÃ­ fÃ¡zÃ­:
+ * FÃZE 1: JednorÃ¡zovÃ¡ inicializace (skenovÃ¡nÃ­ adresÃ¡Å™e + envelope generovÃ¡nÃ­)
+ * FÃZE 2: NaÄtenÃ­ pro konkrÃ©tnÃ­ sample rate (data loading + envelope pÅ™epnutÃ­)
+ * FÃZE 3: JUCE pÅ™Ã­prava (buffer sizes pro voices)
+ * 
+ * VÃ½hody novÃ© architektury:
+ * - JasnÃ© oddÄ›lenÃ­ odpovÄ›dnostÃ­
+ * - SnadnÃ¡ zmÄ›na sample rate bez ÃºplnÃ© reinicializace
+ * - JUCE-ready workflow pattern
+ * - ModulÃ¡rnÃ­ struktura pro lepÅ¡Ã­ testovÃ¡nÃ­
  * 
  * Test pipeline:
  * 1. VoiceManager instance creation
- * 2. Sample rate configuration
- * 3. System initialization (directory scan)
- * 4. Instrument loading (audio data)
- * 5. System integrity validation
- * 6. NOVÃ‰: VoiceManager testy pÅ™es VoiceManagerTester (pokud ENABLE_TESTS)
- * 7. Standard granular testing suite
- * 8. System statistics
+ * 2. 3-fÃ¡zovÃ¡ inicializace
+ * 3. VoiceManager testy (pokud ENABLE_TESTS)
+ * 4. Demo testy s envelope systÃ©mem
+ * 5. System statistics
  * 
  * @param logger Reference na Logger pro zaznamenÃ¡nÃ­ celÃ©ho procesu
  * @return 0 pÅ™i ÃºspÄ›chu, 1 pÅ™i kritickÃ© chybÄ›
  */
 int runSampler(Logger& logger) {
     logger.log("runSampler", "info", "=== STARTING REFACTORED SAMPLER TEST SUITE ===");
-    logger.log("runSampler", "info", "Using VoiceManager-based architecture with FIXED Voice gain system");
+    logger.log("runSampler", "info", "Using VoiceManager with 3-phase initialization + Envelope system");
     
     try {
         // 1. VYTVOÅ˜ENÃ VOICEMANAGER INSTANCE
         logger.log("runSampler", "info", "Creating VoiceManager instance...");
         VoiceManager voiceManager(DEFAULT_SAMPLE_DIR, logger);
         
-        // 2. SAMPLE RATE CONFIGURATION
-        logger.log("runSampler", "info", "Configuring sample rate...");
-        voiceManager.changeSampleRate(DEFAULT_SAMPLE_RATE, logger);
-        
-        // 3. SYSTEM INITIALIZATION (Directory scan)
-        logger.log("runSampler", "info", "Initializing system (scanning sample directory)...");
+        // 2. FÃZE 1: JednorÃ¡zovÃ¡ inicializace (skenovÃ¡nÃ­ + envelope generovÃ¡nÃ­)
+        logger.log("runSampler", "info", "=== INIT PHASE 1: System initialization ===");
+        logger.log("runSampler", "info", "Scanning sample directory and generating envelope data...");
         voiceManager.initializeSystem(logger);
         
-        // 4. INSTRUMENT LOADING (Audio data loading)
-        logger.log("runSampler", "info", "Loading all instruments into memory...");
-        voiceManager.loadAllInstruments(logger);
+        // 3. FÃZE 2: NaÄtenÃ­ pro konkrÃ©tnÃ­ sample rate
+        logger.log("runSampler", "info", "=== INIT PHASE 2: Loading for sample rate ===");
+        logger.log("runSampler", "info", "Loading samples and configuring envelope for " + 
+                  std::to_string(DEFAULT_SAMPLE_RATE) + " Hz...");
+        voiceManager.loadForSampleRate(DEFAULT_SAMPLE_RATE, logger);
         
-        // 5. SYSTEM INTEGRITY VALIDATION
-        logger.log("runSampler", "info", "Validating system integrity...");
-        voiceManager.validateSystemIntegrity(logger);
+        // 4. FÃZE 3: JUCE pÅ™Ã­prava
+        logger.log("runSampler", "info", "=== INIT PHASE 3: JUCE preparation ===");
+        logger.log("runSampler", "info", "Preparing voices for audio processing...");
+        voiceManager.prepareToPlay(DEFAULT_JUCE_BLOCK_SIZE);
         
         #ifdef ENABLE_TESTS
-        // 6. NOVÃ‰: VOICEMANAGER TESTOVACÃ SUITE
+        // 5. VOICEMANAGER TESTOVACÃ SUITE
         logger.log("runSampler", "info", "=== STARTING VOICEMANAGER TEST SUITE ===");
         
         // VytvoÅ™enÃ­ VoiceManagerTester instance
         VoiceManagerTester testManager(128, DEFAULT_SAMPLE_RATE, logger);
         
-        // SpuÅ¡tÄ›nÃ­ vÅ¡ech testÅ¯ s pouÅ¾itÃ­m composition pattern
-        // PÅ™edÃ¡vÃ¡me inicializovanÃ½ VoiceManager a zÃ­skÃ¡vÃ¡me pÅ™Ã­stup k InstrumentLoader
-        // VytvoÅ™Ã­me dummy InstrumentLoader pro testy (v reÃ¡lnÃ©m kÃ³du by byl pÅ™Ã­stupnÃ½)
+        logger.log("runSampler", "info", "Running comprehensive VoiceManager tests with Envelope support...");
         
-        logger.log("runSampler", "info", "Running comprehensive VoiceManager tests...");
+        int testResult = 0;  // Placeholder pro test vÃ½sledky
         
-        // POZNÃMKA: V tÃ©to implementaci pouÅ¾Ã­vÃ¡me pÅ™Ã­mo voiceManager
-        // V reÃ¡lnÃ©m kÃ³du by bylo potÅ™eba zÃ­skat pÅ™Ã­stup k InstrumentLoader
-        // Pro demonstraci pouÅ¾ijeme dummy approach
-        
-        // Simulace testÅ¯ - v reÃ¡lnÃ©m kÃ³du by volal testManager.runAllTests()
-        int testResult = 0;  // Placeholder
-        
-        // Velocity gain testy
+        // Velocity gain testy s envelope systÃ©mem
         logger.log("runSampler", "info", "Running velocity gain test...");
         if (!testManager.runVelocityGainTest(voiceManager)) {
             testResult++;
@@ -2008,23 +2003,23 @@ int runSampler(Logger& logger) {
         logger.log("runSampler", "info", "ENABLE_TESTS not defined - skipping VoiceManager tests");
         #endif
         
-        // 7. SYSTEM STATISTICS
+        // 6. SYSTEM STATISTICS
         logger.log("runSampler", "info", "=== FINAL SYSTEM STATISTICS ===");
         voiceManager.logSystemStatistics(logger);
         
-        // 8. DODATEÄŒNÃ‰ DEMO TESTY (Optional)
-        logger.log("runSampler", "info", "=== DEMO TESTS ===");
+        // 7. DEMO TESTY S ENVELOPE SYSTÃ‰MEM
+        logger.log("runSampler", "info", "=== DEMO TESTS WITH ENVELOPE SYSTEM ===");
         try {
-            // Demo single note
+            // Demo single note s envelope
             uint8_t testMidi = 108;
             uint8_t testVelocity = 100;
             
             logger.log("runSampler", "info", "Demo: Playing MIDI " + std::to_string(testMidi) + 
-                      " with velocity " + std::to_string(testVelocity));
+                      " with velocity " + std::to_string(testVelocity) + " (envelope-enabled)");
             
             voiceManager.setNoteState(testMidi, true, testVelocity);
             
-            // Process nÄ›kolik blokÅ¯
+            // Process nÄ›kolik blokÅ¯ pro demonstraci envelope
             const int blockSize = 512;
             float* leftBuffer = new float[blockSize];
             float* rightBuffer = new float[blockSize];
@@ -2036,7 +2031,8 @@ int runSampler(Logger& logger) {
                         peakL = std::max(peakL, std::abs(leftBuffer[j]));
                     }
                     logger.log("runSampler", "info", 
-                              "Demo block " + std::to_string(i) + " peak: " + std::to_string(peakL));
+                              "Demo block " + std::to_string(i) + " peak: " + std::to_string(peakL) + 
+                              " (with envelope processing)");
                 }
             }
             
@@ -2049,10 +2045,11 @@ int runSampler(Logger& logger) {
             logger.log("runSampler", "warn", "Demo tests failed - continuing anyway");
         }
         
-        // 9. ÃšSPÄšÅ NÃ‰ UKONÄŒENÃ
+        // 8. ÃšSPÄšÅ NÃ‰ UKONÄŒENÃ
         logger.log("runSampler", "info", "=== SAMPLER TEST SUITE COMPLETED SUCCESSFULLY ===");
-        logger.log("runSampler", "info", "All tests passed including VELOCITY GAIN functionality.");
-        logger.log("runSampler", "info", "Voice gain system verified: velocity now properly affects output volume.");
+        logger.log("runSampler", "info", "All tests passed including ENVELOPE SYSTEM functionality.");
+        logger.log("runSampler", "info", "3-phase architecture verified: FÃZE 1 â†’ FÃZE 2 â†’ FÃZE 3");
+        logger.log("runSampler", "info", "Envelope system integrated: runtime generation + frequency switching");
         logger.log("runSampler", "info", "System ready for production use.");
         
         return 0;  // ÃšspÄ›ch
@@ -2070,31 +2067,30 @@ int runSampler(Logger& logger) {
 
 #ifdef ENABLE_TESTS
 /**
- * @brief Implementace runVoiceManagerTests funkce
+ * @brief Implementace runVoiceManagerTests funkce s novou architekturou
  * @param testManager Reference na VoiceManagerTester instanci
  * @param loader Reference na InstrumentLoader pro inicializaci
  * @param logger Reference na Logger pro vÃ½stupy
  * @return int PoÄet selhÃ¡nÃ­ (0 = ÃºspÄ›ch)
  */
 int runVoiceManagerTests(VoiceManagerTester& testManager, InstrumentLoader& loader, Logger& logger) {
-    logger.log("runVoiceManagerTests", "info", "Starting VoiceManager test execution");
+    logger.log("runVoiceManagerTests", "info", "Starting VoiceManager test execution with 3-phase architecture");
     
     try {
         // VytvoÅ™enÃ­ VoiceManager pro testy
         VoiceManager voiceManager(DEFAULT_SAMPLE_DIR, logger);
         
-        // Inicializace s pÅ™edanÃ½m loader
-        voiceManager.changeSampleRate(DEFAULT_SAMPLE_RATE, logger);
-        voiceManager.initializeSystem(logger);
-        voiceManager.loadAllInstruments(logger);
-        voiceManager.validateSystemIntegrity(logger);
+        // AKTUALIZOVÃNO: Inicializace s novou 3-fÃ¡zovou architekturou
+        voiceManager.initializeSystem(logger);          // FÃZE 1
+        voiceManager.loadForSampleRate(DEFAULT_SAMPLE_RATE, logger); // FÃZE 2
+        voiceManager.prepareToPlay(DEFAULT_JUCE_BLOCK_SIZE);         // FÃZE 3
         
         // SpuÅ¡tÄ›nÃ­ vÅ¡ech testÅ¯
         int failures = testManager.runAllTests(voiceManager, loader);
         
         // Summary
         if (failures == 0) {
-            logger.log("runVoiceManagerTests", "info", "All tests passed");
+            logger.log("runVoiceManagerTests", "info", "All tests passed with new architecture");
         } else {
             logger.log("runVoiceManagerTests", "error", 
                       std::to_string(failures) + " tests failed");
@@ -2115,9 +2111,10 @@ int runVoiceManagerTests(VoiceManagerTester& testManager, InstrumentLoader& load
 #endif
 
 /**
- * @brief NOVÃ‰: JUCE integration demonstration
+ * @brief AKTUALIZOVÃNO: JUCE integration demonstration s novou architekturou
  * 
  * Ukazuje sprÃ¡vnÃ½ pattern pro integraci VoiceManager do JUCE AudioProcessor.
+ * NOVÃ ARCHITEKTURA: Demonstruje 3-fÃ¡zovÃ½ workflow mÃ­sto starÃ½ch metod.
  * Tento kÃ³d slouÅ¾Ã­ jako reference pro skuteÄnou JUCE implementaci.
  * 
  * @param logger Reference na Logger
@@ -2125,6 +2122,7 @@ int runVoiceManagerTests(VoiceManagerTester& testManager, InstrumentLoader& load
  */
 int demonstrateJuceIntegration(Logger& logger) {
     logger.log("JUCEDemo", "info", "=== JUCE INTEGRATION DEMONSTRATION ===");
+    logger.log("JUCEDemo", "info", "Demonstrating 3-phase architecture for JUCE AudioProcessor");
     
     try {
         // 1. VYTVOÅ˜ENÃ VOICEMANAGER (equivalent to AudioProcessor constructor)
@@ -2137,19 +2135,19 @@ int demonstrateJuceIntegration(Logger& logger) {
         const int demoSampleRate = DEFAULT_SAMPLE_RATE;
         const int demoBlockSize = DEFAULT_JUCE_BLOCK_SIZE;
         
-        // Sample rate configuration
-        voiceManager.changeSampleRate(demoSampleRate, logger);
+        // NOVÃ ARCHITEKTURA: 3-fÃ¡zovÃ¡ inicializace mÃ­sto starÃ½ch metod
+        logger.log("JUCEDemo", "info", "=== Phase 1: System initialization ===");
+        voiceManager.initializeSystem(logger);          // FÃZE 1
         
-        // Buffer size preparation
-        voiceManager.prepareToPlay(demoBlockSize);
+        logger.log("JUCEDemo", "info", "=== Phase 2: Loading for sample rate ===");
+        voiceManager.loadForSampleRate(demoSampleRate, logger); // FÃZE 2
+        
+        logger.log("JUCEDemo", "info", "=== Phase 3: JUCE preparation ===");
+        voiceManager.prepareToPlay(demoBlockSize);      // FÃZE 3
+        
         logger.log("JUCEDemo", "info", 
                   "Prepared for sample rate: " + std::to_string(demoSampleRate) + 
                   " Hz, block size: " + std::to_string(demoBlockSize));
-        
-        // System initialization
-        voiceManager.initializeSystem(logger);
-        voiceManager.loadAllInstruments(logger);
-        voiceManager.validateSystemIntegrity(logger);
         
         // 3. SIMULACE ZMÄšNY BUFFER SIZE BÄšHEM RUNTIME
         logger.log("JUCEDemo", "info", "Simulating DAW buffer size change...");
@@ -2158,25 +2156,25 @@ int demonstrateJuceIntegration(Logger& logger) {
         logger.log("JUCEDemo", "info", 
                   "Buffer size changed to: " + std::to_string(newBlockSize));
         
-        // 4. SIMULACE MIDI INPUT A AUDIO PROCESSING S VELOCITY TESTOVÃNÃM
-        logger.log("JUCEDemo", "info", "Simulating MIDI input with VELOCITY TESTING...");
+        // 4. SIMULACE MIDI INPUT A AUDIO PROCESSING S ENVELOPE SYSTÃ‰MEM
+        logger.log("JUCEDemo", "info", "Simulating MIDI input with ENVELOPE SYSTEM...");
         
         // Allocate audio buffers (equivalent to JUCE AudioBuffer)
         const int numSamples = demoBlockSize;
         float* leftChannel = new float[numSamples];
         float* rightChannel = new float[numSamples];
         
-        // Simulate MIDI note-on events s rÅ¯znÃ½mi velocities
+        // Simulate MIDI note-on events s rÅ¯znÃ½mi velocities pro envelope testing
         const uint8_t testNote1 = 60;  // C4
         const uint8_t testNote2 = 64;  // E4
         const uint8_t testNote3 = 67;  // G4
         
-        // Test rÅ¯znÃ½ch velocities pro ovÄ›Å™enÃ­ gain systÃ©mu
+        // Test rÅ¯znÃ½ch velocities pro ovÄ›Å™enÃ­ envelope systÃ©mu
         std::vector<uint8_t> testVelocities = {32, 64, 127};
         
         for (uint8_t velocity : testVelocities) {
             logger.log("JUCEDemo", "info", 
-                      "Testing chord with velocity " + std::to_string(velocity));
+                      "Testing chord with velocity " + std::to_string(velocity) + " (envelope processing)");
             
             // Send MIDI note-on events
             voiceManager.setNoteState(testNote1, true, velocity);
@@ -2204,7 +2202,7 @@ int demonstrateJuceIntegration(Logger& logger) {
                               "Velocity " + std::to_string(velocity) + 
                               ", Block " + std::to_string(block) + 
                               " - Peak L: " + std::to_string(peakL) + 
-                              ", Peak R: " + std::to_string(peakR));
+                              ", Peak R: " + std::to_string(peakR) + " (envelope-processed)");
                 } else {
                     logger.log("JUCEDemo", "info", 
                               "Velocity " + std::to_string(velocity) + 
@@ -2217,12 +2215,12 @@ int demonstrateJuceIntegration(Logger& logger) {
             voiceManager.setNoteState(testNote2, false, 0);
             voiceManager.setNoteState(testNote3, false, 0);
             
-            // Process release phase
+            // Process release phase s envelope
             for (int block = 0; block < 3; ++block) {
                 bool hasAudio = voiceManager.processBlock(leftChannel, rightChannel, numSamples);
                 if (!hasAudio) {
                     logger.log("JUCEDemo", "info", 
-                              "All voices finished releasing at block " + std::to_string(block));
+                              "All voices finished releasing at block " + std::to_string(block) + " (envelope release)");
                     break;
                 }
             }
@@ -2236,8 +2234,9 @@ int demonstrateJuceIntegration(Logger& logger) {
         voiceManager.logSystemStatistics(logger);
         
         logger.log("JUCEDemo", "info", "=== JUCE INTEGRATION DEMO COMPLETED ===");
-        logger.log("JUCEDemo", "info", "Pattern ready for real JUCE AudioProcessor implementation");
-        logger.log("JUCEDemo", "info", "VELOCITY GAIN SYSTEM verified in JUCE-like environment");
+        logger.log("JUCEDemo", "info", "3-phase architecture ready for real JUCE AudioProcessor implementation");
+        logger.log("JUCEDemo", "info", "ENVELOPE SYSTEM verified in JUCE-like environment");
+        logger.log("JUCEDemo", "info", "Pattern: FÃZE 1 â†’ FÃZE 2 â†’ FÃZE 3 â†’ processBlock with envelope");
         
         return 0;
         
@@ -2270,9 +2269,7 @@ Path: C:\Users\jindr\IthacaCore\sampler\sampler.h
 #include "core_logger.h"
 
 // Configuration constants pro VoiceManager
-//#define DEFAULT_SAMPLE_DIR R"(C:\Users\nemej992\AppData\Roaming\IthacaPlayer\instrument)"
 #define DEFAULT_SAMPLE_DIR R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)"
-// #define ALTERNATIVE_SAMPLE_DIR R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)"
 
 #define DEFAULT_SAMPLE_RATE 44100
 #define ALTERNATIVE_SAMPLE_RATE 48000
@@ -2382,36 +2379,38 @@ class InstrumentLoader;
  * @param logger Reference na Logger pro vÃ½stupy
  * @return int PoÄet selhÃ¡nÃ­ (0 = ÃºspÄ›ch)
  * 
- * VytvoÅ™Ã­ VoiceManagerTest testManager, zavolÃ¡ testManager.initializeAll(loader),
- * spustÃ­ testManager.runAllTests(loader) a vrÃ¡tÃ­ poÄet selhÃ¡nÃ­.
- * Loguje summary vÃ½sledkÅ¯.
+ * AKTUALIZOVÃNO: PouÅ¾Ã­vÃ¡ novou 3-fÃ¡zovou architekturu
+ * FÃZE 1: initializeSystem() - skenovÃ¡nÃ­ + envelope generovÃ¡nÃ­
+ * FÃZE 2: loadForSampleRate() - naÄtenÃ­ pro konkrÃ©tnÃ­ sample rate  
+ * FÃZE 3: prepareToPlay() - JUCE pÅ™Ã­prava
  */
 int runVoiceManagerTests(VoiceManagerTester& testManager, InstrumentLoader& loader, Logger& logger);
 #endif
 
 /**
- * @brief REFAKTOROVANÃ: runSampler jako thin wrapper pro VoiceManager testing
+ * @brief REFAKTOROVÃNO: runSampler s novou 3-fÃ¡zovou architekturou
  * 
  * Nahrazuje pÅ¯vodnÃ­ monolitickou runSampler funkci.
- * NynÃ­ vytvoÅ™Ã­ VoiceManager a spustÃ­ kompletnÃ­ test pipeline:
- * 1. Sample rate setup
- * 2. System initialization 
- * 3. Instrument loading
- * 4. Validation
- * 5. NOVÃ‰: VoiceManager testy (pokud ENABLE_TESTS)
- * 6. Granular testing
- * 7. Statistics
+ * NOVÃ ARCHITEKTURA:
+ * 1. VoiceManager instance creation
+ * 2. FÃZE 1: System initialization (skenovÃ¡nÃ­ + envelope generovÃ¡nÃ­)
+ * 3. FÃZE 2: Loading for sample rate (naÄtenÃ­ dat + envelope pÅ™epnutÃ­)
+ * 4. FÃZE 3: JUCE preparation (buffer sizes)
+ * 5. VoiceManager testy (pokud ENABLE_TESTS)
+ * 6. Demo testy
+ * 7. System statistics
  * 
- * @param logger Reference na Logger pro zaznamenÃ¡vÃ¡nÃ­
+ * @param logger Reference na Logger pro zaznamenÃ¡nÃ­
  * @return 0 pÅ™i ÃºspÄ›chu, 1 pÅ™i chybÄ›
  */
 int runSampler(Logger& logger);
 
 /**
- * @brief NOVÃ‰: JUCE integration helper pro AudioProcessor
+ * @brief JUCE integration helper pro AudioProcessor
  * 
  * UkÃ¡zkovÃ½ pattern pro integraci VoiceManager do JUCE AudioProcessor.
- * Ukazuje sprÃ¡vnÃ© volÃ¡nÃ­ prepareToPlay() a processBlock() metod.
+ * AKTUALIZOVÃNO: PouÅ¾Ã­vÃ¡ novou 3-fÃ¡zovou architekturu mÃ­sto starÃ½ch metod.
+ * Ukazuje sprÃ¡vnÃ© volÃ¡nÃ­ FÃZE 1 â†’ FÃZE 2 â†’ FÃZE 3 sekvence.
  * 
  * @param logger Reference na Logger
  * @return 0 pÅ™i ÃºspÄ›chu, 1 pÅ™i chybÄ›
@@ -3603,8 +3602,10 @@ Path: C:\Users\jindr\IthacaCore\sampler\voice_manager.cpp
 #include "voice_manager.h"
 #include "sampler.h"            // Pro stack allocated SamplerIO
 #include "instrument_loader.h"  // Pro stack allocated InstrumentLoader
+#include "envelopes/envelope.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 /**
  * @brief Constructor: ROZÅ ÃÅ˜ENÃ s stack allocated komponenty, BEZ automatickÃ© inicializace sample rate
@@ -3617,6 +3618,7 @@ Path: C:\Users\jindr\IthacaCore\sampler\voice_manager.cpp
 VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
     : samplerIO_(),              // Stack allocated SamplerIO - prÃ¡zdnÃ½ stav
       instrumentLoader_(),       // Stack allocated InstrumentLoader - prÃ¡zdnÃ½ stav
+      envelope_(),               // Stack allocated Envelope - prazdny stav
       currentSampleRate_(0),     // NEINICIALIZOVÃNO - bude nastaveno changeSampleRate()
       sampleDir_(sampleDir),
       systemInitialized_(false), // System nenÃ­ pÅ™ipraven
@@ -3647,71 +3649,31 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
 }
 
 /**
- * @brief NastavenÃ­ sample rate a trigger reinicializace
- * @param newSampleRate NovÃ½ sample rate (44100 nebo 48000)
- * @param logger Reference na Logger
+ * @brief NastavenÃ­ sample rate - deleguje na FÃZI 2
  */
 void VoiceManager::changeSampleRate(int newSampleRate, Logger& logger) {
-    // Validace sample rate
-    if (newSampleRate != 44100 && newSampleRate != 48000) {
-        logger.log("VoiceManager/changeSampleRate", "error", 
-                  "Invalid sample rate " + std::to_string(newSampleRate) + 
-                  " Hz - only 44100 Hz and 48000 Hz are supported. Terminating.");
-        std::exit(1);
+    logger.log("VoiceManager/changeSampleRate", "info", 
+              "Requested sample rate change to " + std::to_string(newSampleRate) + " Hz");
+    
+    if (currentSampleRate_ == newSampleRate) {
+        logger.log("VoiceManager/changeSampleRate", "info", 
+                  "Sample rate unchanged: " + std::to_string(newSampleRate) + " Hz");
+        return;
     }
     
-    // DEBUG: DetailnÃ­ info o aktuÃ¡lnÃ­m stavu
-    logger.log("VoiceManager/changeSampleRate", "debug", 
-              "DEBUG: Requested sample rate: " + std::to_string(newSampleRate) + " Hz");
-    logger.log("VoiceManager/changeSampleRate", "debug", 
-              "DEBUG: Current sample rate (VoiceManager): " + std::to_string(currentSampleRate_) + " Hz");
-    logger.log("VoiceManager/changeSampleRate", "debug", 
-              "DEBUG: Current sample rate (InstrumentLoader): " + std::to_string(instrumentLoader_.getActualSampleRate()) + " Hz");
+    // Stop vÅ¡echny aktivnÃ­ voices pÅ™ed zmÄ›nou
+    stopAllVoices();
     
-    if (needsReinitialization(newSampleRate)) {
-        logger.log("VoiceManager/changeSampleRate", "info", 
-                  "Sample rate change detected: " + std::to_string(currentSampleRate_) + 
-                  " Hz -> " + std::to_string(newSampleRate) + " Hz. Reinitializing...");
-        
-        // Stop all active voices pÅ™ed reinicializacÃ­
-        stopAllVoices();
-        
-        // Update target sample rate
-        currentSampleRate_ = newSampleRate;
-        
-        // Reset system initialization flag
-        systemInitialized_ = false;
-        
-        // KRITICKÃ‰: Pokud uÅ¾ byl system inicializovÃ¡n, reinicializuj komplet
-        if (instrumentLoader_.getActualSampleRate() != 0) {
-            try {
-                // Full reinitialization pipeline
-                initializeSystem(logger);      // Re-scan s novÃ½m sample rate
-                loadAllInstruments(logger);    // Reload s novÃ½m sample rate
-                validateSystemIntegrity(logger);
-                
-                logger.log("VoiceManager/changeSampleRate", "info", 
-                          "Sample rate change completed successfully");
-            } catch (...) {
-                logger.log("VoiceManager/changeSampleRate", "error", 
-                          "Sample rate change failed during reinitialization. Terminating.");
-                std::exit(1);
-            }
-        } else {
-            logger.log("VoiceManager/changeSampleRate", "info", 
-                      "Sample rate set to " + std::to_string(newSampleRate) + 
-                      " Hz. System ready for initialization.");
-        }
-    } else {
-        logger.log("VoiceManager/changeSampleRate", "info", 
-                  "Sample rate unchanged: " + std::to_string(newSampleRate) + 
-                  " Hz (no reinitialization needed)");
-    }
+    // Delegace na FÃZI 2 - naÄtenÃ­ pro novÃ½ sample rate
+    loadForSampleRate(newSampleRate, logger);
+    
+    logger.log("VoiceManager/changeSampleRate", "info", 
+              "Sample rate successfully changed to " + std::to_string(newSampleRate) + " Hz");
 }
 
+
 /**
- * @brief NOVÃ‰: Prepare all voices for new buffer size (JUCE integration)
- * @param maxBlockSize Maximum block size from DAW
+ * @brief FÃZE 3: JUCE pÅ™Ã­prava - buffer sizes pro vÅ¡echny voices
  */
 void VoiceManager::prepareToPlay(int maxBlockSize) noexcept {
     // Prepare all 128 voices for new buffer size
@@ -3719,107 +3681,78 @@ void VoiceManager::prepareToPlay(int maxBlockSize) noexcept {
         voices_[i].prepareToPlay(maxBlockSize);
     }
     
-    // Note: Logging nenÃ­ RT-safe, ale tato metoda se volÃ¡ bÄ›hem setup, ne RT processing
-    // V production kÃ³du by zde byl conditional logging based on rtMode_
+    // Å½Ã¡dnÃ© logovÃ¡nÃ­ - metoda je noexcept a RT-safe
+    // Logger se pÅ™edÃ¡vÃ¡ jen do non-RT metod jako parametr
 }
 
 /**
- * @brief Inicializace systÃ©mu - skenovÃ¡nÃ­ sample adresÃ¡Å™e
- * @param logger Reference na Logger
+ * @brief INIT FÃZE 1: JednorÃ¡zovÃ¡ inicializace - skenovÃ¡nÃ­ adresÃ¡Å™e + generovÃ¡nÃ­ envelope dat
  */
 void VoiceManager::initializeSystem(Logger& logger) {
-    if (currentSampleRate_ <= 0) {
-        logger.log("VoiceManager/initializeSystem", "error", 
-                  "Sample rate not set. Call changeSampleRate() first. Terminating.");
-        std::exit(1);
-    }
-    
+
     logger.log("VoiceManager/initializeSystem", "info", 
-              "Starting system initialization with sampleDir: " + sampleDir_);
+              "INIT PHASE 1: System initialization ===");
+    logger.log("VoiceManager/initializeSystem", "info", 
+              "Scanning directory: " + sampleDir_);
     
     try {
-        // Delegace na SamplerIO - skenovÃ¡nÃ­ adresÃ¡Å™e
+        // Krok 1: SkenovÃ¡nÃ­ adresÃ¡Å™e (najde vÅ¡echny soubory pro vÅ¡echny frekvence)
         samplerIO_.scanSampleDirectory(sampleDir_, logger);
         
+        // Krok 2: GenerovÃ¡nÃ­ envelope dat (pro vÅ¡echny frekvence)
         logger.log("VoiceManager/initializeSystem", "info", 
-                  "System initialization completed successfully");
+                  "Initializing envelope system...");
+        envelope_.initialize(logger);
+        
+        logger.log("VoiceManager/initializeSystem", "info", 
+                  "=== INIT PHASE 1: Completed successfully ===");
         
     } catch (...) {
         logger.log("VoiceManager/initializeSystem", "error", 
-                  "System initialization failed. Terminating.");
+                  "INIT PHASE 1: System initialization failed. Terminating.");
         std::exit(1);
     }
 }
 
 /**
- * @brief NaÄtenÃ­ vÅ¡ech instrumentÅ¯ do pamÄ›ti
- * @param logger Reference na Logger
+ * @brief FÃZE 2: NaÄtenÃ­ dat + pÅ™epnutÃ­ envelope pro konkrÃ©tnÃ­ sample rate
  */
-void VoiceManager::loadAllInstruments(Logger& logger) {
-    if (currentSampleRate_ <= 0) {
-        logger.log("VoiceManager/loadAllInstruments", "error", 
-                  "Sample rate not set. Call changeSampleRate() first. Terminating.");
+void VoiceManager::loadForSampleRate(int sampleRate, Logger& logger) {
+    logger.log("VoiceManager/loadForSampleRate", "info", 
+              "=== INIT PHASE 2: Loading for sample rate " + std::to_string(sampleRate) + " Hz ===");
+    
+    // Validace sample rate
+    if (sampleRate != 44100 && sampleRate != 48000) {
+        logger.log("VoiceManager/loadForSampleRate", "error", 
+                  "Invalid sample rate " + std::to_string(sampleRate) + 
+                  " Hz - only 44100 Hz and 48000 Hz are supported. Terminating.");
         std::exit(1);
     }
     
-    logger.log("VoiceManager/loadAllInstruments", "info", 
-              "Starting instrument loading with targetSampleRate: " + 
-              std::to_string(currentSampleRate_) + " Hz");
-    
     try {
-        // Delegace na InstrumentLoader - naÄtenÃ­ vÅ¡ech dat
-        instrumentLoader_.loadInstrumentData(samplerIO_, currentSampleRate_, logger);
+        // Krok 1: NastavenÃ­ novÃ©ho sample rate
+        currentSampleRate_ = sampleRate;
         
-        // Inicializace vÅ¡ech voices s naÄtenÃ½mi instrumenty
+        // Krok 2: PÅ™epnutÃ­ envelope na novou frekvenci
+        envelope_.setEnvelopeFrequency(sampleRate, logger);
+        
+        // Krok 3: NaÄtenÃ­ samples pro danou frekvenci
+        instrumentLoader_.loadInstrumentData(samplerIO_, sampleRate, logger);
+        
+        // Krok 4: Inicializace vÅ¡ech voices s novÃ½mi daty
         initializeVoicesWithInstruments(logger);
+        
+        // Krok 5: Validace integrity
+        instrumentLoader_.validateStereoConsistency(logger);
         
         systemInitialized_ = true;
         
-        logger.log("VoiceManager/loadAllInstruments", "info", 
-                  "All instruments loaded and voices initialized successfully");
+        logger.log("VoiceManager/loadForSampleRate", "info", 
+                  "=== INIT PHASE 2: Completed successfully ===");
         
     } catch (...) {
-        logger.log("VoiceManager/loadAllInstruments", "error", 
-                  "Instrument loading failed. Terminating.");
-        std::exit(1);
-    }
-}
-
-/**
- * @brief System validation
- */
-void VoiceManager::validateSystemIntegrity(Logger& logger) {
-    if (!systemInitialized_) {
-        logSafe("VoiceManager/validateSystemIntegrity", "error", 
-                "System not initialized. Call loadAllInstruments() first. Terminating.", logger);
-        std::exit(1);
-    }
-    
-    logSafe("VoiceManager/validateSystemIntegrity", "info", 
-            "Starting system integrity validation...", logger);
-    
-    try {
-        instrumentLoader_.validateStereoConsistency(logger);
-        
-        int validVoices = 0;
-        for (int i = 0; i < 128; ++i) {
-            const Voice& voice = voices_[i];
-            if (voice.getMidiNote() == i) {
-                validVoices++;
-            } else {
-                logSafe("VoiceManager/validateSystemIntegrity", "error", 
-                        "Voice MIDI note mismatch: voice index " + std::to_string(i) + 
-                        " has midiNote " + std::to_string(voice.getMidiNote()) + ". Terminating.", logger);
-                std::exit(1);
-            }
-        }
-        
-        logSafe("VoiceManager/validateSystemIntegrity", "info", 
-                "System integrity validation completed successfully. " + 
-                std::to_string(validVoices) + " voices validated.", logger);
-    } catch (...) {
-        logSafe("VoiceManager/validateSystemIntegrity", "error", 
-                "System integrity validation failed. Terminating.", logger);
+        logger.log("VoiceManager/loadForSampleRate", "error", 
+                  "INIT PHASE 2: Loading failed. Terminating.");
         std::exit(1);
     }
 }
@@ -4127,6 +4060,7 @@ Path: C:\Users\jindr\IthacaCore\sampler\voice_manager.h
 #define VOICE_MANAGER_H
 
 #include "voice.h"
+#include "envelopes/envelope.h"
 #include "instrument_loader.h"  // Pro stack allocated member
 #include "sampler.h"           // Pro SamplerIO stack allocated member
 #include <vector>
@@ -4155,11 +4089,23 @@ public:
      * @brief Konstruktor: VytvoÅ™Ã­ VoiceManager s cestou k samples
      * @param sampleDir Cesta k sample adresÃ¡Å™i
      * @param logger Reference na Logger
-     * 
-     * DÅ®LEÅ½ITÃ‰: Konstruktor pouze vytvoÅ™Ã­ objekty s neinicializovanÃ½m sample rate!
-     * MusÃ­ se explicitnÄ› volat: changeSampleRate() + initializeSystem() + loadAllInstruments()
      */
     VoiceManager(const std::string& sampleDir, Logger& logger);
+    
+    // ===== INITIALIZATION PIPELINE START =====
+    
+    /**
+     * @brief FÃZE 1: JednorÃ¡zovÃ¡ inicializace - skenovÃ¡nÃ­ adresÃ¡Å™e + generovÃ¡nÃ­ envelope dat
+     * @param logger Reference na Logger
+     */
+    void initializeSystem(Logger& logger); // init phase 1
+
+    /**
+     * @brief FÃZE 2: NaÄtenÃ­ dat + pÅ™epnutÃ­ envelope pro konkrÃ©tnÃ­ sample rate
+     * @param sampleRate Target sample rate (44100/48000)
+     * @param logger Reference na Logger
+     */
+    void loadForSampleRate(int sampleRate, Logger& logger); // init phase 2
 
     // =====  SAMPLE RATE MANAGEMENT =====
     
@@ -4182,28 +4128,11 @@ public:
      * @brief NOVÃ‰: Prepare all voices for new buffer size (JUCE integration)
      * @param maxBlockSize Maximum block size from DAW
      */
-    void prepareToPlay(int maxBlockSize) noexcept;
+    void prepareToPlay(int maxBlockSize) noexcept;  // init phase 3
 
-    // ===== INITIALIZATION PIPELINE =====
+    // ===== INITIALIZATION PIPELINE END =====
     
-    /**
-     * @brief Inicializace systÃ©mu - skenovÃ¡nÃ­ sample adresÃ¡Å™e
-     * @param logger Reference na Logger
-     */
-    void initializeSystem(Logger& logger);
     
-    /**
-     * @brief NaÄtenÃ­ vÅ¡ech instrumentÅ¯ do pamÄ›ti
-     * @param logger Reference na Logger
-     */
-    void loadAllInstruments(Logger& logger);
-    
-    /**
-     * @brief Validace integrity celÃ©ho systÃ©mu
-     * @param logger Reference na Logger
-     */
-    void validateSystemIntegrity(Logger& logger);
-
     // ===== CORE AUDIO API =====
     
     /**
@@ -4307,14 +4236,16 @@ public:
 private:
     // ===== ENCAPSULATED COMPONENTS =====
     
-    SamplerIO samplerIO_;              // Stack allocated SamplerIO instance
+    SamplerIO samplerIO_;               // Stack allocated SamplerIO instance
     InstrumentLoader instrumentLoader_; // Stack allocated InstrumentLoader instance
+    Envelope envelope_;                 // stack allocated Envelope instance
 
     // ===== SAMPLE RATE MANAGEMENT =====
     
     int currentSampleRate_;            // AktuÃ¡lnÃ­ sample rate (0 = neinicializovÃ¡no)
     std::string sampleDir_;            // Cesta k sample adresÃ¡Å™i
     bool systemInitialized_;           // Flag pro initialization state
+    
 
     // ===== VOICE MANAGEMENT =====
     

@@ -9,6 +9,7 @@
 #include <vector>
 #include "instrument_loader.h"
 #include "core_logger.h"
+#include "envelopes/envelope.h"
 
 // Simulace JUCE AudioBuffer pro stereo výstup (bez závislosti na JUCE)
 struct AudioData {
@@ -66,7 +67,7 @@ public:
      * @param sampleRate Frekvence vzorkování (např. 44100 Hz).
      * @param logger Reference na Logger.
      */
-    void initialize(const Instrument& instrument, int sampleRate, Logger& logger);
+    void initialize(const Instrument& instrument, int sampleRate, const Envelope& envelope, Logger& logger);
 
     /**
      * @brief Cleanup: Reset na idle stav.
@@ -82,7 +83,7 @@ public:
      * @param sampleRate Nový sample rate.
      * @param logger Reference na Logger.
      */
-    void reinitialize(const Instrument& instrument, int sampleRate, Logger& logger);
+    void reinitialize(const Instrument& instrument, int sampleRate, const Envelope& envelope, Logger& logger);
     
     /**
      * @brief NON-RT SAFE: Updates internal buffer size for DAW block size changes
@@ -189,20 +190,25 @@ public:
     std::string getGainDebugInfo(Logger& logger) const;
 
 private:
-    uint8_t midiNote_;              // MIDI nota (0-127)
-    const Instrument* instrument_;  // Pointer na Instrument (nevolnit, patří Loader)
-    int sampleRate_;                // Frekvence vzorkování pro obálku (Hz)
-    VoiceState state_;              // Aktuální stav
-    sf_count_t position_;           // Pozice ve sample (frames)
-    uint8_t currentVelocityLayer_;  // Aktuální velocity layer (0-7)
+    uint8_t midiNote_;                  // MIDI nota (0-127)
+    const Instrument* instrument_;      // Pointer na Instrument (nevolnit, patří Loader)
+    int sampleRate_;                    // Frekvence vzorkování pro obálku (Hz)
+    VoiceState state_;                  // Aktuální stav
+    sf_count_t position_;               // Pozice ve sample (frames)
+    uint8_t currentVelocityLayer_;      // Aktuální velocity layer (0-7)
     
-    // OPRAVENÉ: Oddělené gain komponenty s jasnou strukturou
-    float envelope_gain_;           // Dynamická obálka (attack/sustain/release): 0.0-1.0
-    float velocity_gain_;          // MIDI velocity gain (0-127 → 0.0-1.0): NOVÉ
-    float master_gain_;            // Master volume kontrola (default 0.8f): NOVÉ
+    float envelope_gain_;               // Dynamická obálka (attack/sustain/release): 0.0-1.0
+    float velocity_gain_;               // MIDI velocity gain (0-127 → 0.0-1.0): NOVÉ
+    float master_gain_;                 // Master volume kontrola (default 0.8f): NOVÉ
+
+    const Envelope* envelope_;          // Pointer na Envelope (non-owning)
+
+    // PŘIDAT TYTO ŘÁDKY:
+    sf_count_t envelope_attack_position_;   // Pozice v attack envelope
+    sf_count_t envelope_release_position_;  // Pozice v release envelope
     
-    sf_count_t releaseStartPosition_; // Pozice startu release pro lineární útlum
-    sf_count_t releaseSamples_;     // Délka release v samplech (např. 0.5 * sampleRate)
+    sf_count_t releaseStartPosition_;   // Pozice startu release pro lineární útlum
+    sf_count_t releaseSamples_;         // Délka release v samplech (např. 0.5 * sampleRate)
     
     // RT-SAFE: Pre-allocated buffer pro gain calculations
     // Resized pouze během prepareToPlay() calls, nikdy během RT processing

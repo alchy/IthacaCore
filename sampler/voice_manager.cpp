@@ -369,22 +369,22 @@ void VoiceManager::setRealTimeMode(bool enabled) noexcept {
  */
 void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
     logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
-              "Initializing all 128 voices with loaded instruments...");
+              "Initializing all 128 voices with loaded instruments and envelope system...");
     
     for (int i = 0; i < 128; ++i) {
         uint8_t midiNote = static_cast<uint8_t>(i);
         const Instrument& inst = instrumentLoader_.getInstrumentNote(midiNote);
         Voice& voice = voices_[i];
         
-        // Initialize voice s odpovídajícím instrumentem
-        voice.initialize(inst, currentSampleRate_, logger);
+        // AKTUALIZOVÁNO: Initialize voice s odpovídajícím instrumentem A envelope
+        voice.initialize(inst, currentSampleRate_, envelope_, logger);
         
-        // NOVÉ: Prepare voice pro current buffer size (reasonable default)
-        voice.prepareToPlay(512); // Will be updated by explicit prepareToPlay() call
+        // Prepare voice pro current buffer size
+        voice.prepareToPlay(512);
     }
     
     logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
-              "All voices initialized with instruments successfully");
+              "All voices initialized with instruments and envelope system successfully");
 }
 
 /**
