@@ -55,6 +55,10 @@ add_executable(IthacaCore
     # VoiceManager pro test
     sampler/voice_manager_tests.cpp
     sampler/voice_manager_tests.h
+
+    # Envelopes (ADSR/ASR)
+    sampler/envelopes/envelope.cpp
+    sampler/envelopes/envelope.h
 )
 
 # Include directories pro kompilaci a IntelliSense
