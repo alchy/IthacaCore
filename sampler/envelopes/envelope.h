@@ -78,12 +78,25 @@ struct EnvelopeData {
 class Envelope {
 public:
     /**
+     * @brief Prázdný konstruktor pro delayed initialization
+     * Envelope se vytvoří v neinicializovaném stavu, musí se zavolat initialize()
+     */
+    Envelope();
+
+    /**
      * @brief Konstruktor: Generuje attack a release data za běhu, loguje informace o datech.
      * ZMĚNA: Místo načítání z const arrays generuje identická data v paměti s optimalizovanou alokací.
      * Nenastavuje frekvenci (index = -1, bitrate = 0).
      * @param logger Reference pro logování (informace o generovaných datech a úspoře paměti).
      */
     explicit Envelope(Logger& logger);
+
+    /**
+     * @brief Inicializace envelope dat (pro prázdný konstruktor)
+     * Volá se po prázdném konstruktoru pro vygenerování dat
+     * @param logger Reference na Logger pro logování
+     */
+    void initialize(Logger& logger);
 
     /**
      * @brief Nastaví frekvenci vzorkování (bitrate) a odpovídající index (0 pro 44100, 1 pro 48000).
@@ -119,7 +132,6 @@ public:
     void getGainBufferRelease(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed) const noexcept;
 
 private:
-    Logger& logger_;                    // Reference na logger pro logování
     int sample_rate_index_ = -1;        // Interní index: 0=44100, 1=48000, -1=nevalidní
     int bitrate_ = 0;                   // Aktuální bitrate (Hz) pro rozhodování a logování (nastavený v setteru)
     

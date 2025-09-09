@@ -2,6 +2,7 @@
 #define VOICE_MANAGER_H
 
 #include "voice.h"
+#include "envelopes/envelope.h"
 #include "instrument_loader.h"  // Pro stack allocated member
 #include "sampler.h"           // Pro SamplerIO stack allocated member
 #include <vector>
@@ -182,14 +183,16 @@ public:
 private:
     // ===== ENCAPSULATED COMPONENTS =====
     
-    SamplerIO samplerIO_;              // Stack allocated SamplerIO instance
+    SamplerIO samplerIO_;               // Stack allocated SamplerIO instance
     InstrumentLoader instrumentLoader_; // Stack allocated InstrumentLoader instance
+    Envelope envelope_;                 // stack allocated Envelope instance
 
     // ===== SAMPLE RATE MANAGEMENT =====
     
     int currentSampleRate_;            // Aktuální sample rate (0 = neinicializováno)
     std::string sampleDir_;            // Cesta k sample adresáři
     bool systemInitialized_;           // Flag pro initialization state
+    
 
     // ===== VOICE MANAGEMENT =====
     

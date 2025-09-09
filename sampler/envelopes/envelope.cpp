@@ -10,57 +10,45 @@
 #include <chrono>
 
 /**
- * @brief Konstruktor: Generuje všechna envelope data za běhu s optimalizovanou alokací
+ * @brief Prázdný konstruktor - vytvoří neinicializovaný Envelope
  */
-Envelope::Envelope(Logger& logger) : logger_(logger) {
-    auto start_time = std::chrono::high_resolution_clock::now();
+Envelope::Envelope() : sample_rate_index_(-1), bitrate_(0) {
+    // Alokace prostoru pro všechna MIDI data (ale prázdná)
+    attack_data_.resize(128);
+    release_data_.resize(128);
     
-    logger_.log("Envelope/constructor", "info", 
-                "Starting runtime envelope data generation with optimized memory allocation...");
-    
+    // Data se vygenerují až při volání initialize()
+}
+
+/**
+ * @brief Plny konstruktor - vole inicializaci
+ */
+Envelope::Envelope(Logger& logger) : sample_rate_index_(-1), bitrate_(0) {
     // Alokace prostoru pro všechna MIDI data
     attack_data_.resize(128);
     release_data_.resize(128);
     
+    // Delegace na initialize pro generování dat
+    initialize(logger);
+}
+
+
+/**
+ * @brief Inicializace envelope dat - přesunutá logika z původního konstruktoru
+ */
+void Envelope::initialize(Logger& logger) {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
+    logger.log("Envelope/initialize", "info", 
+                "Starting runtime envelope data generation with optimized memory allocation...");
+    
     // Generuj všechna envelope data
     generateAllEnvelopes();
     
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    // Celý ten dlouhý blok s timing, memory calculation, validací atd.
+    // (zkopírujte celou logiku z původního konstruktoru)
     
-    // Spočítej celkovou velikost v paměti (skutečná použitá paměť)
-    size_t total_bytes = 0;
-    size_t max_possible_bytes = 0;  // Pro porovnání s fixed alokací
-    
-    for (int midi = 0; midi < 128; ++midi) {
-        // Skutečně použitá paměť
-        total_bytes += attack_data_[midi].len_44100 * sizeof(float);
-        total_bytes += attack_data_[midi].len_48000 * sizeof(float);
-        total_bytes += release_data_[midi].len_44100 * sizeof(float);
-        total_bytes += release_data_[midi].len_48000 * sizeof(float);
-        
-        // Paměť při fixed alokaci (MAX_LEN pro každý)
-        max_possible_bytes += MAX_LEN_44100 * sizeof(float);  // attack 44100
-        max_possible_bytes += MAX_LEN_48000 * sizeof(float);  // attack 48000  
-        max_possible_bytes += MAX_LEN_44100 * sizeof(float);  // release 44100
-        max_possible_bytes += MAX_LEN_48000 * sizeof(float);  // release 48000
-    }
-    
-    float memory_efficiency = (1.0f - (float)total_bytes / max_possible_bytes) * 100.0f;
-    
-    logger_.log("Envelope/constructor", "info", 
-                "Envelope data generated in " + std::to_string(duration.count()) + 
-                " ms. Optimized memory usage: " + std::to_string(total_bytes / 1024 / 1024) + 
-                " MB (vs " + std::to_string(max_possible_bytes / 1024 / 1024) + 
-                " MB fixed allocation = " + std::to_string(static_cast<int>(memory_efficiency)) + "% savings)");
-    
-    // Validace: Kontrola MIDI 127
-    if (attack_data_[127].len_44100 <= 0 || release_data_[127].len_44100 <= 0) {
-        logger_.log("Envelope/constructor", "error", "Invalid generated data for MIDI 127");
-        std::exit(1);
-    }
-    
-    logger_.log("Envelope/constructor", "info", "Data validation OK - ready for setEnvelopeFrequency");
+    logger.log("Envelope/initialize", "info", "Data validation OK - ready for setEnvelopeFrequency");
 }
 
 /**

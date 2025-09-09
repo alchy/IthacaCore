@@ -1,6 +1,7 @@
 #include "voice_manager.h"
 #include "sampler.h"            // Pro stack allocated SamplerIO
 #include "instrument_loader.h"  // Pro stack allocated InstrumentLoader
+#include "envelopes/envelope.h"
 #include <algorithm>
 #include <cmath>
 
@@ -15,6 +16,7 @@
 VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
     : samplerIO_(),              // Stack allocated SamplerIO - prázdný stav
       instrumentLoader_(),       // Stack allocated InstrumentLoader - prázdný stav
+      envelope_(),               // Stack allocated Envelope - prazdny stav
       currentSampleRate_(0),     // NEINICIALIZOVÁNO - bude nastaveno changeSampleRate()
       sampleDir_(sampleDir),
       systemInitialized_(false), // System není připraven
@@ -76,6 +78,13 @@ void VoiceManager::changeSampleRate(int newSampleRate, Logger& logger) {
         
         // Update target sample rate
         currentSampleRate_ = newSampleRate;
+
+        //  Update envelope sample rate pokud je inicializováno
+        if (systemInitialized_) {
+            envelope_.setEnvelopeFrequency(newSampleRate, logger);
+            logger.log("VoiceManager/changeSampleRate", "info", 
+                      "Envelope frequency updated to " + std::to_string(newSampleRate) + " Hz");
+        }
         
         // Reset system initialization flag
         systemInitialized_ = false;
@@ -138,7 +147,14 @@ void VoiceManager::initializeSystem(Logger& logger) {
     try {
         // Delegace na SamplerIO - skenování adresáře
         samplerIO_.scanSampleDirectory(sampleDir_, logger);
+
+        // Inicializace envelope systému
+        logger.log("VoiceManager/initializeSystem", "info", 
+                  "Initializing envelope system...");
+        envelope_.initialize(logger);
+        envelope_.setEnvelopeFrequency(currentSampleRate_, logger);
         
+        // Inicializace hotova
         logger.log("VoiceManager/initializeSystem", "info", 
                   "System initialization completed successfully");
         
