@@ -31,11 +31,23 @@ public:
      * @brief Konstruktor: Vytvoří VoiceManager s cestou k samples
      * @param sampleDir Cesta k sample adresáři
      * @param logger Reference na Logger
-     * 
-     * DŮLEŽITÉ: Konstruktor pouze vytvoří objekty s neinicializovaným sample rate!
-     * Musí se explicitně volat: changeSampleRate() + initializeSystem() + loadAllInstruments()
      */
     VoiceManager(const std::string& sampleDir, Logger& logger);
+    
+    // ===== INITIALIZATION PIPELINE START =====
+    
+    /**
+     * @brief FÁZE 1: Jednorázová inicializace - skenování adresáře + generování envelope dat
+     * @param logger Reference na Logger
+     */
+    void initializeSystem(Logger& logger); // init phase 1
+
+    /**
+     * @brief FÁZE 2: Načtení dat + přepnutí envelope pro konkrétní sample rate
+     * @param sampleRate Target sample rate (44100/48000)
+     * @param logger Reference na Logger
+     */
+    void loadForSampleRate(int sampleRate, Logger& logger); // init phase 2
 
     // =====  SAMPLE RATE MANAGEMENT =====
     
@@ -58,28 +70,11 @@ public:
      * @brief NOVÉ: Prepare all voices for new buffer size (JUCE integration)
      * @param maxBlockSize Maximum block size from DAW
      */
-    void prepareToPlay(int maxBlockSize) noexcept;
+    void prepareToPlay(int maxBlockSize) noexcept;  // init phase 3
 
-    // ===== INITIALIZATION PIPELINE =====
+    // ===== INITIALIZATION PIPELINE END =====
     
-    /**
-     * @brief Inicializace systému - skenování sample adresáře
-     * @param logger Reference na Logger
-     */
-    void initializeSystem(Logger& logger);
     
-    /**
-     * @brief Načtení všech instrumentů do paměti
-     * @param logger Reference na Logger
-     */
-    void loadAllInstruments(Logger& logger);
-    
-    /**
-     * @brief Validace integrity celého systému
-     * @param logger Reference na Logger
-     */
-    void validateSystemIntegrity(Logger& logger);
-
     // ===== CORE AUDIO API =====
     
     /**

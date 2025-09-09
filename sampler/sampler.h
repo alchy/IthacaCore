@@ -13,9 +13,7 @@
 #include "core_logger.h"
 
 // Configuration constants pro VoiceManager
-//#define DEFAULT_SAMPLE_DIR R"(C:\Users\nemej992\AppData\Roaming\IthacaPlayer\instrument)"
 #define DEFAULT_SAMPLE_DIR R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)"
-// #define ALTERNATIVE_SAMPLE_DIR R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)"
 
 #define DEFAULT_SAMPLE_RATE 44100
 #define ALTERNATIVE_SAMPLE_RATE 48000
@@ -125,36 +123,38 @@ class InstrumentLoader;
  * @param logger Reference na Logger pro výstupy
  * @return int Počet selhání (0 = úspěch)
  * 
- * Vytvoří VoiceManagerTest testManager, zavolá testManager.initializeAll(loader),
- * spustí testManager.runAllTests(loader) a vrátí počet selhání.
- * Loguje summary výsledků.
+ * AKTUALIZOVÁNO: Používá novou 3-fázovou architekturu
+ * FÁZE 1: initializeSystem() - skenování + envelope generování
+ * FÁZE 2: loadForSampleRate() - načtení pro konkrétní sample rate  
+ * FÁZE 3: prepareToPlay() - JUCE příprava
  */
 int runVoiceManagerTests(VoiceManagerTester& testManager, InstrumentLoader& loader, Logger& logger);
 #endif
 
 /**
- * @brief REFAKTOROVANÝ: runSampler jako thin wrapper pro VoiceManager testing
+ * @brief REFAKTOROVÁNO: runSampler s novou 3-fázovou architekturou
  * 
  * Nahrazuje původní monolitickou runSampler funkci.
- * Nyní vytvoří VoiceManager a spustí kompletní test pipeline:
- * 1. Sample rate setup
- * 2. System initialization 
- * 3. Instrument loading
- * 4. Validation
- * 5. NOVÉ: VoiceManager testy (pokud ENABLE_TESTS)
- * 6. Granular testing
- * 7. Statistics
+ * NOVÁ ARCHITEKTURA:
+ * 1. VoiceManager instance creation
+ * 2. FÁZE 1: System initialization (skenování + envelope generování)
+ * 3. FÁZE 2: Loading for sample rate (načtení dat + envelope přepnutí)
+ * 4. FÁZE 3: JUCE preparation (buffer sizes)
+ * 5. VoiceManager testy (pokud ENABLE_TESTS)
+ * 6. Demo testy
+ * 7. System statistics
  * 
- * @param logger Reference na Logger pro zaznamenávání
+ * @param logger Reference na Logger pro zaznamenání
  * @return 0 při úspěchu, 1 při chybě
  */
 int runSampler(Logger& logger);
 
 /**
- * @brief NOVÉ: JUCE integration helper pro AudioProcessor
+ * @brief JUCE integration helper pro AudioProcessor
  * 
  * Ukázkový pattern pro integraci VoiceManager do JUCE AudioProcessor.
- * Ukazuje správné volání prepareToPlay() a processBlock() metod.
+ * AKTUALIZOVÁNO: Používá novou 3-fázovou architekturu místo starých metod.
+ * Ukazuje správné volání FÁZE 1 → FÁZE 2 → FÁZE 3 sekvence.
  * 
  * @param logger Reference na Logger
  * @return 0 při úspěchu, 1 při chybě

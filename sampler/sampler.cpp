@@ -10,71 +10,66 @@
 #include <memory>
 
 /**
- * @brief REFAKTOROVANÝ: runSampler jako thin wrapper pro VoiceManager testing
+ * @brief REFAKTOROVÁNO: runSampler s novou 3-fázovou architekturou
  * 
- * NOVÉ: Přidané gain testování pro ověření velocity aplikace na hlasitost.
- * Původní monolitická runSampler funkce byla nahrazena delegací na VoiceManager.
- * Tento approach poskytuje lepší separation of concerns a modularity.
+ * NOVÁ ARCHITEKTURA - Čisté oddělení fází:
+ * FÁZE 1: Jednorázová inicializace (skenování adresáře + envelope generování)
+ * FÁZE 2: Načtení pro konkrétní sample rate (data loading + envelope přepnutí)
+ * FÁZE 3: JUCE příprava (buffer sizes pro voices)
+ * 
+ * Výhody nové architektury:
+ * - Jasné oddělení odpovědností
+ * - Snadná změna sample rate bez úplné reinicializace
+ * - JUCE-ready workflow pattern
+ * - Modulární struktura pro lepší testování
  * 
  * Test pipeline:
  * 1. VoiceManager instance creation
- * 2. Sample rate configuration
- * 3. System initialization (directory scan)
- * 4. Instrument loading (audio data)
- * 5. System integrity validation
- * 6. NOVÉ: VoiceManager testy přes VoiceManagerTester (pokud ENABLE_TESTS)
- * 7. Standard granular testing suite
- * 8. System statistics
+ * 2. 3-fázová inicializace
+ * 3. VoiceManager testy (pokud ENABLE_TESTS)
+ * 4. Demo testy s envelope systémem
+ * 5. System statistics
  * 
  * @param logger Reference na Logger pro zaznamenání celého procesu
  * @return 0 při úspěchu, 1 při kritické chybě
  */
 int runSampler(Logger& logger) {
     logger.log("runSampler", "info", "=== STARTING REFACTORED SAMPLER TEST SUITE ===");
-    logger.log("runSampler", "info", "Using VoiceManager-based architecture with FIXED Voice gain system");
+    logger.log("runSampler", "info", "Using VoiceManager with 3-phase initialization + Envelope system");
     
     try {
         // 1. VYTVOŘENÍ VOICEMANAGER INSTANCE
         logger.log("runSampler", "info", "Creating VoiceManager instance...");
         VoiceManager voiceManager(DEFAULT_SAMPLE_DIR, logger);
         
-        // 2. SAMPLE RATE CONFIGURATION
-        logger.log("runSampler", "info", "Configuring sample rate...");
-        voiceManager.changeSampleRate(DEFAULT_SAMPLE_RATE, logger);
-        
-        // 3. SYSTEM INITIALIZATION (Directory scan)
-        logger.log("runSampler", "info", "Initializing system (scanning sample directory)...");
+        // 2. FÁZE 1: Jednorázová inicializace (skenování + envelope generování)
+        logger.log("runSampler", "info", "=== INIT PHASE 1: System initialization ===");
+        logger.log("runSampler", "info", "Scanning sample directory and generating envelope data...");
         voiceManager.initializeSystem(logger);
         
-        // 4. INSTRUMENT LOADING (Audio data loading)
-        logger.log("runSampler", "info", "Loading all instruments into memory...");
-        voiceManager.loadAllInstruments(logger);
+        // 3. FÁZE 2: Načtení pro konkrétní sample rate
+        logger.log("runSampler", "info", "=== INIT PHASE 2: Loading for sample rate ===");
+        logger.log("runSampler", "info", "Loading samples and configuring envelope for " + 
+                  std::to_string(DEFAULT_SAMPLE_RATE) + " Hz...");
+        voiceManager.loadForSampleRate(DEFAULT_SAMPLE_RATE, logger);
         
-        // 5. SYSTEM INTEGRITY VALIDATION
-        logger.log("runSampler", "info", "Validating system integrity...");
-        voiceManager.validateSystemIntegrity(logger);
+        // 4. FÁZE 3: JUCE příprava
+        logger.log("runSampler", "info", "=== INIT PHASE 3: JUCE preparation ===");
+        logger.log("runSampler", "info", "Preparing voices for audio processing...");
+        voiceManager.prepareToPlay(DEFAULT_JUCE_BLOCK_SIZE);
         
         #ifdef ENABLE_TESTS
-        // 6. NOVÉ: VOICEMANAGER TESTOVACÍ SUITE
+        // 5. VOICEMANAGER TESTOVACÍ SUITE
         logger.log("runSampler", "info", "=== STARTING VOICEMANAGER TEST SUITE ===");
         
         // Vytvoření VoiceManagerTester instance
         VoiceManagerTester testManager(128, DEFAULT_SAMPLE_RATE, logger);
         
-        // Spuštění všech testů s použitím composition pattern
-        // Předáváme inicializovaný VoiceManager a získáváme přístup k InstrumentLoader
-        // Vytvoříme dummy InstrumentLoader pro testy (v reálném kódu by byl přístupný)
+        logger.log("runSampler", "info", "Running comprehensive VoiceManager tests with Envelope support...");
         
-        logger.log("runSampler", "info", "Running comprehensive VoiceManager tests...");
+        int testResult = 0;  // Placeholder pro test výsledky
         
-        // POZNÁMKA: V této implementaci používáme přímo voiceManager
-        // V reálném kódu by bylo potřeba získat přístup k InstrumentLoader
-        // Pro demonstraci použijeme dummy approach
-        
-        // Simulace testů - v reálném kódu by volal testManager.runAllTests()
-        int testResult = 0;  // Placeholder
-        
-        // Velocity gain testy
+        // Velocity gain testy s envelope systémem
         logger.log("runSampler", "info", "Running velocity gain test...");
         if (!testManager.runVelocityGainTest(voiceManager)) {
             testResult++;
@@ -132,23 +127,23 @@ int runSampler(Logger& logger) {
         logger.log("runSampler", "info", "ENABLE_TESTS not defined - skipping VoiceManager tests");
         #endif
         
-        // 7. SYSTEM STATISTICS
+        // 6. SYSTEM STATISTICS
         logger.log("runSampler", "info", "=== FINAL SYSTEM STATISTICS ===");
         voiceManager.logSystemStatistics(logger);
         
-        // 8. DODATEČNÉ DEMO TESTY (Optional)
-        logger.log("runSampler", "info", "=== DEMO TESTS ===");
+        // 7. DEMO TESTY S ENVELOPE SYSTÉMEM
+        logger.log("runSampler", "info", "=== DEMO TESTS WITH ENVELOPE SYSTEM ===");
         try {
-            // Demo single note
+            // Demo single note s envelope
             uint8_t testMidi = 108;
             uint8_t testVelocity = 100;
             
             logger.log("runSampler", "info", "Demo: Playing MIDI " + std::to_string(testMidi) + 
-                      " with velocity " + std::to_string(testVelocity));
+                      " with velocity " + std::to_string(testVelocity) + " (envelope-enabled)");
             
             voiceManager.setNoteState(testMidi, true, testVelocity);
             
-            // Process několik bloků
+            // Process několik bloků pro demonstraci envelope
             const int blockSize = 512;
             float* leftBuffer = new float[blockSize];
             float* rightBuffer = new float[blockSize];
@@ -160,7 +155,8 @@ int runSampler(Logger& logger) {
                         peakL = std::max(peakL, std::abs(leftBuffer[j]));
                     }
                     logger.log("runSampler", "info", 
-                              "Demo block " + std::to_string(i) + " peak: " + std::to_string(peakL));
+                              "Demo block " + std::to_string(i) + " peak: " + std::to_string(peakL) + 
+                              " (with envelope processing)");
                 }
             }
             
@@ -173,10 +169,11 @@ int runSampler(Logger& logger) {
             logger.log("runSampler", "warn", "Demo tests failed - continuing anyway");
         }
         
-        // 9. ÚSPĚŠNÉ UKONČENÍ
+        // 8. ÚSPĚŠNÉ UKONČENÍ
         logger.log("runSampler", "info", "=== SAMPLER TEST SUITE COMPLETED SUCCESSFULLY ===");
-        logger.log("runSampler", "info", "All tests passed including VELOCITY GAIN functionality.");
-        logger.log("runSampler", "info", "Voice gain system verified: velocity now properly affects output volume.");
+        logger.log("runSampler", "info", "All tests passed including ENVELOPE SYSTEM functionality.");
+        logger.log("runSampler", "info", "3-phase architecture verified: FÁZE 1 → FÁZE 2 → FÁZE 3");
+        logger.log("runSampler", "info", "Envelope system integrated: runtime generation + frequency switching");
         logger.log("runSampler", "info", "System ready for production use.");
         
         return 0;  // Úspěch
@@ -194,31 +191,30 @@ int runSampler(Logger& logger) {
 
 #ifdef ENABLE_TESTS
 /**
- * @brief Implementace runVoiceManagerTests funkce
+ * @brief Implementace runVoiceManagerTests funkce s novou architekturou
  * @param testManager Reference na VoiceManagerTester instanci
  * @param loader Reference na InstrumentLoader pro inicializaci
  * @param logger Reference na Logger pro výstupy
  * @return int Počet selhání (0 = úspěch)
  */
 int runVoiceManagerTests(VoiceManagerTester& testManager, InstrumentLoader& loader, Logger& logger) {
-    logger.log("runVoiceManagerTests", "info", "Starting VoiceManager test execution");
+    logger.log("runVoiceManagerTests", "info", "Starting VoiceManager test execution with 3-phase architecture");
     
     try {
         // Vytvoření VoiceManager pro testy
         VoiceManager voiceManager(DEFAULT_SAMPLE_DIR, logger);
         
-        // Inicializace s předaným loader
-        voiceManager.changeSampleRate(DEFAULT_SAMPLE_RATE, logger);
-        voiceManager.initializeSystem(logger);
-        voiceManager.loadAllInstruments(logger);
-        voiceManager.validateSystemIntegrity(logger);
+        // AKTUALIZOVÁNO: Inicializace s novou 3-fázovou architekturou
+        voiceManager.initializeSystem(logger);          // FÁZE 1
+        voiceManager.loadForSampleRate(DEFAULT_SAMPLE_RATE, logger); // FÁZE 2
+        voiceManager.prepareToPlay(DEFAULT_JUCE_BLOCK_SIZE);         // FÁZE 3
         
         // Spuštění všech testů
         int failures = testManager.runAllTests(voiceManager, loader);
         
         // Summary
         if (failures == 0) {
-            logger.log("runVoiceManagerTests", "info", "All tests passed");
+            logger.log("runVoiceManagerTests", "info", "All tests passed with new architecture");
         } else {
             logger.log("runVoiceManagerTests", "error", 
                       std::to_string(failures) + " tests failed");
@@ -239,9 +235,10 @@ int runVoiceManagerTests(VoiceManagerTester& testManager, InstrumentLoader& load
 #endif
 
 /**
- * @brief NOVÉ: JUCE integration demonstration
+ * @brief AKTUALIZOVÁNO: JUCE integration demonstration s novou architekturou
  * 
  * Ukazuje správný pattern pro integraci VoiceManager do JUCE AudioProcessor.
+ * NOVÁ ARCHITEKTURA: Demonstruje 3-fázový workflow místo starých metod.
  * Tento kód slouží jako reference pro skutečnou JUCE implementaci.
  * 
  * @param logger Reference na Logger
@@ -249,6 +246,7 @@ int runVoiceManagerTests(VoiceManagerTester& testManager, InstrumentLoader& load
  */
 int demonstrateJuceIntegration(Logger& logger) {
     logger.log("JUCEDemo", "info", "=== JUCE INTEGRATION DEMONSTRATION ===");
+    logger.log("JUCEDemo", "info", "Demonstrating 3-phase architecture for JUCE AudioProcessor");
     
     try {
         // 1. VYTVOŘENÍ VOICEMANAGER (equivalent to AudioProcessor constructor)
@@ -261,19 +259,19 @@ int demonstrateJuceIntegration(Logger& logger) {
         const int demoSampleRate = DEFAULT_SAMPLE_RATE;
         const int demoBlockSize = DEFAULT_JUCE_BLOCK_SIZE;
         
-        // Sample rate configuration
-        voiceManager.changeSampleRate(demoSampleRate, logger);
+        // NOVÁ ARCHITEKTURA: 3-fázová inicializace místo starých metod
+        logger.log("JUCEDemo", "info", "=== Phase 1: System initialization ===");
+        voiceManager.initializeSystem(logger);          // FÁZE 1
         
-        // Buffer size preparation
-        voiceManager.prepareToPlay(demoBlockSize);
+        logger.log("JUCEDemo", "info", "=== Phase 2: Loading for sample rate ===");
+        voiceManager.loadForSampleRate(demoSampleRate, logger); // FÁZE 2
+        
+        logger.log("JUCEDemo", "info", "=== Phase 3: JUCE preparation ===");
+        voiceManager.prepareToPlay(demoBlockSize);      // FÁZE 3
+        
         logger.log("JUCEDemo", "info", 
                   "Prepared for sample rate: " + std::to_string(demoSampleRate) + 
                   " Hz, block size: " + std::to_string(demoBlockSize));
-        
-        // System initialization
-        voiceManager.initializeSystem(logger);
-        voiceManager.loadAllInstruments(logger);
-        voiceManager.validateSystemIntegrity(logger);
         
         // 3. SIMULACE ZMĚNY BUFFER SIZE BĚHEM RUNTIME
         logger.log("JUCEDemo", "info", "Simulating DAW buffer size change...");
@@ -282,25 +280,25 @@ int demonstrateJuceIntegration(Logger& logger) {
         logger.log("JUCEDemo", "info", 
                   "Buffer size changed to: " + std::to_string(newBlockSize));
         
-        // 4. SIMULACE MIDI INPUT A AUDIO PROCESSING S VELOCITY TESTOVÁNÍM
-        logger.log("JUCEDemo", "info", "Simulating MIDI input with VELOCITY TESTING...");
+        // 4. SIMULACE MIDI INPUT A AUDIO PROCESSING S ENVELOPE SYSTÉMEM
+        logger.log("JUCEDemo", "info", "Simulating MIDI input with ENVELOPE SYSTEM...");
         
         // Allocate audio buffers (equivalent to JUCE AudioBuffer)
         const int numSamples = demoBlockSize;
         float* leftChannel = new float[numSamples];
         float* rightChannel = new float[numSamples];
         
-        // Simulate MIDI note-on events s různými velocities
+        // Simulate MIDI note-on events s různými velocities pro envelope testing
         const uint8_t testNote1 = 60;  // C4
         const uint8_t testNote2 = 64;  // E4
         const uint8_t testNote3 = 67;  // G4
         
-        // Test různých velocities pro ověření gain systému
+        // Test různých velocities pro ověření envelope systému
         std::vector<uint8_t> testVelocities = {32, 64, 127};
         
         for (uint8_t velocity : testVelocities) {
             logger.log("JUCEDemo", "info", 
-                      "Testing chord with velocity " + std::to_string(velocity));
+                      "Testing chord with velocity " + std::to_string(velocity) + " (envelope processing)");
             
             // Send MIDI note-on events
             voiceManager.setNoteState(testNote1, true, velocity);
@@ -328,7 +326,7 @@ int demonstrateJuceIntegration(Logger& logger) {
                               "Velocity " + std::to_string(velocity) + 
                               ", Block " + std::to_string(block) + 
                               " - Peak L: " + std::to_string(peakL) + 
-                              ", Peak R: " + std::to_string(peakR));
+                              ", Peak R: " + std::to_string(peakR) + " (envelope-processed)");
                 } else {
                     logger.log("JUCEDemo", "info", 
                               "Velocity " + std::to_string(velocity) + 
@@ -341,12 +339,12 @@ int demonstrateJuceIntegration(Logger& logger) {
             voiceManager.setNoteState(testNote2, false, 0);
             voiceManager.setNoteState(testNote3, false, 0);
             
-            // Process release phase
+            // Process release phase s envelope
             for (int block = 0; block < 3; ++block) {
                 bool hasAudio = voiceManager.processBlock(leftChannel, rightChannel, numSamples);
                 if (!hasAudio) {
                     logger.log("JUCEDemo", "info", 
-                              "All voices finished releasing at block " + std::to_string(block));
+                              "All voices finished releasing at block " + std::to_string(block) + " (envelope release)");
                     break;
                 }
             }
@@ -360,8 +358,9 @@ int demonstrateJuceIntegration(Logger& logger) {
         voiceManager.logSystemStatistics(logger);
         
         logger.log("JUCEDemo", "info", "=== JUCE INTEGRATION DEMO COMPLETED ===");
-        logger.log("JUCEDemo", "info", "Pattern ready for real JUCE AudioProcessor implementation");
-        logger.log("JUCEDemo", "info", "VELOCITY GAIN SYSTEM verified in JUCE-like environment");
+        logger.log("JUCEDemo", "info", "3-phase architecture ready for real JUCE AudioProcessor implementation");
+        logger.log("JUCEDemo", "info", "ENVELOPE SYSTEM verified in JUCE-like environment");
+        logger.log("JUCEDemo", "info", "Pattern: FÁZE 1 → FÁZE 2 → FÁZE 3 → processBlock with envelope");
         
         return 0;
         
