@@ -126,17 +126,15 @@ void Voice::setNoteState(bool isOn, uint8_t velocity) noexcept {
     
     if (isOn) {
         updateVelocityGain(velocity);
-        state_ = VoiceState::Attacking;
-        position_ = 0;
-        envelope_gain_ = 0.0f;
-        
-        // NOVÉ: Reset attack envelope position
-        envelope_attack_position_ = 0;
-        
+        state_ = VoiceState::Attacking;     // set voice state 
+        position_ = 0;                      // reset sample position in frames (data pro **všechny / dva kanály v jednom okamžiku**)
+        envelope_gain_ = 0.0f;              // reset envelope gain
+        envelope_attack_position_ = 0;      // reset envelope attack position
+                                            // VoiceState::Sustaining is set after end of attack phase in calculateBlockGains function - logicke
     } else {
-        if (state_ == VoiceState::Sustaining || state_ == VoiceState::Attacking) {
-            state_ = VoiceState::Releasing;
-            envelope_release_position_ = 0;
+        if (state_ == VoiceState::Sustaining || state_ == VoiceState::Attacking) {  // note-off: prepnout se lze jen ze stavu Attacking nebo Sustaining - logicke
+            state_ = VoiceState::Releasing;                                         // nastav stav Releasing
+            envelope_release_position_ = 0;                                         // reset envelope release position
         }
     }
 }
@@ -146,13 +144,13 @@ void Voice::setNoteState(bool isOn, uint8_t velocity) noexcept {
  */
 bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
     if (state_ == VoiceState::Idle || !gainBuffer || numSamples <= 0) {
-        return false;
+        return false;                                           // Chyba inicializace a Voice se tvari jako ze je dokoncen (nehraje)
     }
     
     switch (state_) {
         case VoiceState::Attacking: {
             // NOVÉ: Použít ADSR envelope API bez MIDI parametru
-            bool attackContinues = envelope_->getAttackGains(gainBuffer, numSamples, envelope_attack_position_);
+            bool attackContinues = envelope_->getAttackGains(gainBuffer, numSamples, envelope_attack_position_);    // pokud stale mame data envelopy pro Attacking fazi True
             
             // Increment pozice pro další blok
             envelope_attack_position_ += numSamples;
@@ -163,22 +161,22 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
                 // Dokončit blok sustain hodnotami
                 const float sustainLevel = envelope_->getSustainLevel();
                 for (int i = 0; i < numSamples; ++i) {
-                    if (gainBuffer[i] >= 0.99f) gainBuffer[i] = sustainLevel;
+                    if (gainBuffer[i] >= 0.99f) gainBuffer[i] = sustainLevel; // xxx
                 }
             }
             
             envelope_gain_ = gainBuffer[numSamples - 1];
-            return true;
+            return true;                                            // Voice hraje - nedokokoncen
         }
         
         case VoiceState::Sustaining: {
-            // NOVÉ: Konstantní sustain level z envelope parametrů
+            // Konstantní sustain level z envelope parametrů
             const float sustainLevel = envelope_->getSustainLevel();
             for (int i = 0; i < numSamples; ++i) {
                 gainBuffer[i] = sustainLevel;
             }
             envelope_gain_ = sustainLevel;
-            return true;
+            return true;                                            // Voice hraje - nedokokoncen
         }
         
         case VoiceState::Releasing: {
@@ -188,21 +186,25 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
             // Increment pozice pro další blok
             envelope_release_position_ += numSamples;
             
+            /* xxx
+
             // Aplikovat minimum pro bezpečnost
             constexpr float targetGain = 0.001f;
             for (int i = 0; i < numSamples; ++i) {
                 gainBuffer[i] = std::max(gainBuffer[i], targetGain);
             }
             
+            */
+
             envelope_gain_ = gainBuffer[numSamples - 1];
             
             // Zkontroluj dokončení release
-            if (!releaseContinues || envelope_gain_ <= targetGain * 1.1f) {
-                return false;  // Voice dokončen
+            if (!releaseContinues || envelope_gain_ <= 0.0f) {      // 0.0f  musi byt v generovanych hodnotach vzdy na konci obalky  
+                return false;                                       // Voice dokončen
             }
-            return true;
+            return true;                                            // Voice hraje - nedokokoncen
         }
-        
+
         default:
             return false;
     }
