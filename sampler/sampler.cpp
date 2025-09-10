@@ -3,7 +3,7 @@
 
 // Podmíněné include pro testovací systém
 #ifdef ENABLE_TESTS
-#include "voice_manager_tests.h"  // Pro VoiceManagerTester
+#include "tests/voice_manager_tests.h"  // Pro VoiceManagerTester
 #endif
 
 #include <iostream>

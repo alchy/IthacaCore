@@ -1,8 +1,8 @@
 #include "voice_manager_tests.h"
-#include "voice_manager.h"      // Nyní můžeme includovat - žádné circular dependencies
-#include "instrument_loader.h"
-#include "core_logger.h"
-#include "wav_file_exporter.h"
+#include "../voice_manager.h"
+#include "../instrument_loader.h"
+#include "../core_logger.h"
+#include "../wav_file_exporter.h"
 #include <algorithm>
 #include <cmath>
 #include <filesystem>

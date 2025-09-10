@@ -53,8 +53,8 @@ add_executable(IthacaCore
     sampler/voice_manager.h
 
     # VoiceManager pro test
-    sampler/voice_manager_tests.cpp
-    sampler/voice_manager_tests.h
+    sampler/tests/voice_manager_tests.cpp
+    sampler/tests/voice_manager_tests.h
 
     # Envelopes (ADSR/ASR)
     sampler/envelopes/envelope.cpp
