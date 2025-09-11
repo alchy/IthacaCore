@@ -216,6 +216,45 @@ void VoiceManager::setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) n
 }
 
 /**
+ * @brief RT-SAFE: Process audio block - UNINTERLEAVED format (JUCE style)
+ * Používá oddělené float* buffery pro levý a pravý kanál
+ */
+bool VoiceManager::processBlockUninterleaved(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept {
+    if (!outputLeft || !outputRight || samplesPerBlock <= 0) {
+        return false;
+    }
+    
+    // Clear output buffers first
+    std::fill(outputLeft, outputLeft + samplesPerBlock, 0.0f);
+    std::fill(outputRight, outputRight + samplesPerBlock, 0.0f);
+    
+    if (activeVoices_.empty()) {
+        return false;
+    }
+    
+    bool anyActive = false;
+    
+    // Přímé zpracování - Voice::processBlock už používá uninterleaved formát
+    for (Voice* voice : activeVoices_) {
+        if (voice && voice->isActive()) {
+            if (voice->processBlock(outputLeft, outputRight, samplesPerBlock)) {
+                anyActive = true;
+            } else {
+                voicesToRemove_.push_back(voice);
+            }
+        } else {
+            voicesToRemove_.push_back(voice);
+        }
+    }
+    
+    if (!voicesToRemove_.empty()) {
+        cleanupInactiveVoices();
+    }
+    
+    return anyActive;
+}
+
+/**
  * @brief RT-SAFE: Process audio block - INTERLEAVED format
  * Používá AudioData* pro interleaved stereo data
  */

@@ -327,6 +327,19 @@ bool Voice::processBlock(float* outputLeft,
     return state_ != VoiceState::Idle;
 }
 
+// ===== PRIVATE RT-SAFE METODY =====
+
+/**
+ * @brief RT-SAFE: Výpočet releaseSamples na základě sampleRate_ (500 ms release).
+ */
+void Voice::calculateReleaseSamples() noexcept {
+    if (sampleRate_ > 0) {
+        releaseSamples_ = static_cast<sf_count_t>(0.5 * sampleRate_);  // 500 ms = 0.5 s
+    } else {
+        releaseSamples_ = 0;
+    }
+}
+
 /**
  * @brief RT-SAFE: NOVÁ metoda pro aplikaci MIDI velocity na hlasitost
  * Mapuje velocity 0-127 na velocity_gain_ 0.0-1.0 s logaritmickou křivkou.
