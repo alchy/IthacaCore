@@ -369,3 +369,8 @@ git submodule add https://github.com/libsndfile/libsndfile libsndfile
 Get-Content -Path "C:\Users\jindr\IthacaCore\build\Debug\Debug\core_logger\core_logger.log" -Tail 10 -Wait | 
 Where-Object { $_ -match "VoiceManagerTester" }
 ```
+
+```
+Get-Content -Path "C:\Users\nemej992\Documents\Repos\IthacaCore\build\Debug\Debug\core_logger\core_logger.log" -Tail 10 -Wait | Where-Object { $_ -like "*Test/*" }
+```
+

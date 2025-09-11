@@ -84,8 +84,7 @@ TestResult SingleNoteTest::runTest(VoiceManager& voiceManager) {
                             " - Peak L: " + std::to_string(s.peakLevel) + 
                             ", RMS L: " + std::to_string(s.rmsLevel) +
                             ", Voice state: " + std::to_string(static_cast<int>(voice.getState())) +
-                            ", Envelope gain: " + std::to_string(voice.getCurrentEnvelopeGain()) +
-                            ", Final gain: " + std::to_string(voice.getFinalGain()));
+                            ", Envelope gain: " + std::to_string(voice.getCurrentEnvelopeGain()));
 
                 // Export first block with audio for analysis
                 if (shouldExportAudio() && exportBuffer && block == 0) {

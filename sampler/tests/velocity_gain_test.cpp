@@ -59,8 +59,7 @@ TestResult VelocityGainTest::runTest(VoiceManager& voiceManager) {
                             ", RMS L: " + std::to_string(s.rmsLevel) +
                             ", Expected velocity gain: " + std::to_string(expectedVelocityGain) +
                             ", Actual velocity gain: " + std::to_string(actualVelocityGain) +
-                            ", Master gain: " + std::to_string(voice.getMasterGain()) +
-                            ", Final gain: " + std::to_string(voice.getFinalGain()));
+                            ", Master gain: " + std::to_string(voice.getMasterGain()));
 
                 if (shouldExportAudio() && exportBuffer) {
                     for (int i = 0; i < blockSize; ++i) {

@@ -3,13 +3,10 @@
 
 // Podmíněné include pro testovací systém
 #ifdef ENABLE_TESTS
-// Starý testovací systém (zachováno pro kompatibilitu)
-#include "tests/original-working-tests/voice_manager_tests.h"
 
 // NOVÝ testovací framework
 #include "tests/test_registry.h"
 #include "tests/velocity_gain_test.h"
-#include "tests/master_gain_test.h"
 #include "tests/envelope_test.h"
 #include "tests/single_note_test.h"
 #include "tests/polyphony_test.h"
@@ -70,35 +67,8 @@ int runSampler(Logger& logger) {
         logger.log("runSampler", "info", "=== STARTING HYBRID TEST SUITE ===");
         
         int totalFailures = 0;
-        
-        // === ČÁST A: STARÝ TESTOVACÍ SYSTÉM (zachováno pro kritické testy) ===
-        logger.log("runSampler", "info", "=== PART A: Legacy VoiceManager Tests ===");
-        
-        // Vytvoření VoiceManagerTester instance pro kritické testy
-        VoiceManagerTester legacyTester(128, DEFAULT_SAMPLE_RATE, logger);
-        
-        logger.log("runSampler", "info", "Running legacy critical tests...");
-        
-        // Jen nejdůležitější testy ze starého systému
-        if (!legacyTester.runVelocityGainTest(voiceManager)) {
-            totalFailures++;
-            logger.log("runSampler", "error", "Legacy velocity gain test FAILED");
-        }
-        
-        if (!legacyTester.runSingleNoteTest(voiceManager)) {
-            totalFailures++;
-            logger.log("runSampler", "error", "Legacy single note test FAILED");
-        }
-        
-        if (!legacyTester.runPolyphonyTest(voiceManager)) {
-            totalFailures++;
-            logger.log("runSampler", "error", "Legacy polyphony test FAILED");
-        }
-        
-        logger.log("runSampler", "info", "Legacy tests completed with " + 
-                  std::to_string(totalFailures) + " failures");
-        
-        // === ČÁST B: NOVÝ TESTOVACÍ FRAMEWORK ===
+                
+        // === TESTOVACÍ FRAMEWORK ===
         logger.log("runSampler", "info", "=== PART B: New Test Framework ===");
         
         // Inicializace nového test frameworku
@@ -117,7 +87,6 @@ int runSampler(Logger& logger) {
         
         // Registrace všech nových testů
         registry.registerTest(std::make_unique<VelocityGainTest>(logger, config));
-        registry.registerTest(std::make_unique<MasterGainTest>(logger, config));
         registry.registerTest(std::make_unique<EnvelopeTest>(logger, config));
         registry.registerTest(std::make_unique<SingleNoteTest>(logger, config));
         registry.registerTest(std::make_unique<PolyphonyTest>(logger, config));

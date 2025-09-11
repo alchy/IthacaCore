@@ -73,7 +73,6 @@ TestResult EnvelopeTest::runTest(VoiceManager& voiceManager) {
                             ", RMS: " + std::to_string(s.rmsLevel) +
                             ", Envelope gain: " + std::to_string(currentEnvelopeGain) +
                             ", Velocity gain: " + std::to_string(voice.getVelocityGain()) +
-                            ", Final gain: " + std::to_string(voice.getFinalGain()) +
                             ", State: " + std::to_string(static_cast<int>(voice.getState())));
 
                 // Export different phases
