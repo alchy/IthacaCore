@@ -1,7 +1,7 @@
-### README.md pro třídu Envelope
+### README.md pro třídu Envelope (Dynamické generování) - Voice integrace
 
 #### Úvod
-Třída `Envelope` slouží k RT-safe (real-time safe) vyplnění bufferu gainy pro ADSR obálky (attack a release) v audio sampleru. Data jsou načtena z pre-computed const arrays v `envelopes.h` (generováno Pythonem). Třída podporuje dynamickou změnu sample rate (44100/48000 Hz) a přímou absolutní indexaci do polí pro rychlý lookup. Logování probíhá v konstruktoru a při změně frekvence. RT-safe: Žádné alokace nebo složité výpočty v runtime metodách.
+Třída `Envelope` slouží k RT-safe (real-time safe) vyplnění bufferu gainy pro ADSR obálky (attack a release) v audio sampleru. **Data se generují dynamicky za běhu** místo načítání z pre-computed arrays, což šetří paměť a velikost binárního souboru. Třída podporuje dynamickou změnu sample rate (44100/48000 Hz) a efektivní výpočet exponenciálních křivek v reálném čase. Logování probíhá v konstruktoru a při změně frekvence. RT-safe: Žádné alokace v runtime metodách.
 
 Třída se integruje do `VoiceManager` (instanciace) a `Voice` (volání v `calculateBlockGains` pro nahrazení lineárního release).
 
@@ -9,63 +9,67 @@ Třída se integruje do `VoiceManager` (instanciace) a `Voice` (volání v `calc
 
 | Metoda                          | Popis                                                                 | Parametry                                                                 | Návratový typ |
 |---------------------------------|-----------------------------------------------------------------------|---------------------------------------------------------------------------|---------------|
-| `Envelope(Logger& logger)`      | Konstruktor: Načte data pro attack/release z envelopes.h, loguje informace o načtených datech (128 MIDI, max len pro rates), validuje délku pro MIDI 127. Nenastavuje frekvenci. | `logger`: Reference na Logger pro logování.                               | `void` (konstruktor) |
+| `Envelope(Logger& logger)`      | Konstruktor: Inicializuje parametry pro dynamické generování attack/release dat. Loguje informace o připravenosti (128 MIDI, podporované rates). Nenastavuje frekvenci. | `logger`: Reference na Logger pro logování.                               | `void` (konstruktor) |
 | `void setEnvelopeFrequency(int freq, Logger& logger)` | Nastaví frekvenci (bitrate) a odpovídající index (0/1), loguje změnu bitrate a index. Validuje jen 44100/48000 Hz, jinak error a exit(1). Nastaví private `bitrate_` a `sample_rate_index_`. | `freq`: Frekvence v Hz (44100 nebo 48000).<br>`logger`: Reference na Logger pro logování. | `void` |
-| `void getGainBufferAttack(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed) const noexcept` | Vyplní `gainBuffer` gainy pro attack fázi: Přímá indexace z attack_data_[midi], clamp na 0..len-1. Pro MIDI 0 (len=1): Vyplní 1.0f. Fallback na 0.0f při chybě. | `midi`: MIDI hodnota (0-127).<br>`gainBuffer`: Buffer k vyplnění.<br>`numSamples`: Počet samples (např. 512).<br>`start_elapsed`: Start samples od začátku attack. | `void` |
-| `void getGainBufferRelease(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed) const noexcept` | Vyplní `gainBuffer` gainy pro release fázi: Přímá indexace z release_data_[midi], clamp na 0..len-1. Pro MIDI 0 (len=1): Vyplní 0.0f. Fallback na 0.0f při chybě. | `midi`: MIDI hodnota (0-127).<br>`gainBuffer`: Buffer k vyplnění.<br>`numSamples`: Počet samples (např. 512).<br>`start_elapsed`: Start samples od začátku release. | `void` |
+| `void getGainBufferAttack(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed, Logger& logger) const noexcept` | Dynamicky vypočítá a vyplní `gainBuffer` gainy pro attack fázi s debug logováním: Exponenciální křivka `1 - exp(-t/tau)`. Pro MIDI 0: Konstantní 1.0f. Automaticky loguje na úrovni "debug". | `midi`: MIDI hodnota (0-127).<br>`gainBuffer`: Buffer k vyplnění.<br>`numSamples`: Počet samples (např. 512).<br>`start_elapsed`: Start samples od začátku attack.<br>`logger`: Reference na Logger pro debug výstup. | `void` |
+| `void getGainBufferRelease(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed, Logger& logger) const noexcept` | Dynamicky vypočítá a vyplní `gainBuffer` gainy pro release fázi s debug logováním: Exponenciální křivka `exp(-t/tau)`. Pro MIDI 0: Konstantní 0.0f. Automaticky loguje na úrovni "debug". | `midi`: MIDI hodnota (0-127).<br>`gainBuffer`: Buffer k vyplnění.<br>`numSamples`: Počet samples (např. 512).<br>`start_elapsed`: Start samples od začátku release.<br>`logger`: Reference na Logger pro debug výstup. | `void` |
 
-#### Příklady volání
+#### Voice integrace - Refaktorované použití
 
-##### 1. Instanciace v VoiceManager (v konstruktoru nebo initializeAll)
+**Konstanty pro envelope MIDI hodnoty:**
 ```cpp
-// V voice_manager.cpp, v konstruktoru VoiceManager
-Envelope::Envelope(Logger& logger) : envelope_(logger) {  // envelope_ je člen třídy VoiceManager
-    // Log: "Loaded attack/release data: 128 MIDI layers, max len 576001 samples for 44100 Hz and 48000 Hz. Frequency not set (bitrate=0, index=-1)."
-    // Log: "Data validation OK - ready for setEnvelopeFrequency"
-}
-
-// Pak nastav frekvenci
-envelope_.setEnvelopeFrequency(sample_rate_, logger);  // Např. sample_rate_ = 44100
-// Log: "Bitrate changed to 44100 Hz (index=0)"
+// V Voice třídě - fixní MIDI hodnoty pro obálky
+static constexpr uint8_t ATTACK_ENVELOPE_MIDI = 8;   // Rychlejší attack
+static constexpr uint8_t RELEASE_ENVELOPE_MIDI = 64; // Střední release
+static constexpr float SUSTAIN_LEVEL = 1.0f;         // Fixní sustain level
 ```
 
-##### 2. Volání v programu (v calculateBlockGains Voice třídy)
-Předpokládáme, že `Envelope& envelope_` je předán do Voice z VoiceManager (např. v konstruktoru Voice: `Voice(..., Envelope& envelope) : envelope_(envelope) {}`).
-
+**Refaktorované calculateBlockGains:**
 ```cpp
-// Upravená metoda v voice.cpp (nahrazuje lineární release)
-bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
+bool Voice::calculateBlockGains(float* gainBuffer, int numSamples, Logger& logger) noexcept {
     if (state_ == VoiceState::Idle || !gainBuffer || numSamples <= 0) {
         return false;
     }
     
     switch (state_) {
-        case VoiceState::Sustaining:
         case VoiceState::Attacking: {
-            // Constant gain for sustain/attack (nebo uprav pro attack envelope)
-            const float constantGain = envelope_gain_;
-            for (int i = 0; i < numSamples; ++i) {
-                gainBuffer[i] = constantGain;
+            // NOVÉ: Používá fixní MIDI 8 pro attack envelope
+            envelope_->getGainBufferAttack(ATTACK_ENVELOPE_MIDI, gainBuffer, numSamples, 
+                                         envelope_attack_position_, logger);
+            
+            envelope_attack_position_ += numSamples;
+            envelope_gain_ = gainBuffer[numSamples - 1];
+            
+            // Zkontroluj dokončení attack
+            if (envelope_gain_ >= 0.99f) {
+                state_ = VoiceState::Sustaining;
             }
             return true;
         }
         
-        case VoiceState::Releasing: {
-            // NOVÉ: Načti envelope gain buffer pro celý blok (absolutní indexace, MIDI parametr)
-            const sf_count_t releaseElapsed = position_ - releaseStartPosition_;
-            envelope_.getGainBufferRelease(release_midi_, gainBuffer, numSamples, releaseElapsed);  // release_midi_ = např. 64
-            
-            // Aplikovat targetGain min (0.001f) na konec, pokud potřeba
-            constexpr float targetGain = 0.001f;
+        case VoiceState::Sustaining: {
+            // NOVÉ: Fixní sustain level místo envelope lookup
             for (int i = 0; i < numSamples; ++i) {
-                gainBuffer[i] = std::max(gainBuffer[i], targetGain);
+                gainBuffer[i] = SUSTAIN_LEVEL;
             }
+            envelope_gain_ = SUSTAIN_LEVEL;
+            return true;
+        }
+        
+        case VoiceState::Releasing: {
+            // NOVÉ: Používá fixní MIDI 64 pro release envelope
+            envelope_->getGainBufferRelease(RELEASE_ENVELOPE_MIDI, gainBuffer, numSamples, 
+                                          envelope_release_position_, logger);
             
-            // Update envelope_gain_ to last calculated value for getter consistency
+            envelope_release_position_ += numSamples;
             envelope_gain_ = gainBuffer[numSamples - 1];
             
-            // Check if release is complete
-            return envelope_gain_ > targetGain * 1.1f;
+            // Zkontroluj dokončení release
+            if (envelope_gain_ <= 0.001f) {
+                state_ = VoiceState::Idle;
+                return false;
+            }
+            return true;
         }
         
         default:
@@ -74,12 +78,65 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
 }
 ```
 
-#### Postup změn ve stávajícím kódu
-1. **Přidání souborů**: Zkopíruj `envelope.h` a `envelope.cpp` do složky `sampler/`. Přidej do `CMakeLists.txt`: `sampler/envelope.cpp sampler/envelope.h`.
-2. **Generování envelopes.h**: Spusť Python `generate_envelopes.py` pro vytvoření `envelopes.h` (include do envelope.h).
-3. **Integrace do VoiceManager**: V `voice_manager.h` přidej člen `Envelope envelope_;`. V konstruktoru: `envelope_(logger);`. V `initializeAll`: `envelope_.setEnvelopeFrequency(sample_rate_, logger);`.
-4. **Integrace do Voice**: V `voice.h` přidej `Envelope& envelope_;` (reference). V konstruktoru Voice: `Voice(..., Envelope& envelope) : envelope_(envelope) {}`. V `VoiceManager::setNoteState`: Předej envelope do voice.
-5. **Úprava calculateBlockGains**: Nahraď lineární release voláním `getGainBufferRelease` (viz příklad výše). Pro attack: Nahraď constant voláním `getGainBufferAttack`, pokud chceš exponenciální nárůst.
-6. **Build a test**: Sestav projekt (`cmake --build build`), spusť a sleduj logy v `core_logger/core_logger.log` (např. "Loaded attack/release data...").
+#### VoiceManager integrace
 
-Toto umožní snadnou integraci bez velkých změn. Pokud potřebuješ upravit pro decay/sustain, navrhni.
+**Konstruktor:**
+```cpp
+VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
+    : envelope_(logger),  // Stack allocated s logger referencí
+      currentSampleRate_(0),
+      // ... ostatní inicializace
+{
+    // Envelope je nyní inicializovaná v konstruktoru
+}
+```
+
+**Initialize metoda:**
+```cpp
+void Voice::initialize(const Instrument& instrument, int sampleRate, 
+                      const Envelope& envelope, Logger& logger) {
+    // ... existující kód ...
+    envelope_ = &envelope;  // Uložit referenci na envelope
+    
+    logger.log("Voice/initialize", "info", 
+               "Voice initialized for MIDI " + std::to_string(midiNote_) + 
+               " with dynamic envelope system (Attack MIDI: " + std::to_string(ATTACK_ENVELOPE_MIDI) + 
+               ", Release MIDI: " + std::to_string(RELEASE_ENVELOPE_MIDI) + ")");
+}
+```
+
+#### Logger API integrace
+
+Všechny Voice metody které volají envelope nyní předávají logger:
+
+```cpp
+// V Voice::calculateBlockGains() - s předáním loggeru
+bool Voice::calculateBlockGains(float* gainBuffer, int numSamples, Logger& logger) noexcept {
+    // ... volání envelope s logger parametrem
+}
+
+// V Voice::processBlock() - aktualizovaný podpis
+bool Voice::processBlock(float* outputLeft, float* outputRight, int samplesPerBlock, Logger& logger) noexcept {
+    // Pre-calculate envelope gains for the block
+    if (!calculateBlockGains(gainBuffer_.data(), samplesToProcess, logger)) {
+        state_ = VoiceState::Idle;
+        return false;
+    }
+    // ... zbytek kódu
+}
+```
+
+#### Výhody refaktoringu
+
+- **Jednoduché fixní envelope parametry**: Žádné složité mapování MIDI not na envelope
+- **Konzistentní chování**: Všechny voices používají stejné envelope křivky
+- **RT-safe s logováním**: Debug logy pro monitorování envelope behavior
+- **Flexibilní budoucnost**: Snadné rozšíření pro dynamické envelope MIDI hodnoty
+
+#### Matematický model
+
+- **Attack envelope**: MIDI 8 → rychlejší attack (tau = 8/127 * 12/5 ≈ 0.15s)
+- **Release envelope**: MIDI 64 → střední release (tau = 64/127 * 12/5 ≈ 1.2s)  
+- **Sustain level**: Konstantní 1.0f (100% hlasitost)
+
+Tento přístup poskytuje předvídatelné envelope chování s možností budoucího rozšíření pro per-note envelope control.
