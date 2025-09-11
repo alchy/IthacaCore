@@ -223,7 +223,7 @@ bool VoiceManager::processBlock(float* outputLeft, float* outputRight, int numSa
         return false;
     }
     
-    // KRITICKÉ: Clear output buffers first - refaktorovaná Voice používá += operace
+    // Clear output buffers first
     memset(outputLeft, 0, numSamples * sizeof(float));
     memset(outputRight, 0, numSamples * sizeof(float));
     
