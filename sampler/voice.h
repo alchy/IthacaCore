@@ -144,11 +144,8 @@ public:
     
     // OPRAVENÉ gain gettery s jasnou strukturou
     float getCurrentEnvelopeGain() const noexcept { return envelope_gain_; }
-    float getVelocityGain() const noexcept { return velocity_gain_; }         // NOVÉ
-    float getMasterGain() const noexcept { return master_gain_; }             // NOVÉ
-    float getFinalGain() const noexcept { 
-        return envelope_gain_ * velocity_gain_ * master_gain_; 
-    }
+    float getVelocityGain() const noexcept { return velocity_gain_; }
+    float getMasterGain() const noexcept { return master_gain_; }
 
     // RT-Safe mode control (pro debugging/profiling)
     static void setRealTimeMode(bool enabled) noexcept { rtMode_.store(enabled); }

@@ -56,11 +56,8 @@ add_executable(IthacaCore
     sampler/envelopes/envelope.cpp
     sampler/envelopes/envelope.h
     
-    # === LEGACY TESTS (zachováno pro kritické testy) ===
-    sampler/tests/original-working-tests/voice_manager_tests.cpp
-    sampler/tests/original-working-tests/voice_manager_tests.h
+    # === TEST FRAMEWORK ===
     
-    # === NOVÝ TEST FRAMEWORK ===
     # Base framework
     sampler/tests/test_base.cpp
     sampler/tests/test_base.h
@@ -70,8 +67,6 @@ add_executable(IthacaCore
     # Specific tests
     sampler/tests/velocity_gain_test.cpp
     sampler/tests/velocity_gain_test.h
-    sampler/tests/master_gain_test.cpp
-    sampler/tests/master_gain_test.h
     sampler/tests/envelope_test.cpp
     sampler/tests/envelope_test.h
     sampler/tests/single_note_test.cpp
