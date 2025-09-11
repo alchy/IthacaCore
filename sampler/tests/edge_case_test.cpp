@@ -42,7 +42,7 @@ TestResult EdgeCaseTest::runTest(VoiceManager& voiceManager) {
             memset(leftBuffer, 0, blockSize * sizeof(float));
             memset(rightBuffer, 0, blockSize * sizeof(float));
 
-            bool hasAudio = voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+            bool hasAudio = voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
             if (hasAudio && shouldExportAudio()) {
                 for (int j = 0; j < blockSize; ++j) {
                     exportBuffer[j * 2] = leftBuffer[j];

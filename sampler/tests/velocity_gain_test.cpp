@@ -45,7 +45,7 @@ TestResult VelocityGainTest::runTest(VoiceManager& voiceManager) {
             memset(leftBuffer, 0, blockSize * sizeof(float));
             memset(rightBuffer, 0, blockSize * sizeof(float));
 
-            if (voiceManager.processBlock(leftBuffer, rightBuffer, blockSize)) {
+            if (voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize)) {
                 AudioStats s = analyzeAudioBuffer(leftBuffer, blockSize, 1);
                 
                 // Calculate expected gain using the same formula as Voice::updateVelocityGain
@@ -89,7 +89,7 @@ TestResult VelocityGainTest::runTest(VoiceManager& voiceManager) {
             
             // Process a few more blocks to allow release phase
             for (int i = 0; i < 3; ++i) {
-                voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+                voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
             }
         }
 

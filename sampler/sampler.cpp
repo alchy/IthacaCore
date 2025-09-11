@@ -188,7 +188,7 @@ int runSampler(Logger& logger) {
             float* rightBuffer = new float[blockSize];
             
             for (int i = 0; i < 5; ++i) {
-                if (voiceManager.processBlock(leftBuffer, rightBuffer, blockSize)) {
+                if (voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize)) {
                     float peakL = 0.0f;
                     for (int j = 0; j < blockSize; ++j) {
                         peakL = std::max(peakL, std::abs(leftBuffer[j]));

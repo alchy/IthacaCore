@@ -166,7 +166,7 @@ bool VoiceManagerTester::runVelocityGainTest(VoiceManager& voiceManager) {
         memset(leftBuffer, 0, blockSize * sizeof(float));
         memset(rightBuffer, 0, blockSize * sizeof(float));
         
-        if (voiceManager.processBlock(leftBuffer, rightBuffer, blockSize)) {
+        if (voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize)) {
             // Analýza peak level
             float peakL = 0.0f, peakR = 0.0f;
             float rmsL = 0.0f, rmsR = 0.0f;
@@ -207,7 +207,7 @@ bool VoiceManagerTester::runVelocityGainTest(VoiceManager& voiceManager) {
         
         // Krátká pauza pro cleanup
         for (int i = 0; i < 3; ++i) {
-            voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+            voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
         }
     }
     
@@ -251,7 +251,7 @@ bool VoiceManagerTester::runMasterGainTest(VoiceManager& voiceManager) {
         memset(leftBuffer, 0, blockSize * sizeof(float));
         memset(rightBuffer, 0, blockSize * sizeof(float));
         
-        if (voiceManager.processBlock(leftBuffer, rightBuffer, blockSize)) {
+        if (voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize)) {
             float peakL = 0.0f;
             for (int i = 0; i < blockSize; ++i) {
                 peakL = std::max(peakL, std::abs(leftBuffer[i]));
@@ -317,7 +317,7 @@ bool VoiceManagerTester::runSingleNoteTestWithGain(VoiceManager& voiceManager) {
         memset(leftBuffer, 0, blockSize * sizeof(float));
         memset(rightBuffer, 0, blockSize * sizeof(float));
         
-        bool hasAudio = voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+        bool hasAudio = voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
         
         if (hasAudio) {
             float maxL = 0.0f;
@@ -408,7 +408,7 @@ bool VoiceManagerTester::runSingleNoteTest(VoiceManager& voiceManager) {
         float* leftBuffer = new float[blockSize];
         float* rightBuffer = new float[blockSize];
         
-        bool hasAudio = voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+        bool hasAudio = voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
         
         if (hasAudio) {
             float maxL = 0.0f, maxR = 0.0f;
@@ -465,7 +465,7 @@ bool VoiceManagerTester::runPolyphonyTest(VoiceManager& voiceManager) {
         float* leftBuffer = new float[blockSize];
         float* rightBuffer = new float[blockSize];
         
-        if (voiceManager.processBlock(leftBuffer, rightBuffer, blockSize)) {
+        if (voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize)) {
             float maxL = 0.0f, maxR = 0.0f;
             for (int i = 0; i < blockSize; ++i) {
                 maxL = std::max(maxL, std::abs(leftBuffer[i]));
@@ -554,7 +554,7 @@ bool VoiceManagerTester::exportTestSample(VoiceManager& voiceManager) {
             // Capture several blocks
             const int numBlocks = 20;
             for (int block = 0; block < numBlocks; ++block) {
-                if (voiceManager.processBlock(leftBuffer, rightBuffer, blockSize)) {
+                if (voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize)) {
                     // Interleave for export
                     for (int i = 0; i < blockSize; ++i) {
                         exportBuffer[i * 2] = leftBuffer[i];
@@ -603,7 +603,7 @@ void VoiceManagerTester::simulateNoteSequence(VoiceManager& voiceManager, uint8_
                                              uint8_t velocity, int durationMs) {
     voiceManager.setNoteState(midiNote, true, velocity);
     
-    // Simulace času pomocí processBlock volání
+    // Simulace času pomocí processBlockUninterleaved volání
     const int blockSize = 512;
     const int blocksPerSecond = sampleRate_ / blockSize;
     const int totalBlocks = (durationMs * blocksPerSecond) / 1000;
@@ -612,7 +612,7 @@ void VoiceManagerTester::simulateNoteSequence(VoiceManager& voiceManager, uint8_
     float* rightBuffer = new float[blockSize];
     
     for (int i = 0; i < totalBlocks; ++i) {
-        voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+        voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
     }
     
     voiceManager.setNoteState(midiNote, false, 0);

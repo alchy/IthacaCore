@@ -92,7 +92,7 @@ bool PolyphonyTest::testBasicChord(VoiceManager& voiceManager) {
     memset(leftBuffer, 0, blockSize * sizeof(float));
     memset(rightBuffer, 0, blockSize * sizeof(float));
     
-    if (voiceManager.processBlock(leftBuffer, rightBuffer, blockSize)) {
+    if (voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize)) {
         AudioStats s = analyzeAudioBuffer(leftBuffer, blockSize, 1);
         
         logger_.log("PolyphonyTest/testBasicChord", "info", 
@@ -160,7 +160,7 @@ bool PolyphonyTest::testNoteProgression(VoiceManager& voiceManager) {
         memset(leftBuffer, 0, blockSize * sizeof(float));
         memset(rightBuffer, 0, blockSize * sizeof(float));
         
-        if (voiceManager.processBlock(leftBuffer, rightBuffer, blockSize)) {
+        if (voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize)) {
             AudioStats s = analyzeAudioBuffer(leftBuffer, blockSize, 1);
             int currentActive = voiceManager.getActiveVoicesCount();
             
@@ -241,7 +241,7 @@ bool PolyphonyTest::testPolyphonyStress(VoiceManager& voiceManager) {
         memset(leftBuffer, 0, blockSize * sizeof(float));
         memset(rightBuffer, 0, blockSize * sizeof(float));
         
-        if (voiceManager.processBlock(leftBuffer, rightBuffer, blockSize)) {
+        if (voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize)) {
             AudioStats s = analyzeAudioBuffer(leftBuffer, blockSize, 1);
             maxPeakObserved = std::max(maxPeakObserved, s.peakLevel);
             
@@ -337,7 +337,7 @@ bool PolyphonyTest::testVoiceManagement(VoiceManager& voiceManager) {
     float* rightBuffer = createDummyAudioBuffer(blockSize, 1);
     
     for (int i = 0; i < 5; ++i) {
-        voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+        voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
     }
     
     // Check final statistics

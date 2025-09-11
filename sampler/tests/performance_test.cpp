@@ -66,7 +66,7 @@ bool PerformanceTest::testBasicThroughput(VoiceManager& voiceManager) {
     // Process many blocks
     int audioBlocks = 0;
     for (int i = 0; i < iterations; ++i) {
-        if (voiceManager.processBlock(leftBuffer, rightBuffer, blockSize)) {
+        if (voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize)) {
             audioBlocks++;
         }
     }
@@ -132,7 +132,7 @@ bool PerformanceTest::testPolyphonicPerformance(VoiceManager& voiceManager) {
         // Process blocks
         int audioBlocks = 0;
         for (int i = 0; i < iterationsPerTest; ++i) {
-            if (voiceManager.processBlock(leftBuffer, rightBuffer, blockSize)) {
+            if (voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize)) {
                 audioBlocks++;
             }
         }
@@ -158,7 +158,7 @@ bool PerformanceTest::testPolyphonicPerformance(VoiceManager& voiceManager) {
         
         // Process a few blocks for cleanup
         for (int i = 0; i < 5; ++i) {
-            voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+            voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
         }
     }
     
@@ -247,7 +247,7 @@ bool PerformanceTest::testRealtimeStability(VoiceManager& voiceManager) {
     for (int block = 0; block < testDurationBlocks; ++block) {
         auto blockStart = clk::now();
         
-        voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+        voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
         
         auto blockEnd = clk::now();
         auto blockTimeUs = std::chrono::duration_cast<std::chrono::microseconds>(blockEnd - blockStart).count();

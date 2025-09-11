@@ -72,7 +72,7 @@ TestResult SingleNoteTest::runTest(VoiceManager& voiceManager) {
             memset(leftBuffer, 0, blockSize * sizeof(float));
             memset(rightBuffer, 0, blockSize * sizeof(float));
             
-            bool hasAudio = voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+            bool hasAudio = voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
             AudioStats s = analyzeAudioBuffer(leftBuffer, blockSize, 1);
             
             if (hasAudio && s.peakLevel > 0.0001f) {
@@ -114,7 +114,7 @@ TestResult SingleNoteTest::runTest(VoiceManager& voiceManager) {
             memset(leftBuffer, 0, blockSize * sizeof(float));
             memset(rightBuffer, 0, blockSize * sizeof(float));
             
-            bool hasAudio = voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+            bool hasAudio = voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
             AudioStats s = analyzeAudioBuffer(leftBuffer, blockSize, 1);
             
             logger_.log("SingleNoteTest/runTest", "info", 
@@ -129,7 +129,7 @@ TestResult SingleNoteTest::runTest(VoiceManager& voiceManager) {
                 voiceManager.setNoteState(testMidi, true, testVelocity);
                 memset(leftBuffer, 0, blockSize * sizeof(float));
                 memset(rightBuffer, 0, blockSize * sizeof(float));
-                voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+                voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
                 
                 for (int i = 0; i < blockSize; ++i) {
                     exportBuffer[i * 2] = leftBuffer[i];
@@ -201,7 +201,7 @@ bool SingleNoteTest::testVelocityResponse(VoiceManager& voiceManager, uint8_t te
         memset(leftBuffer, 0, blockSize * sizeof(float));
         memset(rightBuffer, 0, blockSize * sizeof(float));
         
-        if (voiceManager.processBlock(leftBuffer, rightBuffer, blockSize)) {
+        if (voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize)) {
             AudioStats s = analyzeAudioBuffer(leftBuffer, blockSize, 1);
             peakLevels.push_back(s.peakLevel);
             
@@ -218,7 +218,7 @@ bool SingleNoteTest::testVelocityResponse(VoiceManager& voiceManager, uint8_t te
         
         // Process a few blocks for cleanup
         for (int i = 0; i < 2; ++i) {
-            voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+            voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
         }
     }
     
@@ -277,7 +277,7 @@ bool SingleNoteTest::testVoiceStateTransitions(VoiceManager& voiceManager, uint8
     float* rightBuffer = createDummyAudioBuffer(blockSize, 1);
     
     for (int i = 0; i < 5; ++i) {
-        voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+        voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
         VoiceState currentState = voice.getState();
         logger_.log("SingleNoteTest/testVoiceStateTransitions", "info", 
                    "State after processing block " + std::to_string(i) + ": " + 

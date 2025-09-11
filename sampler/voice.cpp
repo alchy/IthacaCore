@@ -251,23 +251,19 @@ bool Voice::getCurrentAudioData(AudioData& data) const noexcept {
     return true;
 }
 
-/**
- * @brief RT-SAFE HLAVNÍ METODA: Zpracuje audio blok s OPRAVENOU centralizovanou aplikací gain.
- * 
- * KOMPLETNĚ REFAKTOROVÁNO PRO KOMPLETNÍ GAIN CHAIN:
- * - Volá calculateBlockGains() pro výpočet envelope
- * - Aplikuje envelope_gain_ * velocity_gain_ * master_gain_ v jednom centralizovaném loopu
- * - Řídí voice state transitions na základě výsledků gain calculation
- * - Provádí mixdown sčítání do sdílených output bufferů
- */
-bool Voice::processBlock(float* outputLeft, float* outputRight, 
-                        int numSamples, int activeVoiceCount) noexcept {
+/*
+ * processBlock uninterleaved!
+*/
+bool Voice::processBlock(float* outputLeft, 
+                         float* outputRight, 
+                         int samplesPerBlock) noexcept {
+
     // Early exit conditions - RT optimized
     if (state_ == VoiceState::Idle || !instrument_ || sampleRate_ <= 0) {
         return false;  // Voice není aktivní
     }
     
-    if (!outputLeft || !outputRight || numSamples <= 0) {
+    if (!outputLeft || !outputRight || samplesPerBlock <= 0) {
         // RT-safe: žádné logging, jen return false
         return false;
     }
@@ -284,10 +280,7 @@ bool Voice::processBlock(float* outputLeft, float* outputRight,
     // OPTIMALIZACE: Calculate how many samples we can actually process
     // Eliminuje per-sample boundary checking
     const sf_count_t samplesUntilEnd = maxFrames - position_;
-    const int samplesToProcess = static_cast<int>(std::min(
-        static_cast<sf_count_t>(numSamples), 
-        samplesUntilEnd
-    ));
+    const int samplesToProcess = static_cast<int>(std::min(static_cast<sf_count_t>(samplesPerBlock), samplesUntilEnd));
     
     // Use pre-allocated buffer, ensure it's large enough
     if (gainBuffer_.size() < static_cast<size_t>(samplesToProcess)) {
@@ -302,25 +295,20 @@ bool Voice::processBlock(float* outputLeft, float* outputRight,
         return false;
     }
     
-    // Dynamic gain scaling to prevent clipping with multiple voices
-    const float voiceScaling = (activeVoiceCount > 1) ? 
-        1.0f / std::sqrt(static_cast<float>(activeVoiceCount)) : 1.0f;
-    
-    // KRITICKÁ OPRAVA: KOMPLETNÍ GAIN CHAIN - envelope * velocity * master * voiceScaling
+    // GAIN CHAIN - envelope * velocity (midi velocity gin) * master-gain
     const sf_count_t startIndex = position_ * 2;
     const float* srcPtr = stereoBuffer + startIndex;
     
-    // Kombinuj všechny gain komponenty mimo envelope (který je per-sample)
-    const float baseGain = velocity_gain_ * master_gain_ * voiceScaling;
+    // Kombinuj gain komponenty mimo envelope (který je per-sample)
+    const float baseGain = velocity_gain_ * master_gain_;
     
     for (int i = 0; i < samplesToProcess; ++i) {
         
         // srcIndex pro 2 kanal
         const int srcIndex = i * 2;
         
-        // Kompletní gain chain: envelope (per-sample) * velocity * master * voiceScaling
-        const float envelopeGain = 1.0; // xxx gainBuffer_.data()[i];
-        const float finalGain = envelopeGain * velocity_gain_ * master_gain_ * voiceScaling;
+        // Kompletní gain chain: baseGain * envelope (který je per-sample)
+        const float finalGain = baseGain * gainBuffer_.data()[i];
         
         // Mixdown: Add to shared output buffers (multiple voices sum together)
         outputLeft[i] += srcPtr[srcIndex]; // xxx * finalGain;
@@ -337,58 +325,6 @@ bool Voice::processBlock(float* outputLeft, float* outputRight,
     }
     
     return state_ != VoiceState::Idle;
-}
-
-/**
- * @brief RT-SAFE: Alternativní processBlock s AudioData strukturou.
- * DEPRECATED: Používá se pouze pro zpětnou kompatibilitu.
- * Pro optimální výkon použijte processBlock s float pointers.
- */
-bool Voice::processBlock(AudioData* outputBuffer, int numSamples) noexcept {
-    if (!outputBuffer || numSamples <= 0) {
-        return false;
-    }
-    
-    // Allocate temporary buffers for delegation
-    float* leftBuffer = new(std::nothrow) float[numSamples];
-    float* rightBuffer = new(std::nothrow) float[numSamples];
-    
-    if (!leftBuffer || !rightBuffer) {
-        delete[] leftBuffer;
-        delete[] rightBuffer;
-        return false;
-    }
-    
-    // Initialize buffers to zero
-    memset(leftBuffer, 0, numSamples * sizeof(float));
-    memset(rightBuffer, 0, numSamples * sizeof(float));
-    
-    // Delegate to optimized version
-    bool result = processBlock(leftBuffer, rightBuffer, numSamples);
-    
-    // Copy results to AudioData structure (additive mixing)
-    for (int i = 0; i < numSamples; ++i) {
-        outputBuffer[i].left += leftBuffer[i];
-        outputBuffer[i].right += rightBuffer[i];
-    }
-    
-    delete[] leftBuffer;
-    delete[] rightBuffer;
-    
-    return result;
-}
-
-// ===== PRIVATE RT-SAFE METODY =====
-
-/**
- * @brief RT-SAFE: Výpočet releaseSamples na základě sampleRate_ (500 ms release).
- */
-void Voice::calculateReleaseSamples() noexcept {
-    if (sampleRate_ > 0) {
-        releaseSamples_ = static_cast<sf_count_t>(0.5 * sampleRate_);  // 500 ms = 0.5 s
-    } else {
-        releaseSamples_ = 0;
-    }
 }
 
 /**

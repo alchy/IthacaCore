@@ -57,7 +57,7 @@ TestResult EnvelopeTest::runTest(VoiceManager& voiceManager) {
             memset(leftBuffer, 0, blockSize * sizeof(float));
             memset(rightBuffer, 0, blockSize * sizeof(float));
             
-            bool hasAudio = voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+            bool hasAudio = voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
             AudioStats s = analyzeAudioBuffer(leftBuffer, blockSize, 1);
             
             // Collect envelope data
@@ -119,7 +119,7 @@ TestResult EnvelopeTest::runTest(VoiceManager& voiceManager) {
             voiceManager.setNoteState(testMidi, true, testVelocity);
             memset(leftBuffer, 0, blockSize * sizeof(float));
             memset(rightBuffer, 0, blockSize * sizeof(float));
-            voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+            voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
             
             for (int i = 0; i < blockSize; ++i) {
                 exportBuffer[i * 2] = leftBuffer[i];

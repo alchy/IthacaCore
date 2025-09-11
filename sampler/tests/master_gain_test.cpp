@@ -47,7 +47,7 @@ TestResult MasterGainTest::runTest(VoiceManager& voiceManager) {
             memset(leftBuffer, 0, blockSize * sizeof(float));
             memset(rightBuffer, 0, blockSize * sizeof(float));
 
-            if (voiceManager.processBlock(leftBuffer, rightBuffer, blockSize)) {
+            if (voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize)) {
                 AudioStats s = analyzeAudioBuffer(leftBuffer, blockSize, 1);
                 
                 // Verify that master gain was set correctly
@@ -96,7 +96,7 @@ TestResult MasterGainTest::runTest(VoiceManager& voiceManager) {
             
             // Process a few blocks for cleanup
             for (int i = 0; i < 3; ++i) {
-                voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
+                voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
             }
         }
 

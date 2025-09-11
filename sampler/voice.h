@@ -35,15 +35,7 @@ enum class VoiceState {
  * @class Voice
  * @brief Jedna hlasová jednotka pro přehrávání sample s obálkou a stavy.
  * 
- * REFAKTOROVÁNO PRO OPRAVENOU APLIKACI GAIN:
- * - OPRAVENÁ gain architektura: envelope_gain_ + velocity_gain_ + master_gain_
- * - Velocity nyní SPRÁVNĚ ovlivňuje hlasitost (velocity 0-127 → gain 0.0-1.0)
- * - Pre-alokovaný buffer pro RT-safe gain calculations
- * - Centralizovaná aplikace gain v processBlock
- * - JUCE framework kompatibilita s prepareToPlay pattern
- * - Mixdown aditivní operací pro polyfonii
- * - RT-safe logging s compile-time/runtime flags
- * 
+
  * Logger se předává jako reference pouze do non-RT metod.
  * ProcessBlock je 100% RT-safe bez loggingu a alokací.
  */
@@ -132,28 +124,16 @@ public:
      * 
      * OPRAVENO PRO KOMPLETNÍ GAIN CHAIN:
      * - Volá calculateBlockGains() pro výpočet envelope
-     * - Aplikuje envelope_gain_ * velocity_gain_ * master_gain_ v jednom centralizovaném loopu
+     * - Aplikuje envelope_gain_ * velocity_gain_ 
      * - Řídí voice state transitions na základě výsledků gain calculation
      * - Provádí mixdown sčítání do sdílených output bufferů
-     * - Dynamic voice scaling pro prevenci clippingu
      * 
      * @param outputLeft Pointer na levý kanál výstupního bufferu (sdílený, používá +=).
      * @param outputRight Pointer na pravý kanál výstupního bufferu (sdílený, používá +=).
      * @param numSamples Počet samples k zpracování.
-     * @param activeVoiceCount Pro dynamic gain scaling (prevence clipping).
      * @return True, pokud voice je stále aktivní.
      */
-    bool processBlock(float* outputLeft, float* outputRight, 
-                     int numSamples, int activeVoiceCount = 1) noexcept;
-
-    /**
-     * @brief RT-SAFE: Zpracuje audio blok s AudioData strukturou.
-     * Alternativní interface pro compatibility.
-     * @param outputBuffer Pointer na pole AudioData struktur.
-     * @param numSamples Počet samples k zpracování.
-     * @return True, pokud voice je stále aktivní.
-     */
-    bool processBlock(AudioData* outputBuffer, int numSamples) noexcept;
+    bool processBlock(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept;
 
     // RT-SAFE Gettery (bez loggeru - jen čtení hodnot)
     uint8_t getMidiNote() const noexcept { return midiNote_; }

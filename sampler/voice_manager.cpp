@@ -216,31 +216,51 @@ void VoiceManager::setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) n
 }
 
 /**
- * @brief KRITICKÁ ÚPRAVA: processBlock s předáváním active voice count pro dynamic scaling
+ * @brief RT-SAFE: Process audio block - INTERLEAVED format
+ * Používá AudioData* pro interleaved stereo data
  */
-bool VoiceManager::processBlock(float* outputLeft, float* outputRight, int numSamples) noexcept {
-    if (!outputLeft || !outputRight || numSamples <= 0) {
+bool VoiceManager::processBlockInterleaved(AudioData* outputBuffer, int samplesPerBlock) noexcept {
+    if (!outputBuffer || samplesPerBlock <= 0) {
         return false;
     }
     
-    // Clear output buffers first
-    memset(outputLeft, 0, numSamples * sizeof(float));
-    memset(outputRight, 0, numSamples * sizeof(float));
+    // Clear output buffer first
+    for (int i = 0; i < samplesPerBlock; ++i) {
+        outputBuffer[i].left = 0.0f;
+        outputBuffer[i].right = 0.0f;
+    }
     
     if (activeVoices_.empty()) {
         return false;
     }
     
-    bool anyActive = false;
+    // Temporary uninterleaved buffers for Voice::processBlock
+    static thread_local std::vector<float> tempLeft;
+    static thread_local std::vector<float> tempRight;
     
-    // NOVÉ: Get active voice count for dynamic scaling
-    const int activeCount = static_cast<int>(activeVoices_.size());
+    // Ensure temp buffers are large enough
+    if (tempLeft.size() < static_cast<size_t>(samplesPerBlock)) {
+        tempLeft.resize(samplesPerBlock);
+        tempRight.resize(samplesPerBlock);
+    }
+    
+    bool anyActive = false;
     
     for (Voice* voice : activeVoices_) {
         if (voice && voice->isActive()) {
-            // KLÍČOVÁ ZMĚNA: Pass activeCount for dynamic gain scaling
-            if (voice->processBlock(outputLeft, outputRight, numSamples, activeCount)) {
+            // Clear temp buffers for this voice
+            std::fill(tempLeft.begin(), tempLeft.begin() + samplesPerBlock, 0.0f);
+            std::fill(tempRight.begin(), tempRight.begin() + samplesPerBlock, 0.0f);
+            
+            // Process voice to uninterleaved temp buffers
+            if (voice->processBlock(tempLeft.data(), tempRight.data(), samplesPerBlock)) {
                 anyActive = true;
+                
+                // Mix from temp buffers to interleaved output
+                for (int i = 0; i < samplesPerBlock; ++i) {
+                    outputBuffer[i].left += tempLeft[i];
+                    outputBuffer[i].right += tempRight[i];
+                }
             } else {
                 voicesToRemove_.push_back(voice);
             }
@@ -254,45 +274,6 @@ bool VoiceManager::processBlock(float* outputLeft, float* outputRight, int numSa
     }
     
     return anyActive;
-}
-
-/**
- * @brief UPRAVENÉ: AudioData processBlock variant
- */
-bool VoiceManager::processBlock(AudioData* outputBuffer, int numSamples) noexcept {
-    if (!outputBuffer || numSamples <= 0) {
-        return false;
-    }
-    
-    // KRITICKÉ: Clear output buffer first
-    for (int i = 0; i < numSamples; ++i) {                          // vynyluje cely audio buffer podle nastavene velikosti
-        outputBuffer[i].left = 0.0f;                                // nuluje levy kanal
-        outputBuffer[i].right = 0.0f;                               // nuluje pravy kanal
-    }
-    
-    if (activeVoices_.empty()) {                                    // nejsou aktivni voicy
-        return false;                                               // nic nezpracovavame a vracime se
-    }
-    
-    bool anyActive = false;                                         // vynulujeme anyActive - pokud nektery voice bude aktivni, prepismev loop cyklu anyActive na true 
-    
-    for (Voice* voice : activeVoices_) {                            // projdi vsechny  voices
-        if (voice && voice->isActive()) {                           // voice je aktivni, pozadame instanci voice o blok audio dat
-            if (voice->processBlock(outputBuffer, numSamples)) {    // voice vratil data (stale hraje):
-                anyActive = true;                                   //                    prepiseme anyActive na true
-            } else {                                                // voice nevratil data:
-                voicesToRemove_.push_back(voice);                   //                    pridame jej na seznam hlasu k odebrani
-            }
-        } else {
-            voicesToRemove_.push_back(voice);                       // pridama jej na seznam hlasu k odebrani
-        }
-    }
-    
-    if (!voicesToRemove_.empty()) {                                 // pokud seznamhlasu k odebrani neni prazdny
-        cleanupInactiveVoices();                                    // volame vycisteni neaktivnich hlasu
-    }
-    
-    return anyActive;                                               // vratime stav - existuji nebo neexistuji aktivni hlasy
 }
 
 void VoiceManager::stopAllVoices() noexcept {

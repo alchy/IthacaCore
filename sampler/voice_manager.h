@@ -76,7 +76,7 @@ public:
     
     
     // ===== CORE AUDIO API =====
-    
+
     /**
      * @brief Nastavení stavu MIDI noty (note-on/note-off)
      * @param midiNote MIDI nota (0-127)
@@ -86,21 +86,21 @@ public:
     void setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) noexcept;
     
     /**
-     * @brief HLAVNÍ RT-SAFE METODA: Zpracuje audio blok s dynamic voice scaling
-     * @param outputLeft Pointer na levý kanál výstupního bufferu
-     * @param outputRight Pointer na pravý kanál výstupního bufferu
-     * @param numSamples Počet samples k zpracování
-     * @return true pokud je nějaký audio výstup
+     * @brief Nastavení stavu MIDI noty (note-on/note-off)
+     * @param midiNote MIDI nota (0-127)
+     * @param isOn true = note-on, false = note-off
+     * @param velocity MIDI velocity (0-127), nyní správně ovlivňuje hlasitost
      */
-    bool processBlock(float* outputLeft, float* outputRight, int numSamples) noexcept;
+    bool processBlockInterleaved(AudioData* outputBuffer, int samplesPerBlock) noexcept;
     
     /**
-     * @brief Alternativní processBlock s AudioData strukturou
-     * @param outputBuffer Pointer na pole AudioData struktur
-     * @param numSamples Počet samples k zpracování
-     * @return true pokud je nějaký audio výstup
+     * @brief RT-SAFE: Process audio block - UNINTERLEAVED format (JUCE style)
+     * @param outputLeft Left channel buffer (float array)
+     * @param outputRight Right channel buffer (float array) 
+     * @param samplesPerBlock Number of samples to process
+     * @return true if any voices are still active
      */
-    bool processBlock(AudioData* outputBuffer, int numSamples) noexcept;
+    bool processBlockUninterleaved(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept;
     
     /**
      * @brief Zastaví všechny aktivní voices (send note-off)
