@@ -317,11 +317,6 @@ bool PerformanceTest::analyzePerformanceScaling(const std::vector<PerformanceMet
         return false;
     }
     
-bool PerformanceTest::analyzePerformanceScaling(const std::vector<PerformanceMetrics>& metrics) {
-    if (metrics.size() < 2) {
-        return false;
-    }
-    
     logger_.log("PerformanceTest/analyzePerformanceScaling", "info", "Analyzing performance scaling:");
     
     bool scalingOk = true;

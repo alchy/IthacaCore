@@ -8,14 +8,6 @@
 #include <iostream>
 #include <filesystem>
 
-// Dočasné definice pro VoiceState enum dokud není definován jinde
-enum class VoiceState {
-    Idle = 0,
-    Attacking,
-    Sustaining,
-    Releasing,
-    Finished
-};
 
 // TestBase implementace
 TestBase::TestBase(const std::string& name, Logger& logger, const TestConfig& config)

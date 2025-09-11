@@ -2,7 +2,7 @@
 #define SAMPLER_H
 
 // Globální flag pro testovací modul - definován vždy
-#define ENABLE_TESTS
+#define ENABLE_TESTS 1
 
 #include <cstdint>
 #include <cstddef>
@@ -13,7 +13,9 @@
 #include "core_logger.h"
 
 // Configuration constants pro VoiceManager
-#define DEFAULT_SAMPLE_DIR R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)"
+//#define DEFAULT_SAMPLE_DIR R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)"
+#define DEFAULT_SAMPLE_DIR R"(C:\Users\nemej992\AppData\Roaming\IthacaPlayer\instrument)"
+
 
 #define DEFAULT_SAMPLE_RATE 44100
 #define ALTERNATIVE_SAMPLE_RATE 48000
