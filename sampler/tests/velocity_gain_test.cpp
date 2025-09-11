@@ -23,7 +23,7 @@ TestResult VelocityGainTest::runTest(VoiceManager& voiceManager) {
     TestResult result;
     result.testName = getTestName();
     try {
-        logProgress("Starting velocity gain test");
+        logProgress("Starting velocity gain test with real VoiceManager API");
         uint8_t testMidi = findValidTestMidiNote(voiceManager, 60);
         std::vector<uint8_t> testVelocities = {1, 32, 64, 96, 127};
         bool testPassed = true;
@@ -38,6 +38,7 @@ TestResult VelocityGainTest::runTest(VoiceManager& voiceManager) {
                         "Testing velocity " + std::to_string(velocity) + 
                         " for MIDI " + std::to_string(testMidi));
 
+            // Use real VoiceManager API
             voiceManager.setNoteState(testMidi, true, velocity);
             Voice& voice = voiceManager.getVoice(testMidi);
 
@@ -46,14 +47,20 @@ TestResult VelocityGainTest::runTest(VoiceManager& voiceManager) {
 
             if (voiceManager.processBlock(leftBuffer, rightBuffer, blockSize)) {
                 AudioStats s = analyzeAudioBuffer(leftBuffer, blockSize, 1);
-                float expectedGain = std::sqrt(static_cast<float>(velocity) / 127.0f) * voice.getMasterGain();
-                bool gainOk = std::abs(expectedGain - voice.getVelocityGain()) <= 0.01f;
+                
+                // Calculate expected gain using the same formula as Voice::updateVelocityGain
+                float expectedVelocityGain = std::sqrt(static_cast<float>(velocity) / 127.0f);
+                float actualVelocityGain = voice.getVelocityGain();
+                bool gainOk = std::abs(expectedVelocityGain - actualVelocityGain) <= 0.01f;
 
                 logger_.log("VelocityGainTest/runTest", "info", 
                             "Velocity " + std::to_string(velocity) + 
                             " - Peak L: " + std::to_string(s.peakLevel) + 
                             ", RMS L: " + std::to_string(s.rmsLevel) +
-                            ", Voice Final Gain: " + std::to_string(voice.getFinalGain()));
+                            ", Expected velocity gain: " + std::to_string(expectedVelocityGain) +
+                            ", Actual velocity gain: " + std::to_string(actualVelocityGain) +
+                            ", Master gain: " + std::to_string(voice.getMasterGain()) +
+                            ", Final gain: " + std::to_string(voice.getFinalGain()));
 
                 if (shouldExportAudio() && exportBuffer) {
                     for (int i = 0; i < blockSize; ++i) {
@@ -68,7 +75,9 @@ TestResult VelocityGainTest::runTest(VoiceManager& voiceManager) {
                 if (!gainOk) {
                     testPassed = false;
                     logger_.log("VelocityGainTest/runTest", "error", 
-                                "Velocity gain verification failed for velocity " + std::to_string(velocity));
+                                "Velocity gain verification failed for velocity " + std::to_string(velocity) +
+                                " - expected: " + std::to_string(expectedVelocityGain) +
+                                ", actual: " + std::to_string(actualVelocityGain));
                 }
             } else {
                 testPassed = false;
@@ -77,6 +86,8 @@ TestResult VelocityGainTest::runTest(VoiceManager& voiceManager) {
             }
 
             voiceManager.setNoteState(testMidi, false, 0);
+            
+            // Process a few more blocks to allow release phase
             for (int i = 0; i < 3; ++i) {
                 voiceManager.processBlock(leftBuffer, rightBuffer, blockSize);
             }
@@ -87,8 +98,9 @@ TestResult VelocityGainTest::runTest(VoiceManager& voiceManager) {
         if (exportBuffer) destroyDummyAudioBuffer(exportBuffer);
 
         result.passed = testPassed;
-        result.details = "Velocity gain test completed";
+        result.details = "Tested velocities: 1, 32, 64, 96, 127 with gain verification";
         logTestResult("velocity_gain_test", result.passed, result.details);
+        
     } catch (const std::exception& e) {
         result.passed = false;
         result.errorMessage = e.what();

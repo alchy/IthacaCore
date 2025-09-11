@@ -6,8 +6,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Informace o projektu
-set(PROJECT_VERSION "1.0.0")
-set(PROJECT_DESCRIPTION "IthacaCore Audio Sampler - Professional Sample Engine")
+set(PROJECT_VERSION "1.1.0")
+set(PROJECT_DESCRIPTION "IthacaCore Audio Sampler - Professional Sample Engine with Hybrid Testing")
 
 # Build konfigurace
 if(NOT CMAKE_BUILD_TYPE)
@@ -44,7 +44,7 @@ add_executable(IthacaCore
     sampler/wav_file_exporter.cpp
     sampler/wav_file_exporter.h
 
-    # Voice module (nové)
+    # Voice module
     sampler/voice.cpp
     sampler/voice.h
     
@@ -52,19 +52,43 @@ add_executable(IthacaCore
     sampler/voice_manager.cpp
     sampler/voice_manager.h
 
-    # VoiceManager pro test
-    sampler/tests/voice_manager_tests.cpp
-    sampler/tests/voice_manager_tests.h
-
     # Envelopes (ADSR/ASR)
     sampler/envelopes/envelope.cpp
     sampler/envelopes/envelope.h
+    
+    # === LEGACY TESTS (zachováno pro kritické testy) ===
+    sampler/tests/original-working-tests/voice_manager_tests.cpp
+    sampler/tests/original-working-tests/voice_manager_tests.h
+    
+    # === NOVÝ TEST FRAMEWORK ===
+    # Base framework
+    sampler/tests/test_base.cpp
+    sampler/tests/test_base.h
+    sampler/tests/test_registry.cpp
+    sampler/tests/test_registry.h
+    
+    # Specific tests
+    sampler/tests/velocity_gain_test.cpp
+    sampler/tests/velocity_gain_test.h
+    sampler/tests/master_gain_test.cpp
+    sampler/tests/master_gain_test.h
+    sampler/tests/envelope_test.cpp
+    sampler/tests/envelope_test.h
+    sampler/tests/single_note_test.cpp
+    sampler/tests/single_note_test.h
+    sampler/tests/polyphony_test.cpp
+    sampler/tests/polyphony_test.h
+    sampler/tests/edge_case_test.cpp
+    sampler/tests/edge_case_test.h
+    sampler/tests/performance_test.cpp
+    sampler/tests/performance_test.h
 )
 
 # Include directories pro kompilaci a IntelliSense
 target_include_directories(IthacaCore PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}          # Kořenový adresář projektu
     ${CMAKE_CURRENT_SOURCE_DIR}/sampler  # Sampler moduly
+    ${CMAKE_CURRENT_SOURCE_DIR}/sampler/tests  # Nový test framework
 )
 
 # Linkování externích knihoven
@@ -78,6 +102,7 @@ if(MSVC)
     target_compile_definitions(IthacaCore PRIVATE 
         _CRT_SECURE_NO_WARNINGS  # Odstranění MSVC warnings pro bezpečné funkce
         WIN32_LEAN_AND_MEAN      # Rychlejší kompilace na Windows
+        ENABLE_TESTS             # Povolení hybridního test systému
     )
     
     # Optimalizace pro Debug/Release
@@ -87,6 +112,9 @@ if(MSVC)
     )
 else()
     # GCC/Clang flagy
+    target_compile_definitions(IthacaCore PRIVATE 
+        ENABLE_TESTS             # Povolení hybridního test systému
+    )
     target_compile_options(IthacaCore PRIVATE
         -Wall -Wextra -pedantic              # Všechna varování
         $<$<CONFIG:Debug>:-g -O0>            # Debug: debug info, žádná optimalizace  
@@ -95,22 +123,26 @@ else()
 endif()
 
 # Výstupní informace
-message(STATUS "=== IthacaCore Build Configuration ===")
+message(STATUS "=== IthacaCore Hybrid Test Build Configuration ===")
 message(STATUS "Project: ${PROJECT_NAME} v${PROJECT_VERSION}")
 message(STATUS "Description: ${PROJECT_DESCRIPTION}")
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "C++ Standard: C++${CMAKE_CXX_STANDARD}")
 message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID}")
 message(STATUS "Output directory: ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
-message(STATUS "=======================================")
+message(STATUS "Testing: HYBRID (Legacy + New Framework)")
+message(STATUS "Export capability: ENABLED")
+message(STATUS "==================================================")
 
 # Post-build informace
 add_custom_command(TARGET IthacaCore POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E echo "=== IthacaCore Build Completed ==="
+    COMMAND ${CMAKE_COMMAND} -E echo "=== IthacaCore Hybrid Build Completed ==="
     COMMAND ${CMAKE_COMMAND} -E echo "Executable: $<TARGET_FILE:IthacaCore>"
     COMMAND ${CMAKE_COMMAND} -E echo "Ready to run: ./$<TARGET_FILE_NAME:IthacaCore>"
     COMMAND ${CMAKE_COMMAND} -E echo "Log output: ./core_logger/core_logger.log"
-    COMMAND ${CMAKE_COMMAND} -E echo "====================================="
+    COMMAND ${CMAKE_COMMAND} -E echo "Test exports: ./exports/tests/"
+    COMMAND ${CMAKE_COMMAND} -E echo "Testing: Legacy critical tests + New framework"
+    COMMAND ${CMAKE_COMMAND} -E echo "==========================================="
 )
 
 # Instalace (volitelné)
@@ -127,7 +159,7 @@ if(WIN32)
     )
 endif()
 
-# Development targets pro snadnější práci
+# === ENHANCED DEVELOPMENT TARGETS ===
 
 # Target pro vyčištění log souborů
 add_custom_target(clean-logs
@@ -135,13 +167,27 @@ add_custom_target(clean-logs
     COMMENT "Cleaning log files and directories"
 )
 
+# Target pro vyčištění test exportů
+add_custom_target(clean-exports
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_CURRENT_SOURCE_DIR}/exports
+    COMMENT "Cleaning test export files"
+)
+
+# Target pro kompletní vyčištění
+add_custom_target(clean-all
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_CURRENT_SOURCE_DIR}/core_logger
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_CURRENT_SOURCE_DIR}/exports
+    COMMENT "Cleaning all logs and exports"
+)
+
 # Target pro spuštění s čistými logy
 add_custom_target(run-clean
     COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_CURRENT_SOURCE_DIR}/core_logger
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_CURRENT_SOURCE_DIR}/exports
     COMMAND $<TARGET_FILE:IthacaCore>
     DEPENDS IthacaCore
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    COMMENT "Running IthacaCore with clean logs"
+    COMMENT "Running IthacaCore with clean logs and exports"
 )
 
 # Target pro zobrazení logu
@@ -150,23 +196,37 @@ if(WIN32)
         COMMAND type ${CMAKE_CURRENT_SOURCE_DIR}/core_logger/core_logger.log
         COMMENT "Displaying current log file"
     )
+    
+    add_custom_target(show-test-results
+        COMMAND echo "=== Test Export Files ===" && dir ${CMAKE_CURRENT_SOURCE_DIR}/exports/tests/
+        COMMENT "Showing test export files"
+    )
 else()
     add_custom_target(show-log
         COMMAND cat ${CMAKE_CURRENT_SOURCE_DIR}/core_logger/core_logger.log
         COMMENT "Displaying current log file"
     )
+    
+    add_custom_target(show-test-results
+        COMMAND echo "=== Test Export Files ===" && ls -la ${CMAKE_CURRENT_SOURCE_DIR}/exports/tests/
+        COMMENT "Showing test export files"
+    )
 endif()
 
 # Debug informace pro vývojáře
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    message(STATUS "=== Debug Build Information ===")
+    message(STATUS "=== Hybrid Test Build Information ===")
     message(STATUS "Enable detailed logging: YES")
     message(STATUS "Runtime checks: ENABLED")
     message(STATUS "Optimization: DISABLED")
+    message(STATUS "Testing framework: HYBRID")
     message(STATUS "Available targets:")
     message(STATUS "  - IthacaCore: Build main executable")
     message(STATUS "  - clean-logs: Remove all log files")
+    message(STATUS "  - clean-exports: Remove test exports")
+    message(STATUS "  - clean-all: Remove logs and exports")
     message(STATUS "  - run-clean: Run with fresh logs")
     message(STATUS "  - show-log: Display current log")
-    message(STATUS "===============================")
+    message(STATUS "  - show-test-results: Display test exports")
+    message(STATUS "=====================================")
 endif()

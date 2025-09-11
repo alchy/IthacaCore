@@ -6,22 +6,19 @@
 #include <chrono>
 #include <cstdint>
 
-/**
- * @file test_base.h
- * @brief Základní třída a pomocné typy pro testy (TestBase, TestResult, TestConfig).
- */
+// Forward declarations
+class Logger;
+class VoiceManager;
+class Voice;
 
-class Logger;      // forward declaration (project provides real implementation)
-class VoiceManager; // forward declaration (project provides real implementation)
-
+// Přidané chybějící definice struktur
 struct TestConfig {
-    std::string exportDir = "./exports";
+    std::string exportDir = "./exports/tests";
     int exportBlockSize = 512;
-    bool exportAudio = false;
-    bool verboseLogging = false;
+    bool exportAudio = true;
+    bool verboseLogging = true;
     int defaultTestVelocity = 100;
-    std::vector<float> testMasterGains = {0.0f, 0.5f, 1.0f};
-    TestConfig() = default;
+    std::vector<float> testMasterGains = {0.1f, 0.3f, 0.5f, 0.8f, 1.0f};
 };
 
 struct TestResult {
@@ -36,6 +33,24 @@ struct AudioStats {
     float rmsLevel = 0.0f;
 };
 
+// Chybějící definice pro MasterGainTest
+struct MasterGainTestData {
+    float masterGain = 0.0f;
+    float measuredLevel = 0.0f;
+    bool passed = false;
+};
+
+// Chybějící definice pro PerformanceTest
+struct PerformanceMetrics {
+    size_t voiceCount = 0;
+    double avgBlockTimeUs = 0.0;
+    double audioBlocksRatio = 0.0;
+};
+
+/**
+ * @class TestBase
+ * @brief Základní třída pro všechny testy s reálnou Logger a VoiceManager integrací
+ */
 class TestBase {
 public:
     TestBase(const std::string& name, Logger& logger, const TestConfig& config = TestConfig{});
@@ -55,10 +70,19 @@ protected:
     static float* createDummyAudioBuffer(int blockSize, int channels = 1);
     static void destroyDummyAudioBuffer(float* buffer);
 
-    // Writes simple 16-bit WAV PCM file to disk. Returns true on success.
+    /**
+     * @brief Vylepšený WAV export s automatickým vytvořením adresářů
+     */
     bool exportTestAudio(const std::string& filename, const float* buffer, int frames, int channels = 2, int sampleRate = 44100);
 
+    /**
+     * @brief Inteligentní vyhledání validní MIDI noty pro testy
+     */
     uint8_t findValidTestMidiNote(VoiceManager& vm, uint8_t fallback = 60);
+    
+    /**
+     * @brief Vyhledání více not pro polyfonní testy
+     */
     std::vector<uint8_t> findValidNotesForPolyphony(VoiceManager& vm, size_t count, uint8_t start = 48);
 
     const TestConfig& config() const { return config_; }

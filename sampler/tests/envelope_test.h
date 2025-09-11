@@ -12,6 +12,12 @@ public:
     TestResult runTest(VoiceManager& voiceManager) override;
     bool shouldExportAudio() const override;
     std::vector<std::string> getExportFileNames() const override;
+
+private:
+    // Přidané chybějící deklarace metod
+    bool analyzeAttackPhase(const std::vector<float>& envelopeGains, int attackBlocks);
+    bool analyzeSustainPhase(const std::vector<float>& envelopeGains, int attackBlocks, int sustainBlocks);
+    bool analyzeReleasePhase(const std::vector<float>& envelopeGains, int releaseStart, int releaseBlocks);
 };
 
 #endif // ENVELOPE_TEST_H
