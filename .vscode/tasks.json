@@ -2,38 +2,19 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "configure",
-            "type": "shell",
-            "command": "cmd.exe",
-            "args": [
-                "/C",
-                "\"\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat\" && cmake .. -G \"Visual Studio 17 2022\" -A x64\""
-            ],
-            "group": "build",
-            "problemMatcher": ["$msCompile"],
-            "detail": "Konfigurace projektu pomocí CMake a MSVC.",
-            "options": {
-                "cwd": "${workspaceFolder}\\build"
-            }
-        },
-        {
             "label": "build",
             "type": "shell",
             "command": "cmd.exe",
             "args": [
                 "/C",
-                "\"\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat\" && cmake --build . --config Debug\""
+                "\"\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat\" && cmake --build build --parallel 1\""
             ],
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
             "problemMatcher": ["$msCompile"],
-            "detail": "Kompilace projektu pomocí CMake a MSVC.",
-            "options": {
-                "cwd": "${workspaceFolder}\\build"
-            },
-            "dependsOn": ["configure"]
+            "detail": "Kompilace projektu pomocí CMake a MSVC. Používá složku 'build' pro CMake cache."
         }
     ]
 }
