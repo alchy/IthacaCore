@@ -242,10 +242,11 @@ bool Voice::getCurrentAudioData(AudioData& data) const noexcept {
     if (!stereoPtr) return false;
     
     // KRITICKÁ OPRAVA: Aplikuj všechny gain komponenty
-    const float finalGain = envelope_gain_ * velocity_gain_ * master_gain_;
+    // const float finalGain = envelope_gain_ * velocity_gain_ * master_gain_; // xxx  -  puvodni
+    const float finalGain = velocity_gain_ * master_gain_; 
     const sf_count_t idx = position_ * 2;
-    data.left = stereoPtr[idx]; // xxx * finalGain;
-    data.right = stereoPtr[idx + 1]; // xxx * finalGain;
+    data.left = stereoPtr[idx] * finalGain;
+    data.right = stereoPtr[idx + 1] * finalGain;
     
     return true;
 }

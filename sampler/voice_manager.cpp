@@ -265,34 +265,34 @@ bool VoiceManager::processBlock(AudioData* outputBuffer, int numSamples) noexcep
     }
     
     // KRITICKÉ: Clear output buffer first
-    for (int i = 0; i < numSamples; ++i) {
-        outputBuffer[i].left = 0.0f;
-        outputBuffer[i].right = 0.0f;
+    for (int i = 0; i < numSamples; ++i) {                          // vynyluje cely audio buffer podle nastavene velikosti
+        outputBuffer[i].left = 0.0f;                                // nuluje levy kanal
+        outputBuffer[i].right = 0.0f;                               // nuluje pravy kanal
     }
     
-    if (activeVoices_.empty()) {
-        return false;
+    if (activeVoices_.empty()) {                                    // nejsou aktivni voicy
+        return false;                                               // nic nezpracovavame a vracime se
     }
     
-    bool anyActive = false;
+    bool anyActive = false;                                         // vynulujeme anyActive - pokud nektery voice bude aktivni, prepismev loop cyklu anyActive na true 
     
-    for (Voice* voice : activeVoices_) {
-        if (voice && voice->isActive()) {
-            if (voice->processBlock(outputBuffer, numSamples)) {
-                anyActive = true;
-            } else {
-                voicesToRemove_.push_back(voice);
+    for (Voice* voice : activeVoices_) {                            // projdi vsechny  voices
+        if (voice && voice->isActive()) {                           // voice je aktivni, pozadame instanci voice o blok audio dat
+            if (voice->processBlock(outputBuffer, numSamples)) {    // voice vratil data (stale hraje):
+                anyActive = true;                                   //                    prepiseme anyActive na true
+            } else {                                                // voice nevratil data:
+                voicesToRemove_.push_back(voice);                   //                    pridame jej na seznam hlasu k odebrani
             }
         } else {
-            voicesToRemove_.push_back(voice);
+            voicesToRemove_.push_back(voice);                       // pridama jej na seznam hlasu k odebrani
         }
     }
     
-    if (!voicesToRemove_.empty()) {
-        cleanupInactiveVoices();
+    if (!voicesToRemove_.empty()) {                                 // pokud seznamhlasu k odebrani neni prazdny
+        cleanupInactiveVoices();                                    // volame vycisteni neaktivnich hlasu
     }
     
-    return anyActive;
+    return anyActive;                                               // vratime stav - existuji nebo neexistuji aktivni hlasy
 }
 
 void VoiceManager::stopAllVoices() noexcept {
