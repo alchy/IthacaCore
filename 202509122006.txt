@@ -5809,6 +5809,9 @@ void Voice::logSafe(const std::string& component, const std::string& severity,
 }
 
 
+===== File: voice.h =====
+Path: C:\Users\jindr\IthacaCore\sampler\voice.h
+=====
 #ifndef VOICE_H
 #define VOICE_H
 
@@ -7268,333 +7271,282 @@ int main(int argc, char* argv[]) {
 ===== File: README.md =====
 Path: C:\Users\jindr\IthacaCore\README.md
 =====
-# IthacaCore: C++ Sampler s Loggerem a InstrumentLoader
+# IthacaCore: C++ Audio Sampler Engine
 
 ## Popis projektu
-IthacaCore je profesionÃ¡lnÃ­ audio sampler engine napsanÃ½ v C++17. SystÃ©m je modulÃ¡rnÃ­, s podporou logovÃ¡nÃ­ (`Logger`), prohledÃ¡vÃ¡nÃ­ WAV sample souborÅ¯ (`SamplerIO`), naÄÃ­tÃ¡nÃ­ do pamÄ›ti jako stereo float buffery (`InstrumentLoader`) a koordinaci celÃ©ho workflow (`runSampler`). **NOVÃ‰: RozÅ¡Ã­Å™ena podpora pro voice management (`Voice` a `VoiceManager`) pro polyfonnÃ­ pÅ™ehrÃ¡vÃ¡nÃ­ s ADSR obÃ¡lkou a stavy (idle, attacking, sustaining, releasing).** NavrÅ¾en pro snadnou integraci do vÄ›tÅ¡Ã­ch projektÅ¯, jako jsou audio pluginy nebo standalone aplikace. PouÅ¾Ã­vÃ¡ `libsndfile` pro prÃ¡ci s WAV soubory a podporuje parsovÃ¡nÃ­ nÃ¡zvÅ¯ souborÅ¯ ve formÃ¡tu `mXXX-velY-fZZ.wav` (kde XXX je MIDI nota 0-127, Y je velocity 0-7, ZZ je zkrÃ¡cenÃ¡ frekvence s 'f' prefixem).
+IthacaCore je profesionÃ¡lnÃ­ audio sampler engine napsanÃ½ v C++17, navrÅ¾enÃ½ pro efektivnÃ­ zpracovÃ¡nÃ­ WAV souborÅ¯ a polyfonnÃ­ pÅ™ehrÃ¡vÃ¡nÃ­ s ADSR obÃ¡lkou. Projekt je modulÃ¡rnÃ­, podporuje thread-safe logovÃ¡nÃ­, naÄÃ­tÃ¡nÃ­ WAV souborÅ¯ do pamÄ›ti jako stereo float buffery a koordinaci polyfonnÃ­ho pÅ™ehrÃ¡vÃ¡nÃ­. KlÃ­ÄovÃ© moduly zahrnujÃ­ `Logger`, `SamplerIO`, `InstrumentLoader`, `Voice`, `VoiceManager`, `Envelope` a `WavExporter`. SystÃ©m je optimalizovÃ¡n pro integraci do audio pluginÅ¯ nebo standalone aplikacÃ­, s dÅ¯razem na RT-safe operace a JUCE-ready formÃ¡t.
 
 **KlÃ­ÄovÃ© vlastnosti:**
-- Thread-safe logovÃ¡nÃ­ do souboru
-- ProhledÃ¡vÃ¡nÃ­ metadat (frekvence, MIDI nota, velocity, dÃ©lka, poÄet kanÃ¡lÅ¯) z WAV souborÅ¯
-- AutomatickÃ© naÄÃ­tÃ¡nÃ­ vÅ¡ech samples do pamÄ›ti jako stereo interleaved float buffery
-- Monoâ†’Stereo konverze s duplikacÃ­ dat (L=R) pro jednotnÃ½ formÃ¡t
-- JUCE-ready buffer layout `[L1,R1,L2,R2...]` pro optimÃ¡lnÃ­ audio processing
-- Detekce audio formÃ¡tu (interleaved/non-interleaved) a potÅ™eby konverze do float
-- AnalÃ½za subformÃ¡tu (16-bit PCM, 24-bit PCM, 32-bit float, atd.)
-- Validace konzistence frekvence mezi nÃ¡zvem souboru a obsahem
-- VyhledÃ¡vÃ¡nÃ­ sample podle MIDI noty a velocity
-- PÅ™Ã­stup k metadatÅ¯m pÅ™es bezpeÄnÃ© gettery (s kontrolou indexu)
-- AutomatickÃ¡ validace stereo konzistence vÅ¡ech naÄtenÃ½ch bufferÅ¯
-- Simulace JUCE AudioBuffer pro stereo vÃ½stup bez zÃ¡vislosti na JUCE
-- **NOVÃ‰: PolyfonnÃ­ voice management s ADSR obÃ¡lkou (attack, decay, sustain, release)**
+- Thread-safe logovÃ¡nÃ­ do souboru (`core_logger/core_logger.log`).
+- ProhledÃ¡vÃ¡nÃ­ WAV souborÅ¯ ve formÃ¡tu `mXXX-velY-fZZ.wav` (XXX = MIDI nota 0-127, Y = velocity 0-7, ZZ = zkrÃ¡cenÃ¡ frekvence, napÅ™. f44 pro 44100 Hz).
+- NaÄÃ­tÃ¡nÃ­ WAV souborÅ¯ do pamÄ›ti jako stereo interleaved float buffery `[L1,R1,L2,R2...]`.
+- AutomatickÃ¡ monoâ†’stereo konverze (L=R) pro jednotnÃ½ formÃ¡t.
+- Podpora 16-bit PCM, 24-bit PCM, 32-bit PCM, 32-bit float a 64-bit double formÃ¡tÅ¯.
+- PolyfonnÃ­ pÅ™ehrÃ¡vÃ¡nÃ­ s ADSR obÃ¡lkou (attack, decay, sustain, release) a stavy hlasu (Idle, Attacking, Sustaining, Releasing).
+- RT-safe zpracovÃ¡nÃ­ obÃ¡lek s pÅ™edpoÄÃ­tanÃ½mi kÅ™ivkami pro 44100 Hz a 48000 Hz.
+- Export WAV souborÅ¯ pro testovÃ¡nÃ­ (Pcm16/float formÃ¡t).
+- Validace konzistence frekvence, formÃ¡tu a stereo dat.
+- Simulace JUCE AudioBuffer pro snadnou integraci s JUCE.
 
 ## PoÅ¾adavky
-- Visual Studio Code
-- Visual Studio 2022 Build Tools (s C++ komponentami) nebo Community Edition
-- CMake (verze 3.10+, pÅ™idejte do PATH)
-- RozÅ¡Ã­Å™enÃ­ VS Code: CMake Tools a C/C++ od Microsoftu
-- `libsndfile` (stÃ¡hne se automaticky pÅ™es `add_subdirectory` v CMakeLists.txt)
-- C++17 kompatibilnÃ­ kompilÃ¡tor (MSVC/GCC/Clang)
+- Visual Studio Code s rozÅ¡Ã­Å™enÃ­mi CMake Tools a C/C++ od Microsoftu.
+- Visual Studio 2022 Build Tools nebo Community Edition (C++ komponenty).
+- CMake 3.10+ (v PATH).
+- `libsndfile` (automaticky integrovÃ¡no pÅ™es `add_subdirectory` v `CMakeLists.txt`).
+- C++17 kompatibilnÃ­ kompilÃ¡tor (MSVC/GCC/Clang).
 
 ## Postup nastavenÃ­
-1. UloÅ¾te vÅ¡echny soubory do koÅ™enovÃ© sloÅ¾ky projektu (napÅ™. `IthacaCore`)
-2. VytvoÅ™te sloÅ¾ku `.vscode` a uloÅ¾te do nÃ­ `tasks.json`, `launch.json` a `settings.json`
-3. VytvoÅ™te sloÅ¾ku `libsndfile` a stÃ¡hnÄ›te do nÃ­ zdrojovÃ½ kÃ³d `libsndfile` (nebo pouÅ¾ijte externÃ­ build)
-4. OtevÅ™ete projekt v VS Code (File â†’ Open Folder)
-5. SpusÅ¥te CMake: Configure (Ctrl+Shift+P â†’ CMake: Configure). To vygeneruje build soubory v `build` sloÅ¾ce
+1. UloÅ¾te vÅ¡echny soubory do koÅ™enovÃ© sloÅ¾ky projektu (napÅ™. `IthacaCore`).
+2. VytvoÅ™te sloÅ¾ku `.vscode` a uloÅ¾te do nÃ­ `tasks.json`, `launch.json` a `settings.json`.
+3. OtevÅ™ete projekt v VS Code (File â†’ Open Folder).
+4. SpusÅ¥te CMake: Configure (Ctrl+Shift+P â†’ CMake: Configure) pro generovÃ¡nÃ­ build souborÅ¯ ve sloÅ¾ce `build`.
+5. (VolitelnÃ©) StÃ¡hnÄ›te `libsndfile` do sloÅ¾ky `libsndfile`, pokud nenÃ­ automaticky integrovÃ¡no.
 
 ## SestavenÃ­ a spuÅ¡tÄ›nÃ­
-- **SestavenÃ­**: SpusÅ¥te Ãºlohu "build" (Ctrl+Shift+P â†’ Tasks: Run Task â†’ build). To nastavÃ­ prostÅ™edÃ­ MSVC pÅ™es `vcvars64.bat` a spustÃ­ `cmake --build .`. VytvoÅ™Ã­ `Debug/IthacaCore.exe`
-- **SpuÅ¡tÄ›nÃ­**: KliknÄ›te na tlaÄÃ­tko spustit (|>) nebo stisknÄ›te F5. Program se sestavÃ­ a spustÃ­
+- **SestavenÃ­**: SpusÅ¥te Ãºlohu "build" (Ctrl+Shift+P â†’ Tasks: Run Task â†’ build). TÃ­m se nastavÃ­ MSVC prostÅ™edÃ­ (`vcvars64.bat`) a spustÃ­ `cmake --build .`. VÃ½stup: `Debug/IthacaCore.exe`.
+- **SpuÅ¡tÄ›nÃ­**: KliknÄ›te na tlaÄÃ­tko spustit (|>) nebo stisknÄ›te F5. Program inicializuje logger, naÄte samples, inicializuje hlasy a testuje polyfonnÃ­ pÅ™ehrÃ¡vÃ¡nÃ­.
 - **VÃ½stup**:
-  - Na konzoli: ÃšvodnÃ­ zprÃ¡va "[i] Starting IthacaCore" a pÅ™Ã­padnÄ› parametry
-  - V logu (`core_logger/core_logger.log`): ZÃ¡znamy o inicializaci loggeru, prohledÃ¡vÃ¡nÃ­ sample, operacÃ­ch `InstrumentLoader` (naÄÃ­tÃ¡nÃ­ do pamÄ›ti, monoâ†’stereo konverze, validace), operacÃ­ch `Voice`/`VoiceManager` (inicializace voice, `setNoteState`, `processBlock`, ADSR obÃ¡lka), vyhledÃ¡vÃ¡nÃ­ (napÅ™. "Loaded: m108-vel7-f44.wav (MIDI: 108, Vel: 7, Freq: 44100 Hz, Duration: 2.5s, Channels: 2 (stereo), Frames: 110250, Format: interleaved, needs float conversion)")
-- **ÄŒiÅ¡tÄ›nÃ­**: SmaÅ¾te sloÅ¾ku `build` a `core_logger` pro reset
+  - Konzole: ZprÃ¡vy o inicializaci a stavu.
+  - Log: `core_logger/core_logger.log` obsahuje detaily o naÄÃ­tÃ¡nÃ­, validaci, inicializaci obÃ¡lek a hlasÅ¯.
+  - TestovacÃ­ exporty: WAV soubory ve sloÅ¾ce `./exports/tests/`.
+- **ÄŒiÅ¡tÄ›nÃ­**: SmaÅ¾te sloÅ¾ky `build` a `core_logger` pro reset, nebo pouÅ¾ijte `cmake --build . --target clean-all`.
 
-**PoznÃ¡mka**: Cesta k `vcvars64.bat` v `tasks.json` je pro VS 2022 Build Tools. Pokud mÃ¡te Community, upravte na `C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat`. Pro PowerShell execution policy: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`.
+**PoznÃ¡mka**: Upravte cestu k `vcvars64.bat` v `tasks.json`, pokud pouÅ¾Ã­vÃ¡te Visual Studio Community: `C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat`. Pro PowerShell povolte skripty: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`.
 
-## PouÅ¾itÃ­ v vlastnÃ­m projektu
-Pro integraci do vaÅ¡eho C++ projektu zahrÅˆte hlaviÄky a linkujte `libsndfile`. PÅ™Ã­klad minimÃ¡lnÃ­ho pouÅ¾itÃ­ (v `main.cpp`):
+## PouÅ¾itÃ­ v projektu
+Pro integraci do vlastnÃ­ho projektu zahrÅˆte hlaviÄky a linkujte `libsndfile`. MinimÃ¡lnÃ­ pÅ™Ã­klad:
 
+<xaiArtifact>
 ```cpp
 #include "core_logger.h"
 #include "sampler.h"
-#include "instrument_loader.h"
-#include "voice.h"
-#include "voice_manager.h"
-#include "envelopes/envelope.h"
 
 int main() {
-    Logger logger("./"); // Cesta k logÅ¯m
-    int result = runSampler(logger); // SpustÃ­ celÃ½ workflow vÄetnÄ› InstrumentLoader a VoiceManager
+    Logger logger("./");
+    int result = runSampler(logger); // SpustÃ­ workflow (SamplerIO, InstrumentLoader, VoiceManager, Envelope)
     return result;
 }
 ```
 
-Pro vlastnÃ­ logiku pouÅ¾ijte tÅ™Ã­du `SamplerIO` (pro IO operace), `InstrumentLoader` (pro naÄÃ­tÃ¡nÃ­ do pamÄ›ti) a **tÅ™Ã­dy `Voice` a `VoiceManager`** (pro polyfonnÃ­ pÅ™ehrÃ¡vÃ¡nÃ­ s ADSR obÃ¡lkou). VÅ¾dy inicializujte `Logger` pro logovÃ¡nÃ­.
+### TÅ™Ã­da `SamplerIO`
+Spravuje IO operace, prohledÃ¡vÃ¡nÃ­ a metadata WAV souborÅ¯.
 
-### PouÅ¾itÃ­ tÅ™Ã­dy SamplerIO
-`SamplerIO` pro ÄistÃ© IO operace (prohledÃ¡vÃ¡nÃ­, vyhledÃ¡vÃ¡nÃ­, pÅ™Ã­stup k metadatÅ¯m). VytvoÅ™te instanci a pÅ™edejte logger.
+| Metoda | Parametry | Popis | NÃ¡vratovÃ½ typ |
+|--------|-----------|-------|---------------|
+| `SamplerIO()` | - | Inicializuje prÃ¡zdnÃ½ seznam `sampleList`. | `void` |
+| `~SamplerIO()` | - | UvolnÃ­ seznam automaticky. | `void` |
+| `scanSampleDirectory(const std::string& directoryPath, Logger& logger)` | `directoryPath` (cesta k WAV souborÅ¯m), `logger` | ProhledÃ¡ adresÃ¡Å™, parsuje nÃ¡zvy (`mXXX-velY-fZZ.wav`), validuje frekvenci a formÃ¡t. Chyby vedou k `std::exit(1)`. | `void` |
+| `findSampleInSampleList(uint8_t midi_note, uint8_t velocity, int sampleRate) const` | `midi_note` (0-127), `velocity` (0-7), `sampleRate` | VyhledÃ¡ index sample v seznamu. | `int` (-1 pokud nenalezeno) |
+| `getLoadedSampleList() const` | - | VrÃ¡tÃ­ konstantnÃ­ referenci na vektor `SampleInfo`. | `const std::vector<SampleInfo>&` |
 
-| Metoda | Parametry | PÅ™Ã­klad | KomentÃ¡Å™ | NÃ¡vratovÃ½ typ | PÅ™Ã­klad nÃ¡vratu / Chyba |
-|--------|-----------|---------|----------|---------------|-------------------------|
-| `SamplerIO()` | - | `SamplerIO io;` | Konstruktor: Inicializuje prÃ¡zdnÃ½ seznam `sampleList`. Å½Ã¡dnÃ© logovÃ¡nÃ­ v konstruktoru. | `void` (konstruktor) | - (Å¾Ã¡dnÃ½ nÃ¡vratovÃ½ kÃ³d, ÃºspÄ›Å¡nÃ¡ inicializace) |
-| `~SamplerIO()` | - | AutomatickÃ½ | Destruktor: Å½Ã¡dnÃ© speciÃ¡lnÃ­ akce (seznam se uvolnÃ­ automaticky). | `void` (destruktor) | - (automatickÃ© uvolnÄ›nÃ­) |
-| `scanSampleDirectory(const std::string& directoryPath, Logger& logger)` | `directoryPath` â€“ cesta k adresÃ¡Å™i se WAV soubory (napÅ™. `"./samples"`), `logger` â€“ reference na Logger | `io.scanSampleDirectory(R"(c:\samples)", logger);` | ProhledÃ¡ adresÃ¡Å™. Deleguje parsovÃ¡nÃ­ nÃ¡zvÅ¯ (regex), naÄte metadata (libsndfile). Validuje konzistenci frekvence mezi nÃ¡zvem a souborem. Detekuje formÃ¡t (interleaved) a potÅ™ebu konverze (PCMâ†’float). Loguje info/warn/error. Chyby (neexistujÃ­cÃ­ adresÃ¡Å™, nekonzistentnÃ­ frekvence): zaloguje a `std::exit(1)`. | `void` | - (ÃºspÄ›ch: naÄte data; chyba: exit(1) po logu) |
-| `findSampleInSampleList(uint8_t midi_note, uint8_t velocity, int sampleRate) const` | `midi_note` (0-127), `velocity` (0-7), `sampleRate` (frekvence v Hz) | `int idx = io.findSampleInSampleList(60, 5, 44100);` | VyhledÃ¡ index sample v internÃ­m seznamu. VrÃ¡tÃ­ -1, pokud nenalezeno. LineÃ¡rnÃ­ prohledÃ¡vÃ¡nÃ­, Å¾Ã¡dnÃ© logovÃ¡nÃ­. | `int` | `0` (index prvnÃ­ shody); `-1` (nenalezeno, nenÃ­ chyba) |
-| `getLoadedSampleList() const` | - | `const auto& list = io.getLoadedSampleList();` | VrÃ¡tÃ­ konstantnÃ­ referenci na vektor `SampleInfo` pro ÄtenÃ­ metadat. Å½Ã¡dnÃ© logovÃ¡nÃ­. | `const std::vector<SampleInfo>&` | Reference na vektor (prÃ¡zdnÃ½, pokud nenÃ­ naÄteno) |
-
-### PouÅ¾itÃ­ tÅ™Ã­dy InstrumentLoader
-`InstrumentLoader` pro naÄÃ­tÃ¡nÃ­ WAV samples do pamÄ›ti jako 32-bit stereo float buffery optimalizovanÃ© pro JUCE. **KlÃ­ÄovÃ© vlastnosti:**
-- **PovinnÃ¡ stereo konverze**: VÅ¡echny samples (i pÅ¯vodnÄ› mono) jsou uloÅ¾eny jako stereo `[L1,R1,L2,R2...]`
-- **Monoâ†’Stereo duplikace**: Mono samples se automaticky duplikujÃ­ do obou kanÃ¡lÅ¯ (L=R)
-- **JUCE-ready formÃ¡t**: Buffer layout optimalizovanÃ½ pro JUCE AudioBuffer de-interleaving
-- **AutomatickÃ¡ validace**: Kontrola konzistence vÅ¡ech naÄtenÃ½ch bufferÅ¯
-- **FiltrovÃ¡nÃ­ frekvence**: NaÄÃ­tÃ¡ pouze samples s poÅ¾adovanou frekvencÃ­ vzorkovÃ¡nÃ­
-
-| Metoda | Parametry | PÅ™Ã­klad | KomentÃ¡Å™ | NÃ¡vratovÃ½ typ |
-|--------|-----------|---------|----------|---------------|
-| `InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger)` | `sampler` â€“ reference na SamplerIO, `targetSampleRate` â€“ poÅ¾adovanÃ¡ frekvence (napÅ™. 44100), `logger` â€“ reference na Logger | `InstrumentLoader loader(sampler, 44100, logger);` | Konstruktor: Inicializuje pole pro vÅ¡echny MIDI noty 0-127. Loguje inicializaci s targetSampleRate. | `void` (konstruktor) |
-| `loadInstrument()` | - | `loader.loadInstrument();` | NaÄte vÅ¡echny dostupnÃ© samples do pamÄ›ti jako stereo float buffery. ProchÃ¡zÃ­ vÅ¡echny MIDI noty 0-127 a velocity 0-7. ProvÃ¡dÃ­ monoâ†’stereo konverzi. Validuje konzistenci po naÄtenÃ­. Loguje progress a statistiky. | `void` |
-| `getInstrumentNote(uint8_t midi_note)` | `midi_note` (0-127) | `Instrument& inst = loader.getInstrumentNote(108);` | VrÃ¡tÃ­ referenci na Instrument strukturu pro danou MIDI notu. Kontroluje platnost rozsahu. PÅ™i chybÄ›: log error a exit(1). | `Instrument&` |
-| `getTotalLoadedSamples()` | - | `int total = loader.getTotalLoadedSamples();` | Getter pro celkovÃ½ poÄet ÃºspÄ›Å¡nÄ› naÄtenÃ½ch samples. | `int` |
-| `getMonoSamplesCount()` | - | `int mono = loader.getMonoSamplesCount();` | Getter pro poÄet pÅ¯vodnÄ› mono samples (pÅ™ed konverzÃ­ na stereo). | `int` |
-| `getStereoSamplesCount()` | - | `int stereo = loader.getStereoSamplesCount();` | Getter pro poÄet pÅ¯vodnÄ› stereo samples. | `int` |
-| `getTargetSampleRate()` | - | `int rate = loader.getTargetSampleRate();` | Getter pro nastavenou target sample rate v Hz. | `int` |
-
-#### Struktura `Instrument`
-```cpp
-struct Instrument {
-    SampleInfo* sample_ptr_sampleInfo[8];    // pointery na SampleInfo
-    float* sample_ptr_velocity[8];           // pointery na stereo float buffery
-    bool velocityExists[8];                  // indikÃ¡tory existence
-    sf_count_t frame_count_stereo[8];        // poÄet stereo frame pÃ¡rÅ¯
-    sf_count_t total_samples_stereo[8];      // celkovÃ½ poÄet float hodnot (frame_count * 2)
-    bool was_originally_mono[8];             // pÅ¯vodnÃ­ formÃ¡t pÅ™ed konverzÃ­
-    
-    float* get_sample_begin_pointer(uint8_t velocity);    // pointer na stereo data [L,R,L,R...]
-    sf_count_t get_frame_count(uint8_t velocity);         // poÄet stereo frame pÃ¡rÅ¯
-    sf_count_t get_total_sample_count(uint8_t velocity);  // celkovÃ½ poÄet float hodnot
-    bool get_was_originally_mono(uint8_t velocity);       // pÅ¯vodnÃ­ formÃ¡t info
-};
-```
-
-#### PÅ™Ã­klad pouÅ¾itÃ­ InstrumentLoader
+**PÅ™Ã­klad**:
+<xaiArtifact>
 ```cpp
 Logger logger("./");
 SamplerIO sampler;
-std::string dir = R"(c:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)";
+sampler.scanSampleDirectory(R"(c:\samples)", logger);
+int idx = sampler.findSampleInSampleList(60, 5, 44100);
+if (idx != -1) {
+    const auto& list = sampler.getLoadedSampleList();
+    logger.log("demo", "info", "Found sample: MIDI=" + std::to_string(list[idx].midi_note));
+}
+```
 
-// 1. ProhledÃ¡nÃ­ adresÃ¡Å™e
-sampler.scanSampleDirectory(dir, logger);
+### TÅ™Ã­da `InstrumentLoader`
+NaÄÃ­tÃ¡ WAV soubory do pamÄ›ti jako stereo float buffery, zajiÅ¡Å¥uje monoâ†’stereo konverzi a validaci.
 
-// 2. NaÄtenÃ­ vÅ¡ech samples do pamÄ›ti jako stereo buffery
+| Metoda | Parametry | Popis | NÃ¡vratovÃ½ typ |
+|--------|-----------|-------|---------------|
+| `InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger)` | `sampler`, `targetSampleRate` (napÅ™. 44100), `logger` | Inicializuje pole pro MIDI noty 0-127. | `void` |
+| `loadInstrument()` | - | NaÄte samples do pamÄ›ti, provede monoâ†’stereo konverzi, validuje konzistenci. | `void` |
+| `getInstrumentNote(uint8_t midi_note)` | `midi_note` (0-127) | VrÃ¡tÃ­ `Instrument` pro danou MIDI notu. ChybnÃ½ index: `std::exit(1)`. | `Instrument&` |
+| `getTotalLoadedSamples()` | - | VrÃ¡tÃ­ celkovÃ½ poÄet naÄtenÃ½ch samples. | `int` |
+| `getMonoSamplesCount()` | - | VrÃ¡tÃ­ poÄet pÅ¯vodnÄ› mono samples. | `int` |
+| `getStereoSamplesCount()` | - | VrÃ¡tÃ­ poÄet pÅ¯vodnÄ› stereo samples. | `int` |
+| `getTargetSampleRate()` | - | VrÃ¡tÃ­ nastavenou vzorkovacÃ­ frekvenci. | `int` |
+
+**Struktura `Instrument`**:
+<xaiArtifact>
+```cpp
+struct Instrument {
+    SampleInfo* sample_ptr_sampleInfo[8];    // Pointery na SampleInfo
+    float* sample_ptr_velocity[8];           // Stereo float buffery [L,R,L,R...]
+    bool velocityExists[8];                  // IndikÃ¡tory existence
+    sf_count_t frame_count_stereo[8];        // PoÄet stereo frame pÃ¡rÅ¯
+    sf_count_t total_samples_stereo[8];      // CelkovÃ½ poÄet float hodnot
+    bool was_originally_mono[8];             // PÅ¯vodnÃ­ formÃ¡t
+    float* get_sample_begin_pointer(uint8_t velocity);    // Pointer na stereo data
+    sf_count_t get_frame_count(uint8_t velocity);         // PoÄet frame pÃ¡rÅ¯
+    sf_count_t get_total_sample_count(uint8_t velocity);  // CelkovÃ½ poÄet floatÅ¯
+    bool get_was_originally_mono(uint8_t velocity);       // PÅ¯vodnÃ­ formÃ¡t info
+};
+```
+
+**PÅ™Ã­klad**:
+<xaiArtifact>
+```cpp
+Logger logger("./");
+SamplerIO sampler;
+sampler.scanSampleDirectory(R"(c:\samples)", logger);
 InstrumentLoader loader(sampler, 44100, logger);
-loader.loadInstrument();  // AutomatickÃ¡ monoâ†’stereo konverze a validace
-
-// 3. PÅ™Ã­stup k naÄtenÃ½m stereo datÅ¯m
+loader.loadInstrument();
 Instrument& inst = loader.getInstrumentNote(108);
 if (inst.velocityExists[7]) {
-    float* stereoData = inst.get_sample_begin_pointer(7);      // [L1,R1,L2,R2...]
-    sf_count_t frames = inst.get_frame_count(7);               // poÄet stereo pÃ¡rÅ¯
-    sf_count_t totalSamples = inst.get_total_sample_count(7);  // celkovÃ½ poÄet float hodnot
-    bool wasMono = inst.get_was_originally_mono(7);            // pÅ¯vodnÃ­ formÃ¡t
+    float* stereoData = inst.get_sample_begin_pointer(7);
+    sf_count_t frames = inst.get_frame_count(7);
+    logger.log("demo", "info", "Loaded MIDI 108, vel 7, frames: " + std::to_string(frames));
 }
 ```
 
-### PouÅ¾itÃ­ tÅ™Ã­d Voice a VoiceManager
-TÅ™Ã­dy `Voice` a `VoiceManager` spravujÃ­ polyfonnÃ­ pÅ™ehrÃ¡vÃ¡nÃ­ s ADSR obÃ¡lkou (attack, decay, sustain, release). `Voice` reprezentuje jednu hlasovou jednotku, kterÃ¡ zpracovÃ¡vÃ¡ sample s obÃ¡lkou a stavy (idle, attacking, sustaining, releasing). `VoiceManager` spravuje pool hlasÅ¯ (napÅ™. 128 hlasÅ¯) a koordinuje jejich pÅ™ehrÃ¡vÃ¡nÃ­.
+### TÅ™Ã­da `Envelope`
+Spravuje per-voice ADSR obÃ¡lku, deleguje tÄ›Å¾kÃ¡ data na `EnvelopeStaticData`.
 
-#### KlÃ­ÄovÃ© vlastnosti
-- **Polyfonie**: `VoiceManager` pÅ™iÅ™azuje MIDI noty k volnÃ½m hlasÅ¯m.
-- **ADSR obÃ¡lka**: ImplementovÃ¡na v tÅ™Ã­dÄ› `Envelope`, pouÅ¾ita v `Voice` pro generovÃ¡nÃ­ gainÅ¯ (attack a release).
-- **Stavy**: Enum `VoiceState` (Idle, Attacking, Sustaining, Releasing) Å™Ã­dÃ­ lifecycle hlasu.
-- **AudioBuffer**: Simulace JUCE bufferu pro stereo vÃ½stup [left, right].
-- **AudioData**: Struktura pro jeden stereo sample.
+| Metoda | Parametry | Popis | NÃ¡vratovÃ½ typ |
+|--------|-----------|-------|---------------|
+| `Envelope()` | - | Inicializuje vÃ½chozÃ­ hodnoty (attack=64, release=64, sustain=0.7). | `void` |
+| `setAttackMIDI(uint8_t midi_value)` | `midi_value` (0-127) | NastavÃ­ MIDI hodnotu pro attack (RT-safe). | `void` |
+| `setReleaseMIDI(uint8_t midi_value)` | `midi_value` (0-127) | NastavÃ­ MIDI hodnotu pro release (RT-safe). | `void` |
+| `setSustainLevelMIDI(uint8_t midi_value)` | `midi_value` (0-127) | NastavÃ­ sustain ÃºroveÅˆ (0.0-1.0, RT-safe). | `void` |
+| `getSustainLevel() const` | - | VrÃ¡tÃ­ sustain ÃºroveÅˆ (RT-safe). | `float` |
+| `getAttackGains(float* gain_buffer, int num_samples, int envelope_attack_position, int sample_rate) const` | `gain_buffer`, `num_samples`, `envelope_attack_position`, `sample_rate` | ZÃ­skÃ¡ hodnoty attack obÃ¡lky (RT-safe). | `bool` |
+| `getReleaseGains(float* gain_buffer, int num_samples, int envelope_release_position, int sample_rate) const` | `gain_buffer`, `num_samples`, `envelope_release_position`, `sample_rate` | ZÃ­skÃ¡ hodnoty release obÃ¡lky (RT-safe). | `bool` |
+| `getAttackLength(int sample_rate) const` | `sample_rate` | VrÃ¡tÃ­ dÃ©lku attack v ms (RT-safe). | `float` |
+| `getReleaseLength(int sample_rate) const` | `sample_rate` | VrÃ¡tÃ­ dÃ©lku release v ms (RT-safe). | `float` |
 
-#### TÅ™Ã­da `Voice`
-`Voice` spravuje jednu MIDI notu s pÅ™iÅ™azenÃ½m instrumentem, aplikuje ADSR obÃ¡lku a generuje stereo vÃ½stup.
-
-| Metoda | VstupnÃ­ parametry | VÃ½stup | Popis |
-|--------|-------------------|--------|-------|
-| `Voice()` | - | `void` (konstruktor) | Default konstruktor: Inicializuje hlas v idle stavu pro pouÅ¾itÃ­ v poolu `VoiceManager`. |
-| `Voice(uint8_t midiNote, Logger& logger, Envelope& envelope)` | `midiNote` (0-127), `logger` (reference na Logger), `envelope` (reference na Envelope) | `void` (konstruktor) | Konstruktor: Inicializuje hlas s MIDI notou a referencÃ­ na `Envelope`. Instrument se nastavuje pozdÄ›ji pÅ™es `initialize`. |
-| `Voice(uint8_t midiNote, const Instrument& instrument, Logger& logger, Envelope& envelope)` | `midiNote` (0-127), `instrument` (reference na Instrument), `logger`, `envelope` | `void` (konstruktor) | PlnÃ½ konstruktor: Inicializuje hlas s MIDI notou, instrumentem a obÃ¡lkou. |
-| `initialize(const Instrument& instrument, int sampleRate)` | `instrument` (reference na Instrument), `sampleRate` (frekvence v Hz) | `void` | Inicializuje hlas s instrumentem a nastavÃ­ vzorkovacÃ­ frekvenci pro `Envelope`. |
-| `cleanup()` | - | `void` | Resetuje hlas do idle stavu, uvolnÃ­ zdroje. |
-| `reinitialize(const Instrument& instrument, int sampleRate)` | `instrument`, `sampleRate` | `void` | Reinicializuje hlas s novÃ½m instrumentem a vzorkovacÃ­ frekvencÃ­. |
-| `setNoteState(bool isOn, uint8_t velocity)` | `isOn` (true pro note-on, false pro note-off), `velocity` (0-127) | `void` | NastavÃ­ stav hlasu: note-on pÅ™epne do Attacking/Sustaining, note-off do Releasing. Mapuje velocity na layer (0-7). |
-| `advancePosition()` | - | `void` | Posune pozici o 1 frame (pouÅ¾Ã­vÃ¡no pro non-real-time zpracovÃ¡nÃ­). |
-| `getCurrentAudioData() const` | - | `AudioData` | VrÃ¡tÃ­ aktuÃ¡lnÃ­ stereo sample (left/right) s aplikovanou obÃ¡lkou. |
-| `processBlock(AudioBuffer& outputBuffer, int numSamples)` | `outputBuffer` (reference na simulovanÃ½ AudioBuffer), `numSamples` (poÄet vzorkÅ¯) | `bool` | Zpracuje blok vzorkÅ¯, aplikuje ADSR obÃ¡lku a zapisuje do stereo bufferu. VrÃ¡tÃ­ true, pokud je hlas aktivnÃ­. |
-| `getMidiNote() const` | - | `uint8_t` | VrÃ¡tÃ­ MIDI notu pÅ™iÅ™azenou hlasu. |
-| `isActive() const` | - | `bool` | VrÃ¡tÃ­ true, pokud je hlas aktivnÃ­ (nenÃ­ Idle). |
-| `getState() const` | - | `VoiceState` | VrÃ¡tÃ­ aktuÃ¡lnÃ­ stav hlasu (Idle, Attacking, Sustaining, Releasing). |
-| `getPosition() const` | - | `sf_count_t` | VrÃ¡tÃ­ aktuÃ¡lnÃ­ pozici v samplech. |
-| `getCurrentEnvelopeGain() const` | - | `float` | VrÃ¡tÃ­ aktuÃ¡lnÃ­ hodnotu obÃ¡lky (0.0-1.0). |
-| `getVelocityGain() const` | - | `float` | VrÃ¡tÃ­ gain odvozenÃ½ z velocity (0.0-1.0). |
-| `getMasterGain() const` | - | `float` | VrÃ¡tÃ­ master gain hlasu. |
-| `getFinalGain() const` | - | `float` | VrÃ¡tÃ­ kombinovanÃ½ gain (velocity * envelope * master). |
-| `setMasterGain(float gain, Logger& logger)` | `gain` (0.0-1.0), `logger` | `void` | NastavÃ­ master gain hlasu s logovÃ¡nÃ­m. |
-
-#### TÅ™Ã­da `VoiceManager`
-`VoiceManager` spravuje pool hlasÅ¯ (napÅ™. 128) a koordinuje polyfonnÃ­ pÅ™ehrÃ¡vÃ¡nÃ­ s ADSR obÃ¡lkou.
-
-| Metoda | VstupnÃ­ parametry | VÃ½stup | Popis |
-|--------|-------------------|--------|-------|
-| `VoiceManager(int maxVoices, Logger& logger)` | `maxVoices` (poÄet hlasÅ¯, napÅ™. 128), `logger` (reference na Logger) | `void` (konstruktor) | Inicializuje pool hlasÅ¯ a nastavÃ­ logger. |
-| `initializeAll(InstrumentLoader& loader, int sampleRate)` | `loader` (reference na InstrumentLoader), `sampleRate` (frekvence v Hz) | `void` | Inicializuje vÅ¡echny hlasy s pÅ™Ã­sluÅ¡nÃ½mi instrumenty a nastavÃ­ vzorkovacÃ­ frekvenci pro obÃ¡lky. |
-| `setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity)` | `midiNote` (0-127), `isOn` (true/false), `velocity` (0-127) | `void` | NastavÃ­ stav hlasu pro danou MIDI notu (note-on/note-off). |
-| `processBlock(AudioBuffer& outputBuffer, int numSamples)` | `outputBuffer` (reference na simulovanÃ½ AudioBuffer), `numSamples` (poÄet vzorkÅ¯) | `bool` | Zpracuje blok pro vÅ¡echny aktivnÃ­ hlasy, mixuje jejich vÃ½stup do stereo bufferu. VrÃ¡tÃ­ true, pokud je alespoÅˆ jeden hlas aktivnÃ­. |
-| `getVoice(uint8_t midiNote)` | `midiNote` (0-127) | `Voice&` | VrÃ¡tÃ­ referenci na hlas pÅ™iÅ™azenÃ½ k MIDI notÄ›. |
-| `getActiveVoicesCount() const` | - | `int` | VrÃ¡tÃ­ poÄet aktuÃ¡lnÄ› aktivnÃ­ch hlasÅ¯. |
-
-#### PÅ™Ã­klad pouÅ¾itÃ­ Voice a VoiceManager
+**PÅ™Ã­klad**:
+<xaiArtifact>
 ```cpp
-#include "core_logger.h"
-#include "instrument_loader.h"
-#include "voice.h"
-#include "voice_manager.h"
-#include "envelopes/envelope.h"
-
-int main() {
-    Logger logger("./");
-    SamplerIO sampler;
-    std::string dir = R"(c:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)";
-
-    // 1. ProhledÃ¡nÃ­ adresÃ¡Å™e
-    sampler.scanSampleDirectory(dir, logger);
-
-    // 2. NaÄtenÃ­ samples do pamÄ›ti
-    InstrumentLoader loader(sampler, 44100, logger);
-    loader.loadInstrument();
-
-    // 3. Inicializace VoiceManager a Envelope
-    Envelope envelope(500.0f, 300.0f, 0.7f, 1000.0f); // ADSR: 500ms attack, 300ms decay, 0.7 sustain, 1000ms release
-    envelope.setEnvelopeFrequency(44100, logger);
-    VoiceManager manager(128, logger);
-    manager.initializeAll(loader, 44100);
-
-    // 4. SpuÅ¡tÄ›nÃ­ noty (MIDI 60, velocity 100)
-    manager.setNoteState(60, true, 100);
-
-    // 5. ZpracovÃ¡nÃ­ audio bloku
-    AudioBuffer output(512); // SimulovanÃ½ stereo buffer
-    if (manager.processBlock(output, 512)) {
-        // VÃ½stup je v output.leftChannel a output.rightChannel
-        // Pro JUCE: pÅ™eveÄte do AudioBuffer<float>
-    }
-
-    // 6. Note-off
-    manager.setNoteState(60, false, 0);
-
-    // 7. Kontrola stavu hlasu
-    Voice& voice = manager.getVoice(60);
-    logger.log("demo", "info", "Voice state: " + std::to_string(static_cast<int>(voice.getState())) +
-               ", Final gain: " + std::to_string(voice.getFinalGain()));
-}
+Logger logger("./");
+Envelope envelope;
+envelope.setAttackMIDI(80);
+envelope.setReleaseMIDI(40);
+envelope.setSustainLevelMIDI(90);
+float gains[256];
+bool continues = envelope.getAttackGains(gains, 256, 0, 44100);
+logger.log("demo", "info", "Attack length: " + std::to_string(envelope.getAttackLength(44100)) + " ms");
 ```
 
-### Funkce runSampler
+### TÅ™Ã­da `EnvelopeStaticData`
+Spravuje pÅ™edpoÄÃ­tanÃ¡ data obÃ¡lek pro vÅ¡echny MIDI hodnoty a vzorkovacÃ­ frekvence.
+
+| Metoda | Parametry | Popis | NÃ¡vratovÃ½ typ |
+|--------|-----------|-------|---------------|
+| `initialize(Logger& logger)` | `logger` | Generuje obÃ¡lky pro 44100/48000 Hz (non-RT). | `bool` |
+| `cleanup()` | - | UvolnÃ­ data (non-RT). | `void` |
+| `getAttackGains(float* gainBuffer, int numSamples, int position, uint8_t midiValue, int sampleRate)` | `gainBuffer`, `numSamples`, `position`, `midiValue`, `sampleRate` | ZÃ­skÃ¡ hodnoty attack obÃ¡lky (RT-safe). | `bool` |
+| `getReleaseGains(float* gainBuffer, int numSamples, int position, uint8_t midiValue, int sampleRate)` | `gainBuffer`, `numSamples`, `position`, `midiValue`, `sampleRate` | ZÃ­skÃ¡ hodnoty release obÃ¡lky (RT-safe). | `bool` |
+| `getAttackLength(uint8_t midiValue, int sampleRate)` | `midiValue`, `sampleRate` | VrÃ¡tÃ­ dÃ©lku attack v ms (RT-safe). | `float` |
+| `getReleaseLength(uint8_t midiValue, int sampleRate)` | `midiValue`, `sampleRate` | VrÃ¡tÃ­ dÃ©lku release v ms (RT-safe). | `float` |
+| `isInitialized()` | - | Kontroluje inicializaci dat (RT-safe). | `bool` |
+
+**PÅ™Ã­klad**:
+<xaiArtifact>
+```cpp
+Logger logger("./");
+EnvelopeStaticData::initialize(logger);
+float gains[256];
+EnvelopeStaticData::getAttackGains(gains, 256, 0, 64, 44100);
+logger.log("demo", "info", "Attack length: " + std::to_string(EnvelopeStaticData::getAttackLength(64, 44100)) + " ms");
+EnvelopeStaticData::cleanup();
+```
+
+### TÅ™Ã­da `Voice`
+Spravuje jednu hlasovou jednotku s ADSR obÃ¡lkou a stavy (Idle, Attacking, Sustaining, Releasing).
+
+| Metoda | Parametry | Popis | NÃ¡vratovÃ½ typ |
+|--------|-----------|-------|---------------|
+| `Voice()` | - | Default konstruktor pro pool. | `void` |
+| `Voice(uint8_t midiNote, Logger& logger, Envelope& envelope)` | `midiNote`, `logger`, `envelope` | Inicializuje hlas s MIDI notou a obÃ¡lkou. | `void` |
+| `initialize(const Instrument& instrument, int sampleRate)` | `instrument`, `sampleRate` | Inicializuje hlas s instrumentem a frekvencÃ­. | `void` |
+| `setNoteState(bool isOn, uint8_t velocity)` | `isOn`, `velocity` | NastavÃ­ note-on/off, pÅ™epÃ­nÃ¡ stavy. | `void` |
+| `processBlock(AudioBuffer& outputBuffer, int numSamples)` | `outputBuffer`, `numSamples` | Zpracuje blok s aplikacÃ­ ADSR obÃ¡lky. | `bool` |
+| `isActive() const` | - | VrÃ¡tÃ­ true, pokud nenÃ­ Idle. | `bool` |
+| `getState() const` | - | VrÃ¡tÃ­ aktuÃ¡lnÃ­ stav (Idle, Attacking, Sustaining, Releasing). | `VoiceState` |
+| `getFinalGain() const` | - | VrÃ¡tÃ­ kombinovanÃ½ gain (velocity * envelope * master). | `float` |
+
+### TÅ™Ã­da `VoiceManager`
+Spravuje pool hlasÅ¯ pro polyfonnÃ­ pÅ™ehrÃ¡vÃ¡nÃ­.
+
+| Metoda | Parametry | Popis | NÃ¡vratovÃ½ typ |
+|--------|-----------|-------|---------------|
+| `VoiceManager(int maxVoices, Logger& logger)` | `maxVoices`, `logger` | Inicializuje pool hlasÅ¯. | `void` |
+| `initializeAll(InstrumentLoader& loader, int sampleRate)` | `loader`, `sampleRate` | Inicializuje vÅ¡echny hlasy s instrumenty. | `void` |
+| `setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity)` | `midiNote`, `isOn`, `velocity` | NastavÃ­ note-on/off pro MIDI notu. | `void` |
+| `processBlock(AudioBuffer& outputBuffer, int numSamples)` | `outputBuffer`, `numSamples` | Zpracuje blok pro vÅ¡echny aktivnÃ­ hlasy. | `bool` |
+| `getActiveVoicesCount() const` | - | VrÃ¡tÃ­ poÄet aktivnÃ­ch hlasÅ¯. | `int` |
+
+**PÅ™Ã­klad**:
+<xaiArtifact>
+```cpp
+Logger logger("./");
+SamplerIO sampler;
+sampler.scanSampleDirectory(R"(c:\samples)", logger);
+InstrumentLoader loader(sampler, 44100, logger);
+loader.loadInstrument();
+Envelope envelope;
+EnvelopeStaticData::initialize(logger);
+VoiceManager manager(128, logger);
+manager.initializeAll(loader, 44100);
+manager.setNoteState(60, true, 100);
+AudioBuffer output(512);
+manager.processBlock(output, 512);
+manager.setNoteState(60, false, 0);
+```
+
+### TÅ™Ã­da `WavExporter`
+Exportuje audio data do WAV souborÅ¯ pro testovÃ¡nÃ­.
+
+| Metoda | Parametry | Popis | NÃ¡vratovÃ½ typ |
+|--------|-----------|-------|---------------|
+| `WavExporter(const std::string& outputDir, Logger& logger, ExportFormat exportFormat)` | `outputDir`, `logger`, `exportFormat` (Pcm16/Float) | Inicializuje exportÃ©r. | `void` |
+| `wavFileCreate(const std::string& filename, int frequency, int bufferSize, bool stereo, bool dummy_write)` | `filename`, `frequency`, `bufferSize`, `stereo`, `dummy_write` | VytvoÅ™Ã­ WAV soubor a alokuje buffer. | `float*` |
+| `wavFileWriteBuffer(float* buffer_ptr, int buffer_size)` | `buffer_ptr`, `buffer_size` | ZapÃ­Å¡e buffer do souboru. | `bool` |
+| `~WavExporter()` | - | UzavÅ™e soubor a uvolnÃ­ buffery. | `void` |
+
+**PÅ™Ã­klad**:
+<xaiArtifact>
+```cpp
+Logger logger("./");
+WavExporter exporter("./exports", logger);
+float* buffer = exporter.wavFileCreate("test.wav", 44100, 512, true, true);
+std::fill(buffer, buffer + 512 * 2, 0.5f); // NaplnÃ­ stereo buffer
+exporter.wavFileWriteBuffer(buffer, 512);
+```
+
+### Funkce `runSampler`
 - **Signatura**: `int runSampler(Logger& logger)`
-- **PÅ™Ã­klad**: `runSampler(logger);`
-- **KomentÃ¡Å™**: SpustÃ­ kompletnÃ­ workflow vÄetnÄ› `InstrumentLoader`, `VoiceManager` a `Envelope`. Deleguje prohledÃ¡vÃ¡nÃ­ do `SamplerIO`, inicializuje `InstrumentLoader`, naÄte vÅ¡echny samples do pamÄ›ti jako stereo buffery, inicializuje `VoiceManager` a `Envelope`, nastavÃ­ testovacÃ­ notu (napÅ™. MIDI 108/vel 7), procesuje blok s ADSR obÃ¡lkou a loguje stavy. Testuje API metody `get_sample_begin_pointer()`, `get_frame_count()` a `processBlock`. Loguje vÅ¡echny kroky vÄetnÄ› detailnÃ­ch informacÃ­ o stereo konverzi a JUCE-ready formÃ¡tu. VrÃ¡tÃ­ 0 pÅ™i ÃºspÄ›chu (chyby konÄÃ­ `std::exit(1)`).
+- **Popis**: SpustÃ­ workflow: inicializuje `SamplerIO`, `InstrumentLoader`, `Envelope`, `VoiceManager`, naÄte samples, nastavÃ­ testovacÃ­ notu (napÅ™. MIDI 108, vel 7), procesuje blok s ADSR obÃ¡lkou a exportuje WAV. Loguje vÅ¡echny kroky. VrÃ¡tÃ­ 0 pÅ™i ÃºspÄ›chu, jinak `std::exit(1)`.
 
 ## Struktura projektu
-### KlÃ­ÄovÃ© soubory
-- **CMakeLists.txt**: Definuje projekt, pÅ™idÃ¡vÃ¡ `libsndfile`, linkuje soubory (`main.cpp`, `sampler/*.cpp`, `envelopes/*.cpp`) a include cesty. Obsahuje `instrument_loader.h/cpp`, `voice.h/cpp`, `voice_manager.h/cpp`, `envelope.h/cpp`.
-- **main.cpp**: HlavnÃ­ vstup â€“ inicializuje logger, zpracuje argumenty a volÃ¡ `runSampler`.
-- **sampler/core_logger.h/cpp**: Implementace tÅ™Ã­dy `Logger`.
-- **sampler/sampler.h/cpp**: Deklarace a implementace funkce `runSampler` a tÅ™Ã­dy `SamplerIO`.
-- **sampler/sampler_io.cpp**: Implementace `SamplerIO` metod.
-- **sampler/instrument_loader.h/cpp**: Implementace tÅ™Ã­dy `InstrumentLoader` pro naÄÃ­tÃ¡nÃ­ do pamÄ›ti.
-- **sampler/voice.h/cpp**: Implementace tÅ™Ã­dy `Voice` pro hlasovou jednotku s ADSR obÃ¡lkou.
-- **sampler/voice_manager.h/cpp**: Implementace tÅ™Ã­dy `VoiceManager` pro polyfonnÃ­ management.
-- **sampler/envelopes/envelope.h/cpp**: Implementace tÅ™Ã­dy `Envelope` pro ADSR obÃ¡lku.
-- **sampler/wav_file_exporter.h/cpp**: Export WAV pro testovÃ¡nÃ­.
-- **.vscode/**: Konfigurace pro VS Code (build tasky, launch, settings pro terminal a file associations).
+- **CMakeLists.txt**: Definuje projekt, linkuje `libsndfile`, obsahuje vÅ¡echny zdrojovÃ© soubory.
+- **main.cpp**: VstupnÃ­ bod, volÃ¡ `runSampler`.
+- **sampler/core_logger.h/cpp**: Thread-safe logovÃ¡nÃ­.
+- **sampler/sampler.h/cpp**: Funkce `runSampler` a tÅ™Ã­da `SamplerIO`.
+- **sampler/instrument_loader.h/cpp**: NaÄÃ­tÃ¡nÃ­ samples do pamÄ›ti.
+- **sampler/voice.h/cpp**: SprÃ¡va jednÃ© hlasovÃ© jednotky.
+- **sampler/voice_manager.h/cpp**: PolyfonnÃ­ management hlasÅ¯.
+- **sampler/envelopes/envelope.h/cpp**: Per-voice ADSR obÃ¡lka.
+- **sampler/envelopes/envelope_static_data.h/cpp**: PÅ™edpoÄÃ­tanÃ¡ data obÃ¡lek.
+- **sampler/wav_file_exporter.h/cpp**: Export WAV souborÅ¯.
+- **.vscode/**: Konfigurace VS Code (build, launch, settings).
 - **README.md**: Tento soubor.
 
-### Struktury a tÅ™Ã­dy
-#### Struktura `SampleInfo` (v `sampler.h`)
-UchovÃ¡vÃ¡ metadata o WAV samplu â€“ beze zmÄ›n.
-
-#### Struktura `Instrument` (v `instrument_loader.h`)
-Reprezentuje jeden MIDI note s velocity vrstvami a stereo metadaty (viz vÃ½Å¡e).
-
-#### TÅ™Ã­da `InstrumentLoader` (v `instrument_loader.h/cpp`)
-Centralizuje naÄÃ­tÃ¡nÃ­ WAV samples do pamÄ›ti s klÃ­ÄovÃ½mi vlastnostmi (viz vÃ½Å¡e).
-
-#### TÅ™Ã­dy `Voice` a `VoiceManager` (v `voice.h/cpp` a `voice_manager.h/cpp`)
-- `Voice`: Spravuje jednu notu s ADSR obÃ¡lkou, stavy a pÅ™Ã­stupem k stereo bufferÅ¯m. Podporuje metody pro inicializaci, `setNoteState` a `processBlock`.
-- `VoiceManager`: Pool hlasÅ¯ pro polyfonii, inicializuje hlasy, nastavuje stavy a procesuje bloky.
-- **Simulace JUCE**: `AudioBuffer` pro vÃ½stup, `AudioData` pro sample data.
-
-#### TÅ™Ã­da `Envelope` (v `envelopes/envelope.h/cpp`)
-Implementuje RT-safe ADSR obÃ¡lku s fixnÃ­mi parametry pro attack, decay, sustain a release.
-
-#### TÅ™Ã­da `Logger` (v `core_logger.h/cpp`)
-ZÅ¯stÃ¡vÃ¡ stejnÃ¡ jako pÅ™ed aktualizacÃ­.
-
 ## Å˜eÅ¡enÃ­ problÃ©mÅ¯
-- **Execution Policy**: SpusÅ¥te `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` v PowerShell.
-- **libsndfile chybÃ­**: StÃ¡hnÄ›te z [libsndfile GitHub](https://github.com/libsndfile/libsndfile) a upravte CMakeLists.txt.
-- **LinkovacÃ­ chyba LNK1104**: UkonÄete vÅ¡echny procesy IthacaCore.exe, smaÅ¾te build sloÅ¾ku a sestavte znovu.
-- **Logy**: Sledujte `core_logger/core_logger.log`. Pro real-time: `Get-Content -Path "core_logger/core_logger.log" -Tail 10 -Wait`.
-- **RozÅ¡Ã­Å™enÃ­**: Upravte cestu v `sampler.cpp` pro jinÃ© samples. Pro prÃ¡ci s naÄtenÃ½mi buffery pouÅ¾ijte `InstrumentLoader` API; pro pÅ™ehrÃ¡vÃ¡nÃ­ `VoiceManager`.
-- **Chyba - nekonzistence frekvence**: Program se ukonÄÃ­ s chybou, pokud frekvence v nÃ¡zvu souboru neodpovÃ­dÃ¡ frekvenci v WAV headeru.
-- **NepodporovanÃ½ subformÃ¡t**: Program konÄÃ­ s chybou pÅ™i detekci nepodporovanÃ©ho audio formÃ¡tu.
-- **Validace stereo**: Program konÄÃ­ s chybou pÅ™i selhÃ¡nÃ­ validace stereo konzistence v `InstrumentLoader`.
-- **Chyba v Voice**: Pokud instrument nenÃ­ inicializovÃ¡n, `processBlock` vrÃ¡tÃ­ false (log warning).
-- **Chyba v Envelope**: Pokud nenÃ­ nastavena vzorkovacÃ­ frekvence, metody `getAttackGains`/`getReleaseGains` vracÃ­ false a vyplnÃ­ buffer nulami.
+- **Execution Policy**: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`.
+- **libsndfile chybÃ­**: StÃ¡hnÄ›te z [libsndfile GitHub](https://github.com/libsndfile/libsndfile).
+- **LinkovacÃ­ chyba LNK1104**: UkonÄete procesy `IthacaCore.exe`, smaÅ¾te `build` sloÅ¾ku, znovu sestavte.
+- **Logy**: Sledujte real-time: `Get-Content -Path "./core_logger/core_logger.log" -Tail 10 -Wait`.
+- **Chyby validace**: Program ukonÄÃ­ s chybou pÅ™i nekonzistenci frekvence, nepodporovanÃ©m formÃ¡tu nebo neplatnÃ©m indexu.
+- **Envelope chyby**: Metody `getAttackGains`/`getReleaseGains` vyÅ¾adujÃ­ inicializaci `EnvelopeStaticData`.
 
 ## PoznÃ¡mky
-- **NÃ¡zvoslovÃ­ souborÅ¯**: Samples musÃ­ mÃ­t formÃ¡t `mXXX-velY-fZZ.wav` (XXX = MIDI nota 0-127, Y = velocity 0-7, ZZ = zkrÃ¡cenÃ¡ frekvence s 'f' prefixem: f8, f11, f16, f22, f44, f48, f88, f96, f176, f192). Jinak se ignorujÃ­ s warningem.
-- **Validace**: Frekvence v nÃ¡zvu (fZZ) musÃ­ odpovÃ­dat frekvenci v WAV headeru, jinak program konÄÃ­ s chybou.
-- **Stereo formÃ¡t**: VÅ¡echny buffery jsou uloÅ¾eny jako stereo interleaved `[L,R,L,R...]` bez ohledu na pÅ¯vodnÃ­ formÃ¡t.
-- **Mono konverze**: Mono samples se automaticky duplikujÃ­ do stereo formÃ¡tu (L=R) pro jednotnost.
-- **JUCE optimalizace**: Buffer layout je optimalizovanÃ½ pro JUCE AudioBuffer de-interleaving.
-- **Detekce formÃ¡tu**: Program analyzuje, zda je WAV interleaved (standard) a jakÃ½ mÃ¡ subformÃ¡t (16-bit PCM, float, atd.).
-- **PodporovanÃ© formÃ¡ty**: 16-bit PCM, 24-bit PCM, 32-bit PCM, 32-bit float, 64-bit double.
-- **OptimÃ¡lnÃ­ formÃ¡t**: 32-bit float (Å¾Ã¡dnÃ¡ konverze potÅ™ebnÃ¡).
-- **PamÄ›Å¥ovÃ© nÃ¡roky**: VyÅ¡Å¡Ã­ dÃ­ky uloÅ¾enÃ­ vÅ¡ech samples jako stereo float buffery.
-- **Chyby**: SelhÃ¡nÃ­ inicializace (adresÃ¡Å™, pÅ™Ã­stup, neplatnÃ½ index, nekonzistentnÃ­ frekvence, nepodporovanÃ½ formÃ¡t, validace stereo, neinicializovanÃ½ instrument v `Voice`, neplatnÃ¡ frekvence v `Envelope`) vede k logu a `std::exit(1)`.
-- **Thread-safety**: Pouze logovÃ¡nÃ­ je chrÃ¡nÄ›no mutexem; sampler nenÃ­ navrÅ¾en pro multi-threading.
-- **RozÅ¡Ã­Å™enÃ¡ metadata**: Program poskytuje pÅ™Ã­stup k dÃ©lce, poÄtu kanÃ¡lÅ¯, stereo detekci, poÄtu vzorkÅ¯, formÃ¡tu, potÅ™ebÄ› konverze a stereo metadatÅ¯m.
-- **Validace integrity**: AutomatickÃ¡ validace konzistence vÅ¡ech naÄtenÃ½ch stereo bufferÅ¯.
-- **Voice stavy**: PouÅ¾ijte `isActive()` pro kontrolu, `processBlock` pro renderovÃ¡nÃ­.
-- **Projekt je pÅ™enositelnÃ½**: Pro sloÅ¾itÄ›jÅ¡Ã­ aplikace pÅ™idejte JUCE nebo dalÅ¡Ã­ knihovny.
-
-## JUCE Integrace
-`InstrumentLoader` a `VoiceManager` poskytujÃ­ perfektnÃ­ integraci s JUCE AudioBuffer. `Voice` procesuje do simulovanÃ©ho AudioBuffer, kterÃ½ lze snadno pÅ™evÃ©st do reÃ¡lnÃ©ho JUCE bufferu.
-
-```cpp
-// ZÃ­skÃ¡nÃ­ stereo dat z InstrumentLoader
-Instrument& inst = loader.getInstrumentNote(midiNote);
-if (inst.velocityExists[velocity]) {
-    float* stereoData = inst.get_sample_begin_pointer(velocity);  // [L,R,L,R...]
-    sf_count_t frameCount = inst.get_frame_count(velocity);
-    
-    // De-interleaving pro JUCE AudioBuffer
-    AudioBuffer<float> juceBuffer(2, frameCount);
-    float* leftChannel = juceBuffer.getWritePointer(0);
-    float* rightChannel = juceBuffer.getWritePointer(1);
-    
-    for (int frame = 0; frame < frameCount; frame++) {
-        leftChannel[frame] = stereoData[frame * 2];         // L kanÃ¡l
-        rightChannel[frame] = stereoData[frame * 2 + 1];    // R kanÃ¡l
-    }
-}
-
-// PouÅ¾itÃ­ s Voice pro ADSR obÃ¡lku
-Envelope envelope(500.0f, 300.0f, 0.7f, 1000.0f);
-envelope.setEnvelopeFrequency(44100, logger);
-Voice voice(midiNote, inst, logger, envelope);
-voice.setNoteState(true, velocity);
-AudioBuffer simBuf(512);  // Simulace pro test
-voice.processBlock(simBuf, 512);  // AplikovÃ¡n ADSR gain, vÃ½stup v simBuf
-// PÅ™eveÄ simBuf do JUCE bufferu
-```
+- **NÃ¡zvoslovÃ­ souborÅ¯**: WAV soubory musÃ­ bÃ½t ve formÃ¡tu `mXXX-velY-fZZ.wav`. Jinak ignorovÃ¡ny s warningem.
+- **Frekvence**: MusÃ­ odpovÃ­dat WAV headeru, jinak `std::exit(1)`.
+- **Stereo formÃ¡t**: VÅ¡echny buffery jsou interleaved `[L,R,L,R...]`.
+- **JUCE integrace**: Buffery jsou pÅ™ipraveny pro JUCE AudioBuffer de-interleaving.
+- **RT-safe operace**: TÅ™Ã­da `Envelope` a `Voice` jsou optimalizovÃ¡ny pro real-time audio.
+- **PamÄ›Å¥**: PÅ™edpoÄÃ­tanÃ© obÃ¡lky (`EnvelopeStaticData`) Å¡etÅ™Ã­ pamÄ›Å¥ pro vÃ­ce hlasÅ¯.
+- **Chyby**: KritickÃ© chyby (neinicializovanÃ¡ data, neplatnÃ¡ frekvence) vedou k `std::exit(1)`.
 
 ---
 
