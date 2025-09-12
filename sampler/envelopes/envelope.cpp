@@ -92,7 +92,7 @@ bool Envelope::setEnvelopeFrequency(int sampleRate, Logger& logger) {
     return true;
 }
 
-bool Envelope::getAttackGains(float* gain_buffer, int num_samples, int envelope_attack_position) {
+bool Envelope::getAttackGains(float* gain_buffer, int num_samples, int envelope_attack_position) const {
     // RT-SAFE: Kontrola platnosti parametrů
     if (!gain_buffer || num_samples <= 0) {
         return false;
@@ -143,7 +143,7 @@ bool Envelope::getAttackGains(float* gain_buffer, int num_samples, int envelope_
     return continues;
 }
 
-bool Envelope::getReleaseGains(float* gain_buffer, int num_samples, int envelope_release_position) {
+bool Envelope::getReleaseGains(float* gain_buffer, int num_samples, int envelope_release_position) const {
     // RT-SAFE: Kontrola platnosti parametrů
     if (!gain_buffer || num_samples <= 0) {
         return false;

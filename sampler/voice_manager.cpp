@@ -17,7 +17,7 @@
 VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
     : samplerIO_(),              // Stack allocated SamplerIO - prázdný stav
       instrumentLoader_(),       // Stack allocated InstrumentLoader - prázdný stav
-      envelope(),                // Stack allocated Envelope - prazdny stav
+      envelope_(),                // Stack allocated Envelope - prazdny stav
       currentSampleRate_(0),     // NEINICIALIZOVÁNO - bude nastaveno changeSampleRate()
       sampleDir_(sampleDir),
       systemInitialized_(false), // System není připraven

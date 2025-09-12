@@ -53,7 +53,7 @@ public:
      * @param envelope_attack_position Pozice v obálce (offset)
      * @return true pokud obálka pokračuje, false při dosažení konce
      */
-    bool getAttackGains(float* gain_buffer, int num_samples, int envelope_attack_position);
+    bool getAttackGains(float* gain_buffer, int num_samples, int envelope_attack_position) const;
 
     /**
      * @brief RT-SAFE: Získá hodnoty release obálky
@@ -63,7 +63,7 @@ public:
      * @param envelope_release_position Pozice v obálce (offset)
      * @return true pokud obálka pokračuje, false při dosažení konce
      */
-    bool getReleaseGains(float* gain_buffer, int num_samples, int envelope_release_position);
+    bool getReleaseGains(float* gain_buffer, int num_samples, int envelope_release_position) const;
 
     /**
      * @brief RT-SAFE: Nastaví MIDI hodnotu pro attack obálku
