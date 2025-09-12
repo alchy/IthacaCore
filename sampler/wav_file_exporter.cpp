@@ -113,11 +113,11 @@ bool WavExporter::wavFileWriteBuffer(float* buffer_ptr, int buffer_size) {
     }
 
     auto start = std::chrono::steady_clock::now();
-    sf_count_t framesToWrite = buffer_size;
+    int framesToWrite = buffer_size;
 
     if (!dummy_write_) {
         if (exportFormat_ == ExportFormat::Float) {
-            sf_count_t framesWritten = sf_writef_float(sndfile_, buffer_ptr, framesToWrite);
+            int framesWritten = sf_writef_float(sndfile_, buffer_ptr, framesToWrite);
             if (framesWritten != framesToWrite) {
                 #if LOG_ENABLED
                 logger_.log("WavExporter/wavFileWriteBuffer", "error", "Float write error: expected " + std::to_string(framesToWrite) + " frames, wrote " + std::to_string(framesWritten));
@@ -126,7 +126,7 @@ bool WavExporter::wavFileWriteBuffer(float* buffer_ptr, int buffer_size) {
             }
         } else {  // Pcm16 (default)
             convertFloatToInt16(buffer_ptr, tempPcmBuffer_, static_cast<int>(framesToWrite * channels_));
-            sf_count_t framesWritten = sf_writef_short(sndfile_, tempPcmBuffer_, framesToWrite);
+            int framesWritten = sf_writef_short(sndfile_, tempPcmBuffer_, framesToWrite);
             if (framesWritten != framesToWrite) {
                 #if LOG_ENABLED
                 logger_.log("WavExporter/wavFileWriteBuffer", "error", "Pcm16 write error: expected " + std::to_string(framesToWrite) + " frames, wrote " + std::to_string(framesWritten));

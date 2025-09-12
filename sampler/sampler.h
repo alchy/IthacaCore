@@ -26,7 +26,7 @@ struct SampleInfo {
     uint8_t midi_note;              // MIDI nota (0-127)
     uint8_t midi_note_velocity;     // Velocity layer (0-7)
     int frequency;                  // Sample rate v Hz
-    sf_count_t sample_count;        // Počet frames (stereo pairs)
+    int sample_count;        // Počet frames (stereo pairs)
     double duration_seconds;        // Délka v sekundách
     int channels;                   // Počet kanálů (1 = mono, 2 = stereo)
     bool is_stereo;                // True pokud channels >= 2
@@ -53,7 +53,7 @@ public:
     uint8_t getMidiNote(int index, Logger& logger) const;
     uint8_t getMidiNoteVelocity(int index, Logger& logger) const;
     int getFrequency(int index, Logger& logger) const;
-    sf_count_t getSampleCount(int index, Logger& logger) const;
+    int getSampleCount(int index, Logger& logger) const;
     double getDurationInSeconds(int index, Logger& logger) const;
     int getChannelCount(int index, Logger& logger) const;
     bool getIsStereo(int index, Logger& logger) const;

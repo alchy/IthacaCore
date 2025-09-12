@@ -6,7 +6,7 @@ THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
 #define INSTRUMENT_LOADER_H
 
 #include <cstdint>      // Pro uint8_t
-#include <sndfile.h>    // Pro SNDFILE*, SF_INFO, sf_count_t
+#include <sndfile.h>    // Pro SNDFILE*, SF_INFO, int
 #include "sampler.h"    // Pro SamplerIO, SampleInfo, Logger
 #include "core_logger.h" // Pro Logger (explicitní include pro jasnost)
 
@@ -45,10 +45,10 @@ struct Instrument {
     
     // NOVÉ METADATA - stereo informace (nezávislé na SampleInfo)
     // Počet stereo frame párů (každý frame = L+R sample)
-    sf_count_t frame_count_stereo[VELOCITY_LAYERS];
+    int frame_count_stereo[VELOCITY_LAYERS];
     
     // Celkový počet float hodnot v bufferu (frame_count_stereo * 2)
-    sf_count_t total_samples_stereo[VELOCITY_LAYERS];
+    int total_samples_stereo[VELOCITY_LAYERS];
     
     // Indikátor původního formátu před konverzí (true = byl mono, false = byl stereo)
     bool was_originally_mono[VELOCITY_LAYERS];
@@ -99,7 +99,7 @@ struct Instrument {
      * @return Celkový počet float hodnot v bufferu (frame_count * 2)
      * Při neplatném velocity nebo neexistujícím samplu: 0
      */
-    sf_count_t get_total_sample_count(uint8_t velocity) const {
+    int get_total_sample_count(uint8_t velocity) const {
         if (velocity >= VELOCITY_LAYERS || !velocityExists[velocity]) {
             return 0;
         }

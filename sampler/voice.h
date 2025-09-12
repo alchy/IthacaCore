@@ -135,7 +135,7 @@ public:
     uint8_t getMidiNote() const noexcept { return midiNote_; }
     bool isActive() const noexcept { return state_ != VoiceState::Idle; }
     VoiceState getState() const noexcept { return state_; }
-    sf_count_t getPosition() const noexcept { return position_; }
+    int getPosition() const noexcept { return position_; }
     uint8_t getCurrentVelocityLayer() const noexcept { return currentVelocityLayer_; }
     
     // OPRAVENÉ gain gettery s jasnou strukturou
@@ -167,7 +167,7 @@ private:
     const Instrument* instrument_;      // Pointer na Instrument (nevolnit, patří Loader)
     int sampleRate_;                    // Frekvence vzorkování pro obálku (Hz)
     VoiceState state_;                  // Aktuální stav
-    sf_count_t position_;               // Pozice ve sample (frames)
+    int position_;               // Pozice ve sample (frames)
     uint8_t currentVelocityLayer_;      // Aktuální velocity layer (0-7)
     
     float envelope_gain_;               // Dynamická obálka (attack/sustain/release): 0.0-1.0

@@ -411,9 +411,9 @@ int SamplerIO::getFrequency(int index, Logger& logger) const {
  * @brief Getter pro počet vzorků na zadaném indexu
  * @param index Index v seznamu
  * @param logger Reference pro logování chyb
- * @return sf_count_t počet vzorků (frames)
+ * @return int počet vzorků (frames)
  */
-sf_count_t SamplerIO::getSampleCount(int index, Logger& logger) const {
+int SamplerIO::getSampleCount(int index, Logger& logger) const {
     if (index < 0 || static_cast<size_t>(index) >= sampleList.size()) {
         logger.log("SamplerIO/getSampleCount", "error", "Invalid index: " + std::to_string(index) + " (list size: " + std::to_string(sampleList.size()) + ")");
         std::exit(1);

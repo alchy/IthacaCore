@@ -274,35 +274,40 @@ bool Voice::processBlock(float* outputLeft,
     }
     
     // GAIN CHAIN - envelope * velocity * master
-    const sf_count_t startIndex = position_ * 2;
+    const int startIndex = position_ * 2;
     const float* srcPtr = stereoBuffer + startIndex;
     
     // APLIKOVAT gain na výstup
 
     
-    std::ostringstream gain_stream;                                     // TISK-DEBUG
-    gain_stream << std::fixed << std::setprecision(3);                  // TISK-DEBUG
-    gain_stream << gainBuffer_[0];                                      // TISK-DEBUG
+    // DEBUG // std::ostringstream gain_stream;                                     // TISK-DEBUG
+    // DEBUG // gain_stream << std::fixed << std::setprecision(3);                  // TISK-DEBUG
+    // DEBUG // gain_stream << gainBuffer_[0];                                      // TISK-DEBUG
+    std::ostringstream otputBufferLeft_stream;
+    otputBufferLeft_stream << std::fixed << std::setprecision(3);
 
     for (int i = 0; i < samplesToProcess; ++i) {
         const int srcIndex = i * 2;
         
-        outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i];             // Mixdown L
-        outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i];        // Mixdown R
+        outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i];                         // Mixdown L
+        outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i];                    // Mixdown R
 
-        gain_stream << gainBuffer_[i];                                  // TISK-DEBUG
-        if (i > 0) gain_stream << ", ";                                 // TISK-DEBUG
+        // DEBUG // gain_stream << gainBuffer_[i];                                  // TISK-DEBUG
+        // DEBUG //  if (i > 0) gain_stream << ", ";                                 // TISK-DEBUG
+        otputBufferLeft_stream << outputLeft[i];
+        otputBufferLeft_stream << ", "; 
 
     }
 
-    std::cout << "GAINS: [" << gain_stream.str() << "]" << std::endl;   // TISK-DEBUG
+    // DEBUG // std::cout << "GAINS: [" << gain_stream.str() << "]" << std::endl;   // TISK-DEBUG
+    std::cout << "GAINS: [" << otputBufferLeft_stream.str() << "]" << std::endl;
 
     // Čekání na stisk Enteru
     //std::cout << "Press ENTER to continue..." << std::flush; // xxx - DEBUG WAIT ENTER
     //std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // xxx - DEBUG 
 
     // Batch position update - OPRAVA: Safe conversion zpět
-    position_ += static_cast<sf_count_t>(samplesToProcess);
+    position_ += static_cast<int>(samplesToProcess);
     
     // End condition check - OPRAVA: proper transition to Idle
     if (position_ >= maxFrames) {

@@ -246,7 +246,7 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
     }
     
     // Získání metadat přes SamplerIO gettery
-    sf_count_t frameCount = sampler_->getSampleCount(sampleIndex, logger);
+    int frameCount = sampler_->getSampleCount(sampleIndex, logger);
     int channelCount = sampler_->getChannelCount(sampleIndex, logger);
     bool needsConversion = sampler_->getNeedsConversion(sampleIndex, logger);
     bool isInterleaved = sampler_->getIsInterleavedFormat(sampleIndex, logger);
@@ -265,7 +265,7 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
     }
     
     // Krok 3: Načtení dat pomocí sf_readf_float (automatická PCM->float konverze)
-    sf_count_t framesRead = sf_readf_float(sndfile, tempBuffer, frameCount);
+    int framesRead = sf_readf_float(sndfile, tempBuffer, frameCount);
     sf_close(sndfile);
     
     if (framesRead != frameCount) {
@@ -303,7 +303,7 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
     
     if (channelCount == 1) {
         // MONO → STEREO konverze: duplikace mono dat do obou kanálů (L=R)
-        for (sf_count_t frame = 0; frame < frameCount; frame++) {
+        for (int frame = 0; frame < frameCount; frame++) {
             permanentBuffer[frame * 2] = tempBuffer[frame];     // L kanál
             permanentBuffer[frame * 2 + 1] = tempBuffer[frame]; // R kanál (duplikace)
         }
@@ -319,7 +319,7 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
                        std::string(filename));
         } else {
             // Non-interleaved → interleaved konverze
-            for (sf_count_t frame = 0; frame < frameCount; frame++) {
+            for (int frame = 0; frame < frameCount; frame++) {
                 permanentBuffer[frame * 2] = tempBuffer[frame];                    // L kanál
                 permanentBuffer[frame * 2 + 1] = tempBuffer[frameCount + frame];   // R kanál
             }
@@ -332,13 +332,13 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
         // Multi-channel (>2) → STEREO: použijeme jen první 2 kanály
         if (isInterleaved) {
             // Interleaved multi-channel: [L1,R1,C1,L2,R2,C2...] → [L1,R1,L2,R2...]
-            for (sf_count_t frame = 0; frame < frameCount; frame++) {
+            for (int frame = 0; frame < frameCount; frame++) {
                 permanentBuffer[frame * 2] = tempBuffer[frame * channelCount];     // L
                 permanentBuffer[frame * 2 + 1] = tempBuffer[frame * channelCount + 1]; // R
             }
         } else {
             // Non-interleaved multi-channel: [L...][R...][C...] → [L1,R1,L2,R2...]
-            for (sf_count_t frame = 0; frame < frameCount; frame++) {
+            for (int frame = 0; frame < frameCount; frame++) {
                 permanentBuffer[frame * 2] = tempBuffer[frame];                    // L kanál
                 permanentBuffer[frame * 2 + 1] = tempBuffer[frameCount + frame];   // R kanál
             }
@@ -527,7 +527,7 @@ void InstrumentLoader::validateStereoConsistency(Logger& logger) {
                 }
                 
                 // Kontrola 4: Total samples musí být frame_count * 2
-                sf_count_t expectedTotalSamples = inst.frame_count_stereo[vel] * 2;
+                int expectedTotalSamples = inst.frame_count_stereo[vel] * 2;
                 if (inst.total_samples_stereo[vel] != expectedTotalSamples) {
                     logger.log("InstrumentLoader/validateStereoConsistency", "error", 
                               "Inconsistent total_samples_stereo for MIDI " + std::to_string(midi) + 
