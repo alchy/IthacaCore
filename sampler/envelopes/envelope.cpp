@@ -3,8 +3,8 @@
 
 // Konstruktor - inicializace per-voice state s výchozími hodnotami
 Envelope::Envelope()
-    : attack_midi_index_(1)
-    , release_midi_index_(1)
+    : attack_midi_index_(8)
+    , release_midi_index_(16)
     , sustain_level_(1.0f) {
 }
 

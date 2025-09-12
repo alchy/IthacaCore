@@ -210,9 +210,9 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
                                                              envelope_release_position_, sampleRate_);
             
             // Škálovat release gainy na aktuální startovní úroveň
-            for (int i = 0; i < numSamples; ++i) {
-                gainBuffer[i] *= release_start_gain_;
-            }
+            //for (int i = 0; i < numSamples; ++i) {
+            //    gainBuffer[i] *= release_start_gain_;
+            //}
 
             envelope_release_position_ += numSamples;
             envelope_gain_ = gainBuffer[numSamples - 1];
@@ -289,6 +289,7 @@ bool Voice::processBlock(float* outputLeft,
     for (int i = 0; i < samplesToProcess; ++i) {
         const int srcIndex = i * 2;
         
+        // outputLeft[i] += gainBuffer_[i];
         outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i];                         // Mixdown L
         outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i];                    // Mixdown R
 
