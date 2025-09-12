@@ -86,7 +86,7 @@ struct Instrument {
      * @return Počet stereo frame párů (každý frame = L+R sample)
      * Při neplatném velocity nebo neexistujícím samplu: 0
      */
-    sf_count_t get_frame_count(uint8_t velocity) const {
+    int get_frame_count(uint8_t velocity) const {
         if (velocity >= VELOCITY_LAYERS || !velocityExists[velocity]) {
             return 0;
         }

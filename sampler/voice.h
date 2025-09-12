@@ -1,7 +1,9 @@
 #ifndef VOICE_H
 #define VOICE_H
 
-#define VOICE_GAIN 0.8f
+#define VOICE_GAIN 1.0f
+#define ENVELOPE_TRIGGER_END_ATTACK  0.95f
+#define ENVELOPE_TRIGGER_END_RELEASE 0.05f
 
 #include <cstdint>
 #include <atomic>

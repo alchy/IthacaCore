@@ -178,13 +178,13 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
             envelope_attack_position_ += numSamples;
             
             // Zkontroluj dokončení attack
-            if (!attackContinues || gainBuffer[numSamples - 1] >= 0.99f) {
+            if (!attackContinues || gainBuffer[numSamples - 1] >= 0.95f) {
                 state_ = VoiceState::Sustaining;
                 // Dokončit blok sustain hodnotami
-                std::cout << "-> getSustainLevel";
+                // DEBUG //  std::cout << "-> getSustainLevel"; // DEBUG // 
                 const float sustainLevel = envelope_->getSustainLevel();
                 for (int i = 0; i < numSamples; ++i) {
-                    if (gainBuffer[i] >= 0.99f) gainBuffer[i] = sustainLevel;
+                    if (gainBuffer[i] >= ENVELOPE_TRIGGER_END_ATTACK) gainBuffer[i] = sustainLevel;
                 }
                 release_start_gain_ = sustainLevel;
             }
@@ -194,7 +194,7 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
         }
         
         case VoiceState::Sustaining: {
-            std::cout << "-> getSustainLevel";
+            // DEBUG // std::cout << "-> getSustainLevel"; // DEBUG // 
             const float sustainLevel = envelope_->getSustainLevel();
             for (int i = 0; i < numSamples; ++i) {
                 gainBuffer[i] = sustainLevel;
@@ -218,7 +218,8 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
             envelope_gain_ = gainBuffer[numSamples - 1];
             
             // Proper transition to idle when release ends
-            if (!releaseContinues || envelope_gain_ <= 0.001f) {
+            if (!releaseContinues || envelope_gain_ <= ENVELOPE_TRIGGER_END_RELEASE) {
+                // DEBUG // std::cout << "-> VoiceState::Idle"; // DEBUG // 
                 state_ = VoiceState::Idle;
                 envelope_gain_ = 0.0f;
                 return false;
@@ -249,7 +250,7 @@ bool Voice::processBlock(float* outputLeft,
     
     // Cache frequently used values
     const float* stereoBuffer = instrument_->get_sample_begin_pointer(currentVelocityLayer_);
-    const sf_count_t maxFrames = instrument_->get_frame_count(currentVelocityLayer_);
+    const int maxFrames = instrument_->get_frame_count(currentVelocityLayer_);
 
     if (!stereoBuffer || maxFrames == 0) {
         state_ = VoiceState::Idle;
@@ -258,7 +259,7 @@ bool Voice::processBlock(float* outputLeft,
     
     // OPRAVA: Safe conversion s explicitním ošetřením přetečení
     const int samplesUntilEnd = maxFrames - position_;
-    const int samplesRequested = static_cast<sf_count_t>(samplesPerBlock);
+    const int samplesRequested = samplesPerBlock;
     const int samplesToProcess = std::min(samplesRequested, samplesUntilEnd);
     
         // Use pre-allocated buffer

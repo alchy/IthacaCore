@@ -96,16 +96,16 @@ Načítá WAV soubory do paměti jako stereo float buffery, zajišťuje mono→s
 <xaiArtifact>
 ```cpp
 struct Instrument {
-    SampleInfo* sample_ptr_sampleInfo[8];    // Pointery na SampleInfo
-    float* sample_ptr_velocity[8];           // Stereo float buffery [L,R,L,R...]
-    bool velocityExists[8];                  // Indikátory existence
-    sf_count_t frame_count_stereo[8];        // Počet stereo frame párů
-    sf_count_t total_samples_stereo[8];      // Celkový počet float hodnot
-    bool was_originally_mono[8];             // Původní formát
-    float* get_sample_begin_pointer(uint8_t velocity);    // Pointer na stereo data
-    sf_count_t get_frame_count(uint8_t velocity);         // Počet frame párů
-    sf_count_t get_total_sample_count(uint8_t velocity);  // Celkový počet floatů
-    bool get_was_originally_mono(uint8_t velocity);       // Původní formát info
+    SampleInfo* sample_ptr_sampleInfo[8];                   // Pointery na SampleInfo
+    float* sample_ptr_velocity[8];                          // Stereo float buffery [L,R,L,R...]
+    bool velocityExists[8];                                 // Indikátory existence
+    int frame_count_stereo[8];                              // Počet stereo frame párů
+    int total_samples_stereo[8];                            // Celkový počet float hodnot
+    bool was_originally_mono[8];                            // Původní formát
+    float* get_sample_begin_pointer(uint8_t velocity);      // Pointer na stereo data
+    int get_frame_count(uint8_t velocity);                  // Počet frame párů
+    int get_total_sample_count(uint8_t velocity);           // Celkový počet floatů
+    bool get_was_originally_mono(uint8_t velocity);         // Původní formát info
 };
 ```
 
@@ -120,7 +120,7 @@ loader.loadInstrument();
 Instrument& inst = loader.getInstrumentNote(108);
 if (inst.velocityExists[7]) {
     float* stereoData = inst.get_sample_begin_pointer(7);
-    sf_count_t frames = inst.get_frame_count(7);
+    int frames = inst.get_frame_count(7);
     logger.log("demo", "info", "Loaded MIDI 108, vel 7, frames: " + std::to_string(frames));
 }
 ```

@@ -77,23 +77,18 @@ bool verifyBasicFunctionality(VoiceManager& voiceManager, Logger& logger) {
         std::fill(rightBuffer, rightBuffer + blockSize, 0.0f);
         
         // Start note
-        voiceManager.setNoteState(testMidi, true, testVelocity);
-        
-        // Process block
         bool hasAudio;
         int i;
-        for(i = 0; i < 8; i++) {
+
+        voiceManager.setNoteState(testMidi, true, testVelocity);
+        for(i = 0; i < 12; i++) {
             hasAudio = voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
         }
-
         voiceManager.setNoteState(testMidi, false, testVelocity);
-        for(i = 0; i < 8; i++) {
+        for(i = 0; i < 512; i++) {
             hasAudio = voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
         }
 
-        // Stop note
-        voiceManager.setNoteState(testMidi, false, 0);
-        
         // Cleanup
         delete[] leftBuffer;
         delete[] rightBuffer;
