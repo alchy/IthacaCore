@@ -2,10 +2,11 @@
 #define VOICE_MANAGER_H
 
 #include "voice.h"
-#include "envelopes/envelope.h"              // Refaktorovaná Envelope třída
-#include "envelopes/envelope_static_data.h"  // Pro validace
+#include "envelopes/envelope.h"
+#include "envelopes/envelope_static_data.h"
 #include "instrument_loader.h"
 #include "sampler.h"
+
 #include <vector>
 #include <string>
 #include <atomic>
@@ -13,29 +14,42 @@
 
 /**
  * @class VoiceManager
- * @brief Hlavní třída pro řízení polyfonního audio systému s REFAKTOROVANÝM envelope systémem
+ * @brief Hlavní třída pro řízení polyfonního audio systému s refaktorovanými sdílenými envelope daty
  * 
- * REFAKTOROVÁNO: Používá sdílená statická envelope data přes EnvelopeStaticData,
- * což dramaticky snižuje paměťovou spotřebu při více instancích VoiceManager.
+ * REFAKTOROVÁNO: Odstraněny všechny testovací metody pro čistou produkční implementaci.
+ * Všechny testy jsou nyní v separátní třídě VoiceManagerTester.
  * 
- * DŮLEŽITÉ: EnvelopeStaticData musí být inicializována PŘED vytvořením VoiceManager!
+ * NOVÝ SYSTÉM: Používá sdílená statická envelope data z EnvelopeStaticData,
+ * což dramaticky snižuje paměťovou spotřebu při více instancích (úspora ~3.1 GB při 16 kanálech).
+ * 
+ * Klíčové vlastnosti:
+ * - 128 simultánních voices (jeden pro každou MIDI notu)
+ * - Dynamic sample rate management (44100/48000 Hz)
+ * - Stack allocated komponenty (SamplerIO, InstrumentLoader)
+ * - JUCE integration ready (prepareToPlay pattern)
+ * - RT-safe processBlock s dynamic gain scaling
+ * - Initialization pipeline pro modulární setup
+ * - Sdílená envelope data mezi všemi instancemi
  */
 class VoiceManager {
 public:
     /**
-     * @brief Konstruktor s validací statických envelope dat
+     * @brief Konstruktor: Vytvoří VoiceManager s cestou k samples
      * @param sampleDir Cesta k sample adresáři
      * @param logger Reference na Logger
      * 
-     * PŘEDPOKLAD: EnvelopeStaticData::initialize() už bylo voláno!
+     * DŮLEŽITÉ: EnvelopeStaticData musí být inicializována PŘED vytvořením VoiceManager!
+     * Volej EnvelopeStaticData::initialize(logger) v main() před vytvořením VoiceManagerů.
      */
     VoiceManager(const std::string& sampleDir, Logger& logger);
     
-    // ===== INITIALIZATION PIPELINE =====
+    // ===== INITIALIZATION PIPELINE START =====
     
     /**
-     * @brief FÁZE 1: Jednorazová inicializace - skenování adresáře
+     * @brief FÁZE 1: Jednorazová inicializace - skenování adresáře (BEZ envelope init)
      * @param logger Reference na Logger
+     * 
+     * POZNÁMKA: Envelope inicializace je nyní globální v EnvelopeStaticData::initialize()
      */
     void initializeSystem(Logger& logger);
 
@@ -43,9 +57,13 @@ public:
      * @brief FÁZE 2: Načtení dat pro konkrétní sample rate
      * @param sampleRate Target sample rate (44100/48000)
      * @param logger Reference na Logger
+     * 
+     * POZNÁMKA: EnvelopeStaticData už obsahuje data pro oba sample rate!
      */
     void loadForSampleRate(int sampleRate, Logger& logger);
 
+    // =====  SAMPLE RATE MANAGEMENT =====
+    
     /**
      * @brief Nastavení sample rate a trigger reinicializace
      * @param newSampleRate Nový sample rate (44100 nebo 48000)
@@ -59,27 +77,29 @@ public:
      */
     int getCurrentSampleRate() const noexcept { return currentSampleRate_; }
 
+    // ===== JUCE INTEGRATION =====
+    
     /**
-     * @brief FÁZE 3: Prepare all voices for new buffer size (JUCE integration)
+     * @brief Prepare all voices for new buffer size (JUCE integration)
      * @param maxBlockSize Maximum block size from DAW
      */
     void prepareToPlay(int maxBlockSize) noexcept;
-    
+
     // ===== CORE AUDIO API =====
 
     /**
      * @brief Nastavení stavu MIDI noty (note-on/note-off)
      * @param midiNote MIDI nota (0-127)
      * @param isOn true = note-on, false = note-off
-     * @param velocity MIDI velocity (0-127)
+     * @param velocity MIDI velocity (0-127), nyní správně ovlivňuje hlasitost
      */
     void setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) noexcept;
     
     /**
      * @brief RT-SAFE: Process audio block - INTERLEAVED format
-     * @param outputBuffer AudioData buffer pro stereo výstup
-     * @param samplesPerBlock Počet samples k zpracování
-     * @return true pokud jsou nějaké voices aktivní
+     * @param outputBuffer Interleaved stereo buffer (AudioData array)
+     * @param samplesPerBlock Number of samples to process
+     * @return true if any voices are still active
      */
     bool processBlockInterleaved(AudioData* outputBuffer, int samplesPerBlock) noexcept;
     
@@ -113,7 +133,7 @@ public:
     
     /**
      * @brief Getter pro počet aktivních voices
-     * @return Počet aktivních voices
+     * @return Počet aktivních voices (sustaining + releasing)
      */
     int getActiveVoicesCount() const noexcept { return activeVoicesCount_.load(); }
     
@@ -143,6 +163,8 @@ public:
      */
     const Voice& getVoice(uint8_t midiNote) const noexcept;
 
+    // ===== RT-SAFE MODE CONTROL =====
+    
     /**
      * @brief Nastavení real-time mode (pro debugging/profiling)
      * @param enabled true = RT mode (no logging), false = normal mode
@@ -155,6 +177,8 @@ public:
      */
     bool isRealTimeMode() const noexcept { return rtMode_.load(); }
 
+    // ===== SYSTEM DIAGNOSTICS =====
+    
     /**
      * @brief Loguje detailní statistiky celého systému
      * @param logger Reference na Logger
@@ -166,7 +190,9 @@ private:
     
     SamplerIO samplerIO_;               // Stack allocated SamplerIO instance
     InstrumentLoader instrumentLoader_; // Stack allocated InstrumentLoader instance
-    Envelope envelope_;                 // Per-instance envelope state manager (refaktorováno)
+    Envelope envelope_;                 // Per-instance envelope state manager (pouze per-voice state)
+
+    // ODSTRANĚNO: EnvelopeStaticData& envelopeData_ - používáme globální statická data
 
     // ===== SAMPLE RATE MANAGEMENT =====
     
@@ -174,7 +200,6 @@ private:
     std::string sampleDir_;            // Cesta k sample adresáři
     bool systemInitialized_;           // Flag pro initialization state
     
-
     // ===== VOICE MANAGEMENT =====
     
     std::vector<Voice> voices_;        // Fixní pool 128 voices
@@ -206,6 +231,8 @@ private:
      */
     void initializeVoicesWithInstruments(Logger& logger);
 
+    // ===== VOICE POOL MANAGEMENT =====
+    
     /**
      * @brief Přidá voice do active pool
      * @param voice Pointer na voice

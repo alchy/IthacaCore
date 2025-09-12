@@ -1,3 +1,4 @@
+#include "test_common.h"
 #include "envelope_test.h"
 #include "../core_logger.h"
 #include "../voice_manager.h"

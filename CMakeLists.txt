@@ -55,28 +55,9 @@ add_executable(IthacaCore
     # Envelopes (ADSR/ASR)
     sampler/envelopes/envelope.cpp
     sampler/envelopes/envelope.h
+    sampler/envelopes/envelope_static_data.cpp
+    sampler/envelopes/envelope_static_data.h
     
-    # === TEST FRAMEWORK ===
-    
-    # Base framework
-    sampler/tests/test_base.cpp
-    sampler/tests/test_base.h
-    sampler/tests/test_registry.cpp
-    sampler/tests/test_registry.h
-    
-    # Specific tests
-    sampler/tests/velocity_gain_test.cpp
-    sampler/tests/velocity_gain_test.h
-    sampler/tests/envelope_test.cpp
-    sampler/tests/envelope_test.h
-    sampler/tests/single_note_test.cpp
-    sampler/tests/single_note_test.h
-    sampler/tests/polyphony_test.cpp
-    sampler/tests/polyphony_test.h
-    sampler/tests/edge_case_test.cpp
-    sampler/tests/edge_case_test.h
-    sampler/tests/performance_test.cpp
-    sampler/tests/performance_test.h
 )
 
 # Include directories pro kompilaci a IntelliSense
