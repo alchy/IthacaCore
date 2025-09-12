@@ -93,12 +93,6 @@ public:
     void setNoteState(bool isOn, uint8_t velocity) noexcept;
 
     /**
-     * @brief Posune pozici ve sample o 1 frame.
-     * RT-SAFE: Optimalizováno pro single-sample advance bez loggingu.
-     */
-    void advancePosition() noexcept;
-
-    /**
      * @brief OPRAVENÁ metoda: Získá aktuální stereo audio data s aplikovanou kompletní gain chain.
      * RT-SAFE: Inline gain application s envelope * velocity * master.
      * @param data Reference na AudioData pro výstup.
@@ -180,9 +174,10 @@ private:
 
     const Envelope* envelope_;          // Pointer na Envelope (non-owning)
 
-    // PŘIDAT TYTO ŘÁDKY:
     int envelope_attack_position_;      // Pozice v attack envelope
     int envelope_release_position_;     // Pozice v release envelope
+
+    float release_start_gain_;          // Hodnota gain pri svem zacatku (nastavuje se v note on a pak ji nastavuje attack vzdy v miste, kde se meni na release / note-off)
     
     // RT-SAFE: Pre-allocated buffer pro gain calculations
     // Resized pouze během prepareToPlay() calls, nikdy během RT processing

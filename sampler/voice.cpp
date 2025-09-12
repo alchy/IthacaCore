@@ -1,6 +1,9 @@
 #include "voice.h"
 #include <algorithm>  // Pro std::min a clamp
 #include <cmath>      // Pro float výpočty
+#include <iostream>
+#include <sstream>
+#include <iomanip>
 
 // Static member initialization
 std::atomic<bool> Voice::rtMode_{false};
@@ -10,16 +13,18 @@ Voice::Voice() : midiNote_(0), instrument_(nullptr), sampleRate_(0),
                  state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
                  envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(0.8f),
                  envelope_(nullptr),
-                 envelope_attack_position_(0), envelope_release_position_(0) {
+                 envelope_attack_position_(0), envelope_release_position_(0), 
+                 release_start_gain_(1.0f) {
 }
 
 // Konstruktor pro VoiceManager (pool mód)
 Voice::Voice(uint8_t midiNote)
     : midiNote_(midiNote), instrument_(nullptr), sampleRate_(0),
       state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
-      envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(0.8f),
+      envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(1.0f),
       envelope_(nullptr),
-      envelope_attack_position_(0), envelope_release_position_(0) {
+      envelope_attack_position_(0), envelope_release_position_(0), 
+      release_start_gain_(1.0f) {
 }
 
 /**
@@ -54,11 +59,15 @@ void Voice::initialize(const Instrument& instrument, int sampleRate,
     velocity_gain_ = 0.0f;
     master_gain_ = 1.0f;
     
-    // NOVÉ: Reset envelope positions
+    // Reset envelope positions
     envelope_attack_position_ = 0;
     envelope_release_position_ = 0;
+
+    // Reset release start gain pro čistý stav
+    release_start_gain_ = 1.0f;
     
-    gainBuffer_.reserve(512);
+    // gain buffer s dostatecnou rezervou bloku
+    gainBuffer_.reserve(32767);
     
     logSafe("Voice/initialize", "info", 
            "Voice initialized for MIDI " + std::to_string(midiNote_) + 
@@ -94,9 +103,12 @@ void Voice::cleanup(Logger& logger) {
     velocity_gain_ = 0.0f;
     master_gain_ = 0.8f;
     
-    // NOVÉ: Reset envelope positions
+    // Reset envelope positions
     envelope_attack_position_ = 0;
     envelope_release_position_ = 0;
+
+    // Reset release start gain pro čistý stav
+    release_start_gain_ = 1.0f;
     
     logSafe("Voice/cleanup", "info", 
            "Voice cleaned up and reset to idle for MIDI " + std::to_string(midiNote_), logger);
@@ -108,6 +120,7 @@ void Voice::cleanup(Logger& logger) {
 void Voice::reinitialize(const Instrument& instrument, int sampleRate,
                          const Envelope& envelope, Logger& logger) {
     initialize(instrument, sampleRate, envelope, logger);
+
     logSafe("Voice/reinitialize", "info", 
            "Voice reinitialized with new instrument, sampleRate and ADSR envelope for MIDI " + std::to_string(midiNote_), logger);
 }
@@ -123,15 +136,20 @@ void Voice::setNoteState(bool isOn, uint8_t velocity) noexcept {
     currentVelocityLayer_ = std::min(static_cast<uint8_t>(velocity / 16), static_cast<uint8_t>(7));
     
     if (isOn) {
-        updateVelocityGain(velocity);       // update velicity gain se vola jen pri note on
-        state_ = VoiceState::Attacking;     // set voice state 
-        position_ = 0;                      // reset sample position in frames
-        envelope_gain_ = 0.0f;              // reset envelope gain
-        envelope_attack_position_ = 0;      // reset envelope attack position
+        std::cout << "-> setNoteState to ON";                       // xxx - DEBUG PRINT
+        updateVelocityGain(velocity);                               // update velicity gain se vola jen pri note on
+        std::cout << "-> VoiceState::Attacking";                    // xxx - DEBUG PRINT
+        state_ = VoiceState::Attacking;                             // set voice state 
+        position_ = 0;                                              // reset sample position in frames
+        envelope_gain_ = 0.0f;                                      // reset envelope gain
+        envelope_attack_position_ = 0;                              // reset envelope attack position
+        release_start_gain_ = 0.0f;                                 // reset na 0.0f při note ON (attack začíná od nuly, připraveno pro případný brzký note OFF)
     } else {
         if (state_ == VoiceState::Sustaining || state_ == VoiceState::Attacking) {
+            std::cout << "-> VoiceState::Releasing";                // xxx - DEBUG PRINT
             state_ = VoiceState::Releasing;
             envelope_release_position_ = 0;
+            release_start_gain_ = envelope_gain_;                   // zachytit aktuální gain pro škálování release (od attack nebo sustain)
         }
     }
 }
@@ -146,6 +164,7 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
     
     switch (state_) {
         case VoiceState::Attacking: {
+            std::cout << "-> getAttackGains";                       // xxx - DEBUG PRINT
             bool attackContinues = envelope_->getAttackGains(gainBuffer, numSamples, envelope_attack_position_);
             
             envelope_attack_position_ += numSamples;
@@ -154,10 +173,12 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
             if (!attackContinues || gainBuffer[numSamples - 1] >= 0.99f) {
                 state_ = VoiceState::Sustaining;
                 // Dokončit blok sustain hodnotami
+                std::cout << "-> getSustainLevel";                  // xxx - DEBUG PRINT
                 const float sustainLevel = envelope_->getSustainLevel();
                 for (int i = 0; i < numSamples; ++i) {
                     if (gainBuffer[i] >= 0.99f) gainBuffer[i] = sustainLevel;
                 }
+                release_start_gain_ = sustainLevel;                 // aktualizace na sustain úroveň (připraveno pro budoucí release)
             }
             
             envelope_gain_ = gainBuffer[numSamples - 1];
@@ -165,6 +186,7 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
         }
         
         case VoiceState::Sustaining: {
+            std::cout << "-> getSustainLevel";                      // xxx - DEBUG PRINT
             const float sustainLevel = envelope_->getSustainLevel();
             for (int i = 0; i < numSamples; ++i) {
                 gainBuffer[i] = sustainLevel;
@@ -174,37 +196,28 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
         }
         
         case VoiceState::Releasing: {
+            std::cout << "-> getReleaseGains";                      // xxx - DEBUG PRINT
             bool releaseContinues = envelope_->getReleaseGains(gainBuffer, numSamples, envelope_release_position_);
             
+            // škálovat release gainy na aktuální startovní úroveň (pro plynulý přechod)
+            for (int i = 0; i < numSamples; ++i) {
+                gainBuffer[i] *= release_start_gain_;
+            }
+
             envelope_release_position_ += numSamples;
             envelope_gain_ = gainBuffer[numSamples - 1];
             
-            // OPRAVA: Proper transition to Idle when release ends
+            // proper transition to idle when release ends
             if (!releaseContinues || envelope_gain_ <= 0.001f) {
-                state_ = VoiceState::Idle;  // OPRAVA: Přechod na Idle
+                state_ = VoiceState::Idle;                          // přechod na idle
                 envelope_gain_ = 0.0f;
-                return false;  // Voice dokončen
+                return false;                                       // hlas dohral 
             }
             return true;
         }
 
         default:
             return false;
-    }
-}
-
-/**
- * @brief RT-SAFE: Posune pozici ve sample o 1 frame (pro non-real-time processing).
- * OPTIMALIZOVÁNO: Eliminovány expensive function calls.
- */
-void Voice::advancePosition() noexcept {
-    if (state_ == VoiceState::Idle || !instrument_) {
-        return;  // Nic k posunu
-    }
-    
-    const sf_count_t maxFrames = instrument_->get_frame_count(currentVelocityLayer_);
-    if (position_ < maxFrames) {
-        ++position_;  // Posun o 1 frame (stereo pár L,R)
     }
 }
 
@@ -253,16 +266,33 @@ bool Voice::processBlock(float* outputLeft,
     const sf_count_t startIndex = position_ * 2;
     const float* srcPtr = stereoBuffer + startIndex;
     
-    // APLIKOVAT gain na výstup!
+    // APLIKOVAT gain na výstup
+
+    // TISK-DEBUG GAIN: Připravíme stream pro tisk
+    std::ostringstream gain_stream; 
+    
+    gain_stream << gainBuffer_[0]; // xxx - DEBUG PRINT
+
     for (int i = 0; i < samplesToProcess; ++i) {
         const int srcIndex = i * 2;
         
         // Mixdown 
-        const float gain = gainBuffer_[i]; // xxx * velocity_gain_ * master_gain_;
-        outputLeft[i] += srcPtr[srcIndex] * gain;
-        outputRight[i] += srcPtr[srcIndex + 1] * gain;
+        outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i];
+        outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i];
+
+        gain_stream << gainBuffer_[i]; // xxx - DEBUG PRINT
+        if (i > 0) gain_stream << ", "; // xxx - DEBUG PRINT
+
     }
+       
     
+    // // TISK-DEBUG GAIN: vytisknout celou sadu gainů na konzoli
+    std::cout << "GAINS: [" << gain_stream.str() << "]" << std::endl; // xxx - DEBUG PRINT
+
+    // Čekání na stisk Enteru
+    std::cout << "Press ENTER to continue..." << std::flush; // xxx - DEBUG 
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // xxx - DEBUG 
+
     // Batch position update - OPRAVA: Safe conversion zpět
     position_ += static_cast<sf_count_t>(samplesToProcess);
     
