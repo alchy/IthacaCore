@@ -259,7 +259,7 @@ bool Voice::processBlock(float* outputLeft,
         
         // Mixdown 
         const float gain = gainBuffer_[i]; // xxx * velocity_gain_ * master_gain_;
-        outputLeft[i] += srcPtr[srcIndex]* gain;
+        outputLeft[i] += srcPtr[srcIndex] * gain;
         outputRight[i] += srcPtr[srcIndex + 1] * gain;
     }
     
