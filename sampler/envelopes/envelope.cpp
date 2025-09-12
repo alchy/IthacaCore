@@ -1,284 +1,617 @@
 #include "envelope.h"
-#include <cstdlib>    // pro exit()
-#include <iostream>   // pro error reporting
-#include <cstring>    // pro memset
-#include <sstream>    // pro stringstream
-#include <iomanip>    // pro setprecision
+#include <cmath>
+#include <algorithm>
+#include <sstream>
+#include <iomanip>
+#include <cstdlib>  // Pro std::exit
 
-// Definice sf_count_t pokud není definovaná jinde
-#ifndef sf_count_t
-typedef long long sf_count_t;
-#endif
+// Static member initialization
+std::atomic<bool> Envelope::rtMode_{false};
 
-// Pomocná funkce pro konverzi čísla na string (pro starší C++ standardy)
-template<typename T>
-std::string to_string_helper(T value) {
-    std::stringstream ss;
-    ss << value;
-    return ss.str();
+Envelope::Envelope() 
+    : sample_rate_index_(SAMPLE_RATE_INDEX_INVALID)
+    , current_sample_rate_(0)
+    , attack_midi_index_(64)      // Výchozí střední hodnota
+    , release_midi_index_(64)     // Výchozí střední hodnota
+    , sustain_level_(0.7f)        // Výchozí 70% sustain
+{
+    // Inicializace indexových polí na null/0 pro všechny vzorkovací frekvence
+    for (int sr_idx = 0; sr_idx < NUM_SAMPLE_RATES; ++sr_idx) {
+        for (int midi = 0; midi <= MAX_MIDI; ++midi) {
+            attack_index_[sr_idx][midi] = {nullptr, 0};
+            release_index_[sr_idx][midi] = {nullptr, 0};
+        }
+    }
 }
 
-// Forward declaration - Logger se správným API podle vašeho headeru
-class Logger {
-public:
-    void log(const std::string& component, const std::string& severity, const std::string& message);
-};
-
-Envelope::Envelope(Logger& logger) 
-    : bitrate_(0), sample_rate_index_(-1) {
-    logger.log("Envelope/constructor", "info", "Envelope initialized. Ready to generate attack/release data for MIDI 0-127.");
-    logger.log("Envelope/constructor", "info", "Supported sample rates: 44100 Hz (index=0), 48000 Hz (index=1).");
-    logger.log("Envelope/constructor", "info", "Data will be generated dynamically - no pre-computed arrays needed.");
-    logger.log("Envelope/constructor", "warn", "Frequency not set (bitrate=0, index=-1) - call setEnvelopeFrequency().");
-}
-
-void Envelope::setEnvelopeFrequency(int freq, Logger& logger) {
-    if (freq == 44100) {
-        bitrate_ = freq;
-        sample_rate_index_ = 0;
-        logger.log("Envelope/setEnvelopeFrequency", "info", "Bitrate changed to 44100 Hz (index=0)");
-    } else if (freq == 48000) {
-        bitrate_ = freq;
-        sample_rate_index_ = 1;
-        logger.log("Envelope/setEnvelopeFrequency", "info", "Bitrate changed to 48000 Hz (index=1)");
-    } else {
-        logger.log("Envelope/setEnvelopeFrequency", "error", "Unsupported sample rate: " + to_string_helper(freq) + " Hz");
-        logger.log("Envelope/setEnvelopeFrequency", "error", "Only 44100 Hz and 48000 Hz are supported. Exiting...");
+bool Envelope::initialize(Logger& logger) {
+    logSafe("Envelope/initialize", "info", "Starting envelope generation for both sample rates", logger);
+    
+    // Kontrola, že třída není již inicializována
+    if (attack_index_[SAMPLE_RATE_INDEX_44100][0].data != nullptr || 
+        attack_index_[SAMPLE_RATE_INDEX_48000][0].data != nullptr) {
+        logSafe("Envelope/initialize", "warning", "Envelope already initialized, reinitializing", logger);
+    }
+    
+    try {
+        // Generuj obálky pro obě vzorkovací frekvence
+        generateEnvelopeForSampleRate(SAMPLE_RATES[SAMPLE_RATE_INDEX_44100], logger);
+        generateEnvelopeForSampleRate(SAMPLE_RATES[SAMPLE_RATE_INDEX_48000], logger);
+        
+        // Validace inicializace
+        bool success = true;
+        for (int sr_idx = 0; sr_idx < NUM_SAMPLE_RATES; ++sr_idx) {
+            for (int midi = 0; midi <= MAX_MIDI; ++midi) {
+                if (attack_index_[sr_idx][midi].data == nullptr || 
+                    attack_index_[sr_idx][midi].length == 0 ||
+                    release_index_[sr_idx][midi].data == nullptr || 
+                    release_index_[sr_idx][midi].length == 0) {
+                    logSafe("Envelope/initialize", "error", 
+                           "Failed to initialize envelope for MIDI " + std::to_string(midi) + 
+                           " at " + std::to_string(SAMPLE_RATES[sr_idx]) + " Hz", logger);
+                    success = false;
+                }
+            }
+        }
+        
+        if (!success) {
+            logSafe("Envelope/initialize", "error", 
+                   "Envelope initialization incomplete. Terminating.", logger);
+            std::exit(1);
+        }
+        
+        logSafe("Envelope/initialize", "info", 
+               "Envelope initialization completed successfully", logger);
+        return true;
+        
+    } catch (const std::exception& e) {
+        logSafe("Envelope/initialize", "error", 
+               "Failed to initialize envelopes: " + std::string(e.what()) + ". Terminating.", logger);
+        std::exit(1);
+    } catch (...) {
+        logSafe("Envelope/initialize", "error", 
+               "Failed to initialize envelopes: unknown error. Terminating.", logger);
         std::exit(1);
     }
 }
 
-double Envelope::calculateTau(uint8_t midi) const noexcept {
-    if (midi == 0) {
-        return 0.0;
+bool Envelope::setEnvelopeFrequency(int sampleRate, Logger& logger) {
+    const int sr_index = getSampleRateIndex(sampleRate);
+    
+    if (!isValidSampleRateIndex(sr_index)) {
+        logSafe("Envelope/setEnvelopeFrequency", "error", 
+               "Invalid sample rate " + std::to_string(sampleRate) + 
+               " Hz. Supported: 44100, 48000", logger);
+        return false;
     }
-    return (static_cast<double>(midi) / 127.0) * (TOTAL_DURATION / TAU_DIVISOR);
+    
+    sample_rate_index_ = sr_index;
+    current_sample_rate_ = sampleRate;
+    logSafe("Envelope/setEnvelopeFrequency", "info", 
+           "Sample rate set to " + std::to_string(sampleRate) + " Hz", logger);
+    return true;
 }
 
-int Envelope::calculateEnvelopeLength(uint8_t midi, int sample_rate, bool is_attack) const noexcept {
-    const double tau = calculateTau(midi);
-    
-    if (midi == 0) {
-        return 1;  // Okamžitá změna
+bool Envelope::getAttackGains(float* gain_buffer, int num_samples, int envelope_attack_position) {
+    // RT-SAFE: Kontrola platnosti parametrů
+    if (!gain_buffer || num_samples <= 0) {
+        return false;
     }
     
-    // Vypočítej stabilní čas kde křivka konverguje (t_stable = -tau * log(threshold))
-    const double log_threshold = -std::log(CONVERGENCE_THRESHOLD);  // ≈4.605 pro threshold=0.01
-    double t_stable = tau * log_threshold;
+    // KRITICKÁ CHYBA: Kontrola inicializace a nastavení frekvence
+    if (!isValidSampleRateIndex(sample_rate_index_)) {
+        Logger dummy_logger;
+        logSafe("Envelope/getAttackGains", "error", 
+               "Sample rate not set (call setEnvelopeFrequency first). Terminating.", dummy_logger);
+        std::exit(1);
+    }
     
-    // Omeď na TOTAL_DURATION
+    // Výběr správného indexu podle vzorkovací frekvence
+    const EnvelopeIndex& envelope_idx = attack_index_[sample_rate_index_][attack_midi_index_];
+    
+    // KRITICKÁ CHYBA: Kontrola inicializace dat
+    if (!envelope_idx.data || envelope_idx.length == 0) {
+        Logger dummy_logger;
+        logSafe("Envelope/getAttackGains", "error", 
+               "Attack envelope data not initialized (call initialize first). Terminating.", dummy_logger);
+        std::exit(1);
+    }
+    
+    const float* data = envelope_idx.data;
+    const int envelope_length = envelope_idx.length;
+    bool continues = true;
+    
+    // RT-SAFE: Kopírování dat s kontrolou mezí - rychlejší přístup přes pointer
+    for (int i = 0; i < num_samples; ++i) {
+        const int pos = envelope_attack_position + i;
+        
+        if (pos < envelope_length) {
+            gain_buffer[i] = data[pos];
+        } else {
+            gain_buffer[i] = 1.0f;
+            continues = false;
+        }
+    }
+    
+    // Logování vrácených hodnot (pouze v non-RT módu)
+    if (!rtMode_.load()) {
+        Logger dummy_logger;
+        logGainsData(gain_buffer, num_samples, "Attack", envelope_attack_position, 
+                    current_sample_rate_, dummy_logger);
+    }
+    
+    return continues;
+}
+
+bool Envelope::getReleaseGains(float* gain_buffer, int num_samples, int envelope_release_position) {
+    // RT-SAFE: Kontrola platnosti parametrů
+    if (!gain_buffer || num_samples <= 0) {
+        return false;
+    }
+    
+    // KRITICKÁ CHYBA: Kontrola inicializace a nastavení frekvence
+    if (!isValidSampleRateIndex(sample_rate_index_)) {
+        Logger dummy_logger;
+        logSafe("Envelope/getReleaseGains", "error", 
+               "Sample rate not set (call setEnvelopeFrequency first). Terminating.", dummy_logger);
+        std::exit(1);
+    }
+    
+    // Výběr správného indexu podle vzorkovací frekvence
+    const EnvelopeIndex& envelope_idx = release_index_[sample_rate_index_][release_midi_index_];
+    
+    // KRITICKÁ CHYBA: Kontrola inicializace dat
+    if (!envelope_idx.data || envelope_idx.length == 0) {
+        Logger dummy_logger;
+        logSafe("Envelope/getReleaseGains", "error", 
+               "Release envelope data not initialized (call initialize first). Terminating.", dummy_logger);
+        std::exit(1);
+    }
+    
+    const float* data = envelope_idx.data;
+    const int envelope_length = envelope_idx.length;
+    bool continues = true;
+    
+    // RT-SAFE: Kopírování dat s kontrolou mezí - rychlejší přístup přes pointer
+    for (int i = 0; i < num_samples; ++i) {
+        const int pos = envelope_release_position + i;
+        
+        if (pos < envelope_length) {
+            gain_buffer[i] = data[pos];
+        } else {
+            gain_buffer[i] = 0.0f;
+            continues = false;
+        }
+    }
+    
+    // Logování vrácených hodnot (pouze v non-RT módu)
+    if (!rtMode_.load()) {
+        Logger dummy_logger;
+        logGainsData(gain_buffer, num_samples, "Release", envelope_release_position, 
+                    current_sample_rate_, dummy_logger);
+    }
+    
+    return continues;
+}
+
+void Envelope::setAttackMIDI(uint8_t midi_value) {
+    // Kontrola inicializace před nastavením MIDI hodnoty
+    if (!isValidSampleRateIndex(sample_rate_index_)) {
+        Logger dummy_logger;
+        logSafe("Envelope/setAttackMIDI", "error", 
+               "Cannot set attack MIDI before setting sample rate (call setEnvelopeFrequency first). Terminating.", dummy_logger);
+        std::exit(1);
+    }
+    
+    bool buffers_empty = true;
+    for (int sr_idx = 0; sr_idx < NUM_SAMPLE_RATES; ++sr_idx) {
+        if (!attack_buffer_[sr_idx].empty()) {
+            buffers_empty = false;
+            break;
+        }
+    }
+    
+    if (buffers_empty) {
+        Logger dummy_logger;
+        logSafe("Envelope/setAttackMIDI", "error", 
+               "Cannot set attack MIDI before initialization (call initialize first). Terminating.", dummy_logger);
+        std::exit(1);
+    }
+    
+    // RT-SAFE: Pouze přiřazení hodnoty
+    attack_midi_index_ = std::min(midi_value, static_cast<uint8_t>(MAX_MIDI));
+}
+
+void Envelope::setReleaseMIDI(uint8_t midi_value) {
+    // Kontrola inicializace před nastavením MIDI hodnoty
+    if (!isValidSampleRateIndex(sample_rate_index_)) {
+        Logger dummy_logger;
+        logSafe("Envelope/setReleaseMIDI", "error", 
+               "Cannot set release MIDI before setting sample rate (call setEnvelopeFrequency first). Terminating.", dummy_logger);
+        std::exit(1);
+    }
+    
+    bool buffers_empty = true;
+    for (int sr_idx = 0; sr_idx < NUM_SAMPLE_RATES; ++sr_idx) {
+        if (!release_buffer_[sr_idx].empty()) {
+            buffers_empty = false;
+            break;
+        }
+    }
+    
+    if (buffers_empty) {
+        Logger dummy_logger;
+        logSafe("Envelope/setReleaseMIDI", "error", 
+               "Cannot set release MIDI before initialization (call initialize first). Terminating.", dummy_logger);
+        std::exit(1);
+    }
+    
+    // RT-SAFE: Pouze přiřazení hodnoty
+    release_midi_index_ = std::min(midi_value, static_cast<uint8_t>(MAX_MIDI));
+}
+
+void Envelope::setSustainLevelMIDI(uint8_t midi_value) {
+    // RT-SAFE: Lineární převod MIDI (0-127) na rozsah (0.0f-1.0f)
+    sustain_level_ = static_cast<float>(midi_value) / 127.0f;
+    sustain_level_ = std::max(0.0f, std::min(1.0f, sustain_level_));
+}
+
+float Envelope::getSustainLevel() const {
+    return sustain_level_;
+}
+
+float Envelope::getAttackLength() const {
+    // KRITICKÁ CHYBA: Kontrola inicializace
+    if (!isValidSampleRateIndex(sample_rate_index_) || current_sample_rate_ <= 0) {
+        Logger dummy_logger;
+        logSafe("Envelope/getAttackLength", "error", 
+               "Sample rate not set or envelope not initialized. Terminating.", dummy_logger);
+        std::exit(1);
+    }
+    
+    const EnvelopeIndex& envelope_idx = attack_index_[sample_rate_index_][attack_midi_index_];
+    
+    if (envelope_idx.data == nullptr) {
+        Logger dummy_logger;
+        logSafe("Envelope/getAttackLength", "error", 
+               "Attack envelope not initialized for " + std::to_string(current_sample_rate_) + 
+               " Hz. Terminating.", dummy_logger);
+        std::exit(1);
+    }
+    
+    const int length = envelope_idx.length;
+    return (static_cast<float>(length) / static_cast<float>(current_sample_rate_)) * 1000.0f;
+}
+
+float Envelope::getReleaseLength() const {
+    // KRITICKÁ CHYBA: Kontrola inicializace
+    if (!isValidSampleRateIndex(sample_rate_index_) || current_sample_rate_ <= 0) {
+        Logger dummy_logger;
+        logSafe("Envelope/getReleaseLength", "error", 
+               "Sample rate not set or envelope not initialized. Terminating.", dummy_logger);
+        std::exit(1);
+    }
+    
+    const EnvelopeIndex& envelope_idx = release_index_[sample_rate_index_][release_midi_index_];
+    
+    if (envelope_idx.data == nullptr) {
+        Logger dummy_logger;
+        logSafe("Envelope/getReleaseLength", "error", 
+               "Release envelope not initialized for " + std::to_string(current_sample_rate_) + 
+               " Hz. Terminating.", dummy_logger);
+        std::exit(1);
+    }
+    
+    const int length = envelope_idx.length;
+    return (static_cast<float>(length) / static_cast<float>(current_sample_rate_)) * 1000.0f;
+}
+
+void Envelope::setRTMode(bool enabled) {
+    rtMode_.store(enabled);
+}
+
+// ===== PRIVATE METODY =====
+
+int Envelope::getSampleRateIndex(int sampleRate) const {
+    for (int i = 0; i < NUM_SAMPLE_RATES; ++i) {
+        if (SAMPLE_RATES[i] == sampleRate) {
+            return i;
+        }
+    }
+    return SAMPLE_RATE_INDEX_INVALID;
+}
+
+bool Envelope::isValidSampleRateIndex(int index) const {
+    return index >= 0 && index < NUM_SAMPLE_RATES;
+}
+
+float Envelope::calculateTau(uint8_t midi) const {
+    if (midi == 0) {
+        return 0.0f;
+    }
+    return (static_cast<float>(midi) / 127.0f) * (TOTAL_DURATION / TAU_DIVISOR);
+}
+
+void Envelope::generateEnvelopeForSampleRate(int sampleRate, Logger& logger) {
+    const int sr_index = getSampleRateIndex(sampleRate);
+    
+    if (!isValidSampleRateIndex(sr_index)) {
+        logSafe("Envelope/generateEnvelopeForSampleRate", "error", 
+               "Unsupported sample rate: " + std::to_string(sampleRate) + ". Terminating.", logger);
+        std::exit(1);
+    }
+    
+    logSafe("Envelope/generateEnvelopeForSampleRate", "info", 
+           "Generating envelopes for " + std::to_string(sampleRate) + " Hz", logger);
+    
+    // Výběr správných kontejnerů podle indexu vzorkovací frekvence
+    std::vector<float>& attack_buffer = attack_buffer_[sr_index];
+    std::vector<float>& release_buffer = release_buffer_[sr_index];
+    EnvelopeIndex* attack_index = attack_index_[sr_index];
+    EnvelopeIndex* release_index = release_index_[sr_index];
+    
+    try {
+        // První průchod - výpočet celkové velikosti a generování dat
+        size_t total_attack_size = 0;
+        size_t total_release_size = 0;
+        std::vector<std::pair<std::vector<float>, int>> temp_attack_data;
+        std::vector<std::pair<std::vector<float>, int>> temp_release_data;
+        
+        temp_attack_data.reserve(128);
+        temp_release_data.reserve(128);
+        
+        for (uint8_t midi = 0; midi <= MAX_MIDI; ++midi) {
+            // Generuj attack obálku
+            auto attack_result = generateSingleEnvelope(midi, sampleRate, "attack");
+            total_attack_size += attack_result.second;
+            temp_attack_data.push_back(std::move(attack_result));
+            
+            // Generuj release obálku
+            auto release_result = generateSingleEnvelope(midi, sampleRate, "release");
+            total_release_size += release_result.second;
+            temp_release_data.push_back(std::move(release_result));
+        }
+        
+        // Alokace souvislých bufferů
+        attack_buffer.resize(total_attack_size);
+        release_buffer.resize(total_release_size);
+        
+        // Druhý průchod - kopírování dat a nastavení indexů
+        size_t attack_offset = 0;
+        size_t release_offset = 0;
+        
+        for (uint8_t midi = 0; midi <= MAX_MIDI; ++midi) {
+            // Attack obálka
+            const auto& attack_data = temp_attack_data[midi];
+            std::copy(attack_data.first.begin(), attack_data.first.end(), 
+                     attack_buffer.data() + attack_offset);
+            
+            attack_index[midi].data = attack_buffer.data() + attack_offset;
+            attack_index[midi].length = attack_data.second;
+            
+            attack_offset += attack_data.second;
+            
+            // Release obálka
+            const auto& release_data = temp_release_data[midi];
+            std::copy(release_data.first.begin(), release_data.first.end(), 
+                     release_buffer.data() + release_offset);
+            
+            release_index[midi].data = release_buffer.data() + release_offset;
+            release_index[midi].length = release_data.second;
+            
+            release_offset += release_data.second;
+            
+            // Validace generování
+            if (!attack_index[midi].data || attack_index[midi].length == 0 ||
+                !release_index[midi].data || release_index[midi].length == 0) {
+                logSafe("Envelope/generateEnvelopeForSampleRate", "error", 
+                       "Failed to generate envelope for MIDI " + std::to_string(midi) + 
+                       " at " + std::to_string(sampleRate) + " Hz. Terminating.", logger);
+                std::exit(1);
+            }
+            
+            // Logování podle specifikace - převod na vector pro kompatibilitu
+            std::vector<float> attack_log_data(attack_index[midi].data, 
+                                              attack_index[midi].data + attack_index[midi].length);
+            std::vector<float> release_log_data(release_index[midi].data, 
+                                               release_index[midi].data + release_index[midi].length);
+            
+            logEnvelopeData(attack_log_data, "attack", sampleRate, midi, logger);
+            logEnvelopeData(release_log_data, "release", sampleRate, midi, logger);
+        }
+        
+    } catch (const std::exception& e) {
+        logSafe("Envelope/generateEnvelopeForSampleRate", "error", 
+               "Exception during envelope generation: " + std::string(e.what()) + ". Terminating.", logger);
+        std::exit(1);
+    } catch (...) {
+        logSafe("Envelope/generateEnvelopeForSampleRate", "error", 
+               "Unknown error during envelope generation. Terminating.", logger);
+        std::exit(1);
+    }
+    
+    logSafe("Envelope/generateEnvelopeForSampleRate", "info", 
+           "Completed envelope generation for " + std::to_string(sampleRate) + 
+           " Hz (128 MIDI values, 2 types). Total attack samples: " + std::to_string(attack_buffer.size()) +
+           ", total release samples: " + std::to_string(release_buffer.size()), logger);
+}
+
+std::pair<std::vector<float>, int> Envelope::generateSingleEnvelope(uint8_t midi, int sampleRate, 
+                                                                   const std::string& envelope_type) const {
+    const float tau = calculateTau(midi);
+    const float target_val = (envelope_type == "attack") ? 1.0f : 0.0f;
+    
+    // Speciální případ pro MIDI 0
+    if (midi == 0) {
+        std::vector<float> data(1, target_val);
+        return std::make_pair(std::move(data), 1);
+    }
+    
+    // Výpočet času konvergence
+    const float log_threshold = -std::log(CONVERGENCE_THRESHOLD);
+    float t_stable = tau * log_threshold;
     t_stable = std::min(t_stable, TOTAL_DURATION);
     
-    // Počet vzorků: sample_rate * t_stable, zaokrouhleno nahoru s bezpečnostní rezervou
-    int num_samples = std::max(1, static_cast<int>(sample_rate * t_stable) + 1);
+    const int max_samples = static_cast<int>(sampleRate * TOTAL_DURATION) + 1;
+    int num_samples = std::max(1, std::min(static_cast<int>(sampleRate * t_stable) + 1, max_samples));
     
-    // Bezpečnostní limit (odpovídá MAX_LEN z Pythonu)
-    const int MAX_LEN = static_cast<int>(48000 * TOTAL_DURATION) + 1;
-    return std::min(num_samples, MAX_LEN);
-}
-
-void Envelope::generateEnvelopeData(uint8_t midi, int sample_rate, bool is_attack, 
-                                  float* buffer, int buffer_size, int& actual_length) const noexcept {
-    if (!buffer || buffer_size <= 0) {
-        actual_length = 0;
-        return;
-    }
+    std::vector<float> data(num_samples);
     
-    const double tau = calculateTau(midi);
-    const double target_val = is_attack ? 1.0 : 0.0;
-    
-    // Pro MIDI 0: Okamžitá změna na cílovou hodnotu
-    if (midi == 0) {
-        buffer[0] = static_cast<float>(target_val);
-        actual_length = 1;
-        return;
-    }
-    
-    // Vypočítej optimální délku obálky
-    const int optimal_length = calculateEnvelopeLength(midi, sample_rate, is_attack);
-    actual_length = std::min(optimal_length, buffer_size);
-    
-    // Generuj data
-    for (int i = 0; i < actual_length; ++i) {
-        const double t = (static_cast<double>(i) / sample_rate) * (TOTAL_DURATION * actual_length) / optimal_length;
-        buffer[i] = calculateEnvelopeSample(t, tau, is_attack);
+    // Generování hodnot exponenciální křivky
+    for (int i = 0; i < num_samples; ++i) {
+        const float t = (static_cast<float>(i) / static_cast<float>(sampleRate)) * t_stable / static_cast<float>(num_samples);
         
-        // Clamp na 0-1 rozsah
-        buffer[i] = std::max(0.0f, std::min(1.0f, buffer[i]));
+        if (envelope_type == "attack") {
+            data[i] = 1.0f - std::exp(-t / tau);
+        } else {
+            data[i] = std::exp(-t / tau);
+        }
+        
+        data[i] = std::max(0.0f, std::min(1.0f, data[i]));
     }
     
-    // Zkontroluj konvergenci a případně zkrať
-    if (is_attack) {
-        // Pro attack: hledáme kde dosáhneme (1 - threshold) = 0.99
-        for (int i = 0; i < actual_length; ++i) {
-            if (buffer[i] >= (1.0f - CONVERGENCE_THRESHOLD)) {
-                actual_length = i + 1;
+    // Oříznutí na konvergenci
+    int converge_idx = num_samples;
+    if (envelope_type == "attack") {
+        for (int i = 0; i < num_samples; ++i) {
+            if (data[i] >= (1.0f - CONVERGENCE_THRESHOLD)) {
+                converge_idx = i + 1;
                 break;
             }
         }
     } else {
-        // Pro release: hledáme kde klesne pod threshold = 0.01
-        for (int i = 0; i < actual_length; ++i) {
-            if (buffer[i] <= CONVERGENCE_THRESHOLD) {
-                actual_length = i + 1;
+        for (int i = 0; i < num_samples; ++i) {
+            if (data[i] <= CONVERGENCE_THRESHOLD) {
+                converge_idx = i + 1;
                 break;
             }
         }
     }
+    
+    if (converge_idx < num_samples) {
+        data.resize(converge_idx);
+        num_samples = converge_idx;
+    }
+    
+    return std::make_pair(std::move(data), num_samples);
 }
 
-void Envelope::getGainBufferAttack(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed, Logger& logger) const noexcept {
-    if (!gainBuffer || numSamples <= 0 || sample_rate_index_ < 0) {
-        // Fallback při chybě
-        if (gainBuffer && numSamples > 0) {
-            std::memset(gainBuffer, 0, numSamples * sizeof(float));
-        }
+void Envelope::logEnvelopeData(const std::vector<float>& data, const std::string& type, 
+                              int sampleRate, uint8_t midi_value, Logger& logger) const {
+    if (data.empty()) {
         return;
     }
     
-    const int sample_rate = SAMPLE_RATES[sample_rate_index_];
-    const double tau = calculateTau(midi);
+    const int size = static_cast<int>(data.size());
+    const std::string component = "Envelope/generate";
     
-    // Pro MIDI 0: Konstantní hodnota 1.0f
-    if (midi == 0) {
-        for (int i = 0; i < numSamples; ++i) {
-            gainBuffer[i] = 1.0f;
-        }
-        // Debug logování
-        logRuntimeBuffer("Attack", midi, gainBuffer, numSamples, start_elapsed, logger);
-        return;
-    }
-    
-    // Generuj data pro požadovaný úsek
-    for (int i = 0; i < numSamples; ++i) {
-        const sf_count_t sample_index = start_elapsed + i;
-        const double t = static_cast<double>(sample_index) / sample_rate;
-        
-        // Zkontroluj, jestli jsme mimo platnou oblast obálky
-        const double max_time = tau * (-std::log(CONVERGENCE_THRESHOLD));
-        if (t >= std::min(max_time, TOTAL_DURATION)) {
-            gainBuffer[i] = 1.0f;  // Attack dokončen
-        } else {
-            gainBuffer[i] = calculateEnvelopeSample(t, tau, true);
-            gainBuffer[i] = std::max(0.0f, std::min(1.0f, gainBuffer[i]));
-        }
-    }
-    
-    // Debug logování
-    logRuntimeBuffer("Attack", midi, gainBuffer, numSamples, start_elapsed, logger);
-}
-
-void Envelope::getGainBufferRelease(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed, Logger& logger) const noexcept {
-    if (!gainBuffer || numSamples <= 0 || sample_rate_index_ < 0) {
-        // Fallback při chybě
-        if (gainBuffer && numSamples > 0) {
-            std::memset(gainBuffer, 0, numSamples * sizeof(float));
-        }
-        return;
-    }
-    
-    const int sample_rate = SAMPLE_RATES[sample_rate_index_];
-    const double tau = calculateTau(midi);
-    
-    // Pro MIDI 0: Konstantní hodnota 0.0f
-    if (midi == 0) {
-        std::memset(gainBuffer, 0, numSamples * sizeof(float));
-        // Debug logování
-        logRuntimeBuffer("Release", midi, gainBuffer, numSamples, start_elapsed, logger);
-        return;
-    }
-    
-    // Generuj data pro požadovaný úsek
-    for (int i = 0; i < numSamples; ++i) {
-        const sf_count_t sample_index = start_elapsed + i;
-        const double t = static_cast<double>(sample_index) / sample_rate;
-        
-        // Zkontroluj, jestli jsme mimo platnou oblast obálky
-        const double max_time = tau * (-std::log(CONVERGENCE_THRESHOLD));
-        if (t >= std::min(max_time, TOTAL_DURATION)) {
-            gainBuffer[i] = 0.0f;  // Release dokončen
-        } else {
-            gainBuffer[i] = calculateEnvelopeSample(t, tau, false);
-            gainBuffer[i] = std::max(0.0f, std::min(1.0f, gainBuffer[i]));
-        }
-    }
-    
-    // Debug logování
-    logRuntimeBuffer("Release", midi, gainBuffer, numSamples, start_elapsed, logger);
-}
-
-// Pomocné metody pro debug logování
-std::string Envelope::formatValuesForLog(const float* values, int count) const noexcept {
-    if (!values || count <= 0) {
-        return "[]";
-    }
-    
-    std::stringstream ss;
-    ss << std::fixed << std::setprecision(3);
-    ss << "[";
-    
-    for (int i = 0; i < count; ++i) {
-        if (i > 0) ss << ", ";
-        ss << std::setw(5) << values[i];  // Zarovnání na 5 znaků pro konzistentní sloupce
-    }
-    
-    ss << "]";
-    return ss.str();
-}
-
-void Envelope::logEnvelopeData(const std::string& envelope_type, int sample_rate, uint8_t midi, 
-                              const float* data, int length, Logger& logger) const noexcept {
-    if (!data || length <= 0) {
-        return;
-    }
-    
-    const std::string rate_str = "(" + to_string_helper(sample_rate) + " Hz)";
-    const std::string midi_str = "value[" + to_string_helper(static_cast<int>(midi)) + "]";
+    auto formatFloat = [](float val) -> std::string {
+        std::ostringstream oss;
+        oss << std::fixed << std::setprecision(6) << val;
+        return oss.str();
+    };
     
     // První 4 hodnoty
-    const int first_count = std::min(4, length);
-    std::string first_values = formatValuesForLog(data, first_count);
-    std::string log_msg = envelope_type + " envelope " + rate_str + " for MIDI " + midi_str + " = " + first_values;
-    
-    // Hodnoty v polovině (pokud délka > 8)
-    if (length > 8) {
-        const int mid_index = length / 2;
-        const int mid_count = std::min(4, length - mid_index);
-        std::string mid_values = formatValuesForLog(data + mid_index, mid_count);
-        log_msg += " ... " + mid_values;
+    const int begin_count = std::min(4, size);
+    std::ostringstream begin_msg;
+    begin_msg << type << " (" << sampleRate << " Hz) MIDI[" << static_cast<int>(midi_value) << "] begin: [";
+    for (int i = 0; i < begin_count; ++i) {
+        if (i > 0) begin_msg << ", ";
+        begin_msg << formatFloat(data[i]);
     }
+    begin_msg << "]";
+    logSafe(component, "debug", begin_msg.str(), logger);
     
-    // Poslední 4 hodnoty (pokud jsou jiné než první)
-    if (length > 4) {
-        const int last_start = std::max(0, length - 4);
-        const int last_count = length - last_start;
-        if (last_start >= 4) {  // Pouze pokud se nepřekrývají s prvními
-            std::string last_values = formatValuesForLog(data + last_start, last_count);
-            log_msg += " ... " + last_values;
+    // Střední hodnoty
+    if (size > 8) {
+        const int half_start = size / 2 - 2;
+        const int half_count = std::min(4, size - half_start);
+        std::ostringstream half_msg;
+        half_msg << type << " (" << sampleRate << " Hz) half: [";
+        for (int i = 0; i < half_count; ++i) {
+            if (i > 0) half_msg << ", ";
+            half_msg << formatFloat(data[half_start + i]);
         }
+        half_msg << "]";
+        logSafe(component, "debug", half_msg.str(), logger);
     }
     
-    logger.log("Envelope/generateEnvelopeData", "debug", log_msg);
+    // Poslední 4 hodnoty
+    if (size > 4) {
+        const int end_start = std::max(0, size - 4);
+        const int end_count = size - end_start;
+        std::ostringstream end_msg;
+        end_msg << type << " (" << sampleRate << " Hz) end: [";
+        for (int i = 0; i < end_count; ++i) {
+            if (i > 0) end_msg << ", ";
+            end_msg << formatFloat(data[end_start + i]);
+        }
+        end_msg << "]";
+        logSafe(component, "debug", end_msg.str(), logger);
+    }
 }
 
-void Envelope::logRuntimeBuffer(const std::string& envelope_type, uint8_t midi, 
-                               const float* buffer, int numSamples, sf_count_t start_elapsed, 
-                               Logger& logger) const noexcept {
-    if (!buffer || numSamples <= 0) {
+void Envelope::logGainsData(const float* buffer, int num_samples, const std::string& type, 
+                           int position, int sampleRate, Logger& logger) const {
+    if (!buffer || num_samples <= 0) {
         return;
     }
     
-    const std::string rate_str = "(" + to_string_helper(SAMPLE_RATES[sample_rate_index_]) + " Hz)";
-    const std::string midi_str = "value[" + to_string_helper(static_cast<int>(midi)) + "]";
-    const std::string elapsed_str = "elapsed[" + to_string_helper(start_elapsed) + "]";
+    const std::string component = "Envelope/get" + type + "Gains";
     
-    // Hodnoty v polovině bloku
-    const int mid_index = numSamples / 2;
-    const int sample_count = std::min(4, numSamples - mid_index);
-    std::string values = formatValuesForLog(buffer + mid_index, sample_count);
+    auto formatFloat = [](float val) -> std::string {
+        std::ostringstream oss;
+        oss << std::fixed << std::setprecision(6) << val;
+        return oss.str();
+    };
     
-    std::string log_msg = envelope_type + " runtime " + rate_str + " for MIDI " + midi_str + 
-                         " " + elapsed_str + " = " + values;
+    const std::string params = " (position: " + std::to_string(position) + 
+                              ", numSamples: " + std::to_string(num_samples) + 
+                              ", sampleRate: " + std::to_string(sampleRate) + ")";
     
-    logger.log("Envelope/getGainBuffer" + envelope_type, "debug", log_msg);
+    // První 4 hodnoty
+    const int begin_count = std::min(4, num_samples);
+    std::ostringstream begin_msg;
+    begin_msg << "block begin: [";
+    for (int i = 0; i < begin_count; ++i) {
+        if (i > 0) begin_msg << ", ";
+        begin_msg << formatFloat(buffer[i]);
+    }
+    begin_msg << "]" << params;
+    logSafe(component, "debug", begin_msg.str(), logger);
+    
+    // Střední hodnoty
+    if (num_samples > 8) {
+        const int half_start = num_samples / 2 - 2;
+        const int half_count = std::min(4, num_samples - half_start);
+        std::ostringstream half_msg;
+        half_msg << "block half: [";
+        for (int i = 0; i < half_count; ++i) {
+            if (i > 0) half_msg << ", ";
+            half_msg << formatFloat(buffer[half_start + i]);
+        }
+        half_msg << "]";
+        logSafe(component, "debug", half_msg.str(), logger);
+    }
+    
+    // Poslední 4 hodnoty
+    if (num_samples > 4) {
+        const int end_start = std::max(0, num_samples - 4);
+        const int end_count = num_samples - end_start;
+        std::ostringstream end_msg;
+        end_msg << "block end: [";
+        for (int i = 0; i < end_count; ++i) {
+            if (i > 0) end_msg << ", ";
+            end_msg << formatFloat(buffer[end_start + i]);
+        }
+        end_msg << "]";
+        logSafe(component, "debug", end_msg.str(), logger);
+    }
+}
+
+void Envelope::logSafe(const std::string& component, const std::string& severity, 
+                      const std::string& message, Logger& logger) const {
+    if (!rtMode_.load()) {
+        logger.log(component, severity, message);
+    }
 }
