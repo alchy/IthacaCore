@@ -85,7 +85,7 @@ void Voice::prepareToPlay(int maxBlockSize) noexcept {
 }
 
 /**
- * @brief AKTUALIZOVANÁ cleanup s envelope position reset a PROPER idle transition
+ * @brief cleanup s envelope position reset a idle transition
  */
 void Voice::cleanup(Logger& logger) {
     state_ = VoiceState::Idle;  // OPRAVA: Explicitně nastavit Idle
@@ -103,7 +103,7 @@ void Voice::cleanup(Logger& logger) {
 }
 
 /**
- * @brief AKTUALIZOVANÁ reinitialize s envelope
+ * @brief reinitialize s envelope
  */
 void Voice::reinitialize(const Instrument& instrument, int sampleRate,
                          const Envelope& envelope, Logger& logger) {
@@ -113,7 +113,7 @@ void Voice::reinitialize(const Instrument& instrument, int sampleRate,
 }
 
 /**
- * @brief REFAKTOROVANÁ setNoteState s envelope position reset
+ * @brief setNoteState s envelope position reset
  */
 void Voice::setNoteState(bool isOn, uint8_t velocity) noexcept {
     if (!instrument_ || sampleRate_ <= 0 || !envelope_) {
@@ -137,7 +137,7 @@ void Voice::setNoteState(bool isOn, uint8_t velocity) noexcept {
 }
 
 /**
- * @brief KOMPLETNĚ REFAKTOROVANÁ calculateBlockGains pro ADSR envelope s PROPER idle transition
+ * @brief calculateBlockGains pro ADSR envelope
  */
 bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
     if (state_ == VoiceState::Idle || !gainBuffer || numSamples <= 0) {
@@ -234,27 +234,18 @@ bool Voice::processBlock(float* outputLeft,
     }
     
     // OPRAVA: Safe conversion s explicitním ošetřením přetečení
-    const sf_count_t samplesUntilEnd = maxFrames - position_;
-    const sf_count_t samplesRequested = static_cast<sf_count_t>(samplesPerBlock);
-    const sf_count_t samplesToProcessLong = std::min(samplesRequested, samplesUntilEnd);
+    const int samplesUntilEnd = maxFrames - position_;
+    const int samplesRequested = static_cast<sf_count_t>(samplesPerBlock);
+    const int samplesToProcess = std::min(samplesRequested, samplesUntilEnd);
     
-    // Bezpečná konverze na int s kontrolou rozsahu
-    if (samplesToProcessLong > static_cast<sf_count_t>(std::numeric_limits<int>::max())) {
-        // Teoreticky by se to nemělo stát při normálních block sizes (512-4096)
-        state_ = VoiceState::Idle;
-        return false;
-    }
-    
-    const int samplesToProcess = static_cast<int>(samplesToProcessLong);
-    
-    // Use pre-allocated buffer
+        // Use pre-allocated buffer
     if (gainBuffer_.size() < static_cast<size_t>(samplesToProcess)) {
         return false;
     }
     
     // Pre-calculate envelope gains for the block
     if (!calculateBlockGains(gainBuffer_.data(), samplesToProcess)) {
-        state_ = VoiceState::Idle;  // OPRAVA: Zajistit transition na Idle
+        state_ = VoiceState::Idle;
         return false;
     }
     
@@ -262,13 +253,13 @@ bool Voice::processBlock(float* outputLeft,
     const sf_count_t startIndex = position_ * 2;
     const float* srcPtr = stereoBuffer + startIndex;
     
-    // KRITICKÁ OPRAVA: APLIKOVAT gain na výstup!
+    // APLIKOVAT gain na výstup!
     for (int i = 0; i < samplesToProcess; ++i) {
         const int srcIndex = i * 2;
         
-        // OPRAVA: Mixdown s aplikovaným gainem
-        const float gain = gainBuffer_[i] * velocity_gain_ * master_gain_;
-        outputLeft[i] += srcPtr[srcIndex] * gain;
+        // Mixdown 
+        const float gain = gainBuffer_[i]; // xxx * velocity_gain_ * master_gain_;
+        outputLeft[i] += srcPtr[srcIndex]* gain;
         outputRight[i] += srcPtr[srcIndex + 1] * gain;
     }
     
