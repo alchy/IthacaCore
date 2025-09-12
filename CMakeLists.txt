@@ -55,6 +55,8 @@ add_executable(IthacaCore
     # Envelopes (ADSR/ASR)
     sampler/envelopes/envelope.cpp
     sampler/envelopes/envelope.h
+    sampler/envelopes/envelope_static_data.cpp
+    sampler/envelopes/envelope_static_data.h
     
     # === TEST FRAMEWORK ===
     
