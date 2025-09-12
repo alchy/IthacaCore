@@ -290,8 +290,8 @@ bool Voice::processBlock(float* outputLeft,
     std::cout << "GAINS: [" << gain_stream.str() << "]" << std::endl; // xxx - DEBUG PRINT
 
     // Čekání na stisk Enteru
-    std::cout << "Press ENTER to continue..." << std::flush; // xxx - DEBUG 
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // xxx - DEBUG 
+    //std::cout << "Press ENTER to continue..." << std::flush; // xxx - DEBUG WAIT ENTER
+    //std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // xxx - DEBUG 
 
     // Batch position update - OPRAVA: Safe conversion zpět
     position_ += static_cast<sf_count_t>(samplesToProcess);
