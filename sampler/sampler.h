@@ -5,22 +5,19 @@
 #define ENABLE_TESTS 1
 
 #include <cstdint>
-#include <cstddef>
 #include <string>
 #include <vector>
 #include <sndfile.h>
 
 #include "core_logger.h"
+#include "envelopes/envelope_static_data.h"  // NOVÝ INCLUDE pro refaktorovaný envelope systém
 
-// Configuration constants pro VoiceManager
-//#define DEFAULT_SAMPLE_DIR R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)"
+// Configuration constants pro VoiceManager s EnvelopeStaticData
 #define DEFAULT_SAMPLE_DIR R"(C:\Users\nemej992\AppData\Roaming\IthacaPlayer\instrument)"
-
-
 #define DEFAULT_SAMPLE_RATE 44100
 #define ALTERNATIVE_SAMPLE_RATE 48000
 
-// Test configuration constants
+// Test configuration constants - rozšířeno pro envelope testování
 #define TEST_MIDI_NOTE 108
 #define TEST_VELOCITY 5
 #define TEST_VELOCITY_FULL 100
@@ -40,10 +37,18 @@
 #define DEFAULT_JUCE_BLOCK_SIZE 512
 #define MAX_JUCE_BLOCK_SIZE 2048
 
+// Envelope testing constants - NOVÉ pro refaktorovaný systém
+#define ENVELOPE_TEST_ATTACK_MIDI 64
+#define ENVELOPE_TEST_RELEASE_MIDI 64
+#define ENVELOPE_TEST_SUSTAIN_MIDI 90
+#define ENVELOPE_SAMPLE_RATE_SWITCH_TEST_BLOCKS 10
+#define ENVELOPE_MEMORY_TEST_INSTANCES 16
+
 /**
  * @struct SampleInfo
  * @brief Metadata pro jeden audio sample soubor
- * Obsahuje všechny potřebné informace pro načtení a zpracování samples
+ * Obsahuje všechny potřebné informace für načtení a zpracování samples
+ * NEZMĚNĚNO - kompatibilní s refaktorovaným envelope systémem
  */
 struct SampleInfo {
     char filename[256];              // Plná cesta k souboru
@@ -65,6 +70,7 @@ struct SampleInfo {
  * LOCKED CLASS - neměnit implementaci!
  * Poskytuje rozhraní pro načtení metadat ze sample adresáře
  * a vyhledávání samples podle MIDI noty, velocity a sample rate.
+ * KOMPATIBILNÍ s refaktorovaným EnvelopeStaticData systémem.
  */
 class SamplerIO {
 public:
@@ -113,7 +119,7 @@ private:
     bool detectFloatConversionNeed(const char* filename, Logger& logger) const;
 };
 
-// Forward declarations pro testovací systém
+// Forward declarations pro testovací systém s EnvelopeStaticData podporou
 #ifdef ENABLE_TESTS
 class VoiceManagerTester;
 class InstrumentLoader;
@@ -125,26 +131,50 @@ class InstrumentLoader;
  * @param logger Reference na Logger pro výstupy
  * @return int Počet selhání (0 = úspěch)
  * 
- * AKTUALIZOVÁNO: Používá novou 3-fázovou architekturu
- * FÁZE 1: initializeSystem() - skenování + envelope generování
- * FÁZE 2: loadForSampleRate() - načtení pro konkrétní sample rate  
- * FÁZE 3: prepareToPlay() - JUCE příprava
+ * AKTUALIZOVÁNO pro refaktorovaný envelope systém:
+ * - Validuje EnvelopeStaticData inicializaci
+ * - Používá novou architekturu s sdílenými envelope daty
+ * - Testuje sample rate switching bez reinicializace
  */
 int runVoiceManagerTests(VoiceManagerTester& testManager, InstrumentLoader& loader, Logger& logger);
+
+/**
+ * @brief NOVÁ funkce pro testování envelope memory optimizations
+ * @param logger Reference na Logger
+ * @return int Počet selhání při memory testech
+ */
+int testEnvelopeMemoryOptimizations(Logger& logger);
+
+/**
+ * @brief NOVÁ funkce pro testování sample rate switching s EnvelopeStaticData
+ * @param logger Reference na Logger
+ * @return int Počet selhání při sample rate testech
+ */
+int testEnvelopeSampleRateSwitching(Logger& logger);
+
 #endif
 
 /**
- * @brief REFAKTOROVÁNO: runSampler s novou 3-fázovou architekturou
+ * @brief REFAKTOROVÁNO: runSampler s EnvelopeStaticData inicializací
  * 
  * Nahrazuje původní monolitickou runSampler funkci.
- * NOVÁ ARCHITEKTURA:
- * 1. VoiceManager instance creation
- * 2. FÁZE 1: System initialization (skenování + envelope generování)
- * 3. FÁZE 2: Loading for sample rate (načtení dat + envelope přepnutí)
- * 4. FÁZE 3: JUCE preparation (buffer sizes)
- * 5. VoiceManager testy (pokud ENABLE_TESTS)
- * 6. Demo testy
- * 7. System statistics
+ * NOVÁ ARCHITEKTURA s envelope memory optimization:
+ * 
+ * FÁZE 0: KRITICKÁ - EnvelopeStaticData::initialize() (globálně, jednou pro program)
+ * FÁZE 1: VoiceManager instance creation (s validací statických dat)
+ * FÁZE 2: System initialization (skenování adresáře - envelope data už jsou sdílená)
+ * FÁZE 3: Loading for sample rate (načtení dat - používá sdílená envelope data)
+ * FÁZE 4: JUCE preparation (buffer sizes)
+ * FÁZE 5: Comprehensive testing (framework + envelope-specific testy)
+ * FÁZE 6: Demo testy s refaktorovaným envelope systémem
+ * FÁZE 7: System statistics + memory optimization metrics
+ * FÁZE 8: Cleanup (EnvelopeStaticData::cleanup())
+ * 
+ * KLÍČOVÉ ZMĚNY:
+ * - EnvelopeStaticData je inicializována jednou pro celý program
+ * - Všechny VoiceManager instance sdílejí stejná envelope data
+ * - Sample rate switching je O(1) operace bez reinicializace
+ * - Dramatické paměťové úspory pro multi-instance scénáře
  * 
  * @param logger Reference na Logger pro zaznamenání
  * @return 0 při úspěchu, 1 při chybě
@@ -152,15 +182,174 @@ int runVoiceManagerTests(VoiceManagerTester& testManager, InstrumentLoader& load
 int runSampler(Logger& logger);
 
 /**
- * @brief JUCE integration helper pro AudioProcessor
+ * @brief JUCE integration helper pro AudioProcessor s EnvelopeStaticData
  * 
  * Ukázkový pattern pro integraci VoiceManager do JUCE AudioProcessor.
- * AKTUALIZOVÁNO: Používá novou 3-fázovou architekturu místo starých metod.
- * Ukazuje správné volání FÁZE 1 → FÁZE 2 → FÁZE 3 sekvence.
+ * AKTUALIZOVÁNO pro refaktorovaný envelope systém:
+ * - Ukazuje správnou EnvelopeStaticData inicializaci na začátku aplikace
+ * - Demonstruje sdílení envelope dat mezi více AudioProcessor instancemi
+ * - Testuje sample rate changes bez envelope reinicializace
+ * - Ukazuje memory-efficient multi-timbral setup
+ * 
+ * CRITICAL: EnvelopeStaticData::initialize() MUSÍ být voláno PŘED vytvořením
+ * jakýchkoli VoiceManager instancí!
  * 
  * @param logger Reference na Logger
  * @return 0 při úspěchu, 1 při chybě
  */
 int demonstrateJuceIntegration(Logger& logger);
+
+/**
+ * @brief NOVÁ funkce pro demonstraci multi-instance memory savings
+ * 
+ * Vytvoří několik VoiceManager instancí a demonstruje paměťové úspory
+ * dosažené sdílením EnvelopeStaticData. Srovnává původní vs. refaktorovanou
+ * paměťovou spotřebu.
+ * 
+ * @param numInstances Počet VoiceManager instancí k vytvoření (default 16)
+ * @param logger Reference na Logger
+ * @return int 0 při úspěchu, počet chyb při problémech
+ */
+int demonstrateMultiInstanceMemorySavings(int numInstances = 16, Logger& logger);
+
+/**
+ * @brief NOVÁ utility funkce pro validaci EnvelopeStaticData stavu
+ * 
+ * Kontroluje, zda jsou statická envelope data správně inicializována
+ * a poskytuje diagnostické informace o jejich stavu.
+ * 
+ * @param logger Reference na Logger pro výstup diagnostiky
+ * @return bool true pokud jsou data validní a připravená k použití
+ */
+bool validateEnvelopeStaticDataState(Logger& logger);
+
+/**
+ * @brief NOVÁ benchmark funkce pro envelope performance
+ * 
+ * Srovnává performance původního vs. refaktorovaného envelope systému.
+ * Měří rychlost přístupu k envelope datům, sample rate switching,
+ * a overall processing performance.
+ * 
+ * @param logger Reference na Logger pro výsledky benchmarku
+ * @return int 0 při úspěchu, 1 při chybě
+ */
+int benchmarkEnvelopePerformance(Logger& logger);
+
+/**
+ * @struct EnvelopeMemoryStats
+ * @brief NOVÁ struktura pro sledování envelope memory usage
+ */
+struct EnvelopeMemoryStats {
+    size_t totalStaticMemoryBytes;      // Celková velikost statických dat
+    size_t perInstanceSavingsBytes;     // Úspora na jednu instanci
+    int numActiveInstances;             // Počet aktivních VoiceManager instancí
+    size_t totalMemorySavedBytes;       // Celková úspora paměti
+    bool isOptimizationActive;          // Flag zda je optimalizace aktivní
+};
+
+/**
+ * @brief NOVÁ funkce pro získání envelope memory statistik
+ * 
+ * @param logger Reference na Logger
+ * @return EnvelopeMemoryStats Struktura s memory statistikami
+ */
+EnvelopeMemoryStats getEnvelopeMemoryStatistics(Logger& logger);
+
+#ifdef ENABLE_TESTS
+
+/**
+ * @struct TestConfig
+ * @brief Rozšířená konfigurace pro testovací framework s envelope podporou
+ */
+struct TestConfig {
+    bool exportAudio = false;                    // Export audio výsledků
+    int exportBlockSize = 512;                   // Block size pro export
+    uint8_t defaultTestVelocity = 100;           // Default MIDI velocity
+    std::vector<float> testMasterGains = {0.8f}; // Test master gain values
+    std::string exportDir = "./exports/tests";   // Export directory
+    bool verboseLogging = false;                 // Verbose test logging
+    
+    // NOVÉ envelope-specific konfigurace
+    bool testEnvelopeMemoryOptimization = true;  // Test memory optimizations
+    bool testSampleRateSwitching = true;         // Test sample rate changes
+    std::vector<int> testSampleRates = {44100, 48000}; // Sample rates k testování
+    int envelopeTestBlocks = 10;                 // Počet bloků pro envelope testy
+    bool validateSharedEnvelopeData = true;      // Validace sdílených dat
+};
+
+/**
+ * @struct TestResult
+ * @brief Rozšířený výsledek testu s envelope metrics
+ */
+struct TestResult {
+    bool passed = false;                         // Základní test result
+    std::string errorMessage;                    // Chybová zpráva
+    std::string details;                         // Detaily testu
+    
+    // NOVÉ envelope-specific metrics
+    bool envelopeDataValid = false;              // Validita envelope dat
+    size_t memoryFootprintBytes = 0;            // Paměťová stopa
+    double averageProcessingTimeMs = 0.0;       // Průměrný processing čas
+    int sampleRatesSwitched = 0;                // Počet sample rate změn
+};
+
+/**
+ * @class BaseTest
+ * @brief NOVÁ base class pro envelope-aware testy
+ */
+class BaseTest {
+public:
+    BaseTest(const std::string& name, Logger& logger, const TestConfig& config)
+        : testName_(name), logger_(logger), config_(config) {}
+    
+    virtual ~BaseTest() = default;
+    
+    virtual TestResult run(class VoiceManager& voiceManager) = 0;
+    
+    const std::string& getName() const { return testName_; }
+
+protected:
+    std::string testName_;
+    Logger& logger_;
+    TestConfig config_;
+    
+    // Helper methods pro envelope testing
+    bool validateEnvelopeData() const;
+    TestResult createResult(bool passed, const std::string& message = "") const;
+    void logTestProgress(const std::string& step) const;
+};
+
+/**
+ * @class EnvelopeSpecificTest
+ * @brief NOVÝ test class specificky pro envelope system
+ */
+class EnvelopeSpecificTest : public BaseTest {
+public:
+    EnvelopeSpecificTest(Logger& logger, const TestConfig& config);
+    TestResult run(VoiceManager& voiceManager) override;
+
+private:
+    TestResult testStaticDataInitialization(VoiceManager& vm);
+    TestResult testSampleRateSwitching(VoiceManager& vm);
+    TestResult testMemoryFootprint(VoiceManager& vm);
+    TestResult testConcurrentAccess(VoiceManager& vm);
+};
+
+/**
+ * @class MemoryOptimizationTest
+ * @brief NOVÝ test pro multi-instance memory optimization
+ */
+class MemoryOptimizationTest : public BaseTest {
+public:
+    MemoryOptimizationTest(Logger& logger, const TestConfig& config);
+    TestResult run(VoiceManager& voiceManager) override;
+
+private:
+    TestResult simulateMultipleInstances();
+    TestResult measureMemoryUsage();
+    TestResult validateSharedData();
+};
+
+#endif // ENABLE_TESTS
 
 #endif // SAMPLER_H

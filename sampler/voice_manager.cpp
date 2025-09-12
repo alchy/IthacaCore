@@ -1,26 +1,21 @@
 #include "voice_manager.h"
-#include "sampler.h"            // Pro stack allocated SamplerIO
-#include "instrument_loader.h"  // Pro stack allocated InstrumentLoader
-#include "envelopes/envelope.h"
+#include "sampler.h"
+#include "instrument_loader.h"
+#include "envelope_static_data.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
 
 /**
- * @brief Constructor: ROZŠÍŘENÝ s stack allocated komponenty, BEZ automatické inicializace sample rate
- * @param sampleDir Cesta k sample adresáři
- * @param logger Reference na Logger
- * 
- * DŮLEŽITÉ: Constructor pouze vytvoří objekty s neinicializovaným sample rate!
- * Musí se explicitně volat changeSampleRate() + initializeSystem() + loadAllInstruments()
+ * @brief Konstruktor s validací statických envelope dat
  */
 VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
-    : samplerIO_(),              // Stack allocated SamplerIO - prázdný stav
-      instrumentLoader_(),       // Stack allocated InstrumentLoader - prázdný stav
-      envelope_(),                // Stack allocated Envelope - prazdny stav
-      currentSampleRate_(0),     // NEINICIALIZOVÁNO - bude nastaveno changeSampleRate()
+    : samplerIO_(),
+      instrumentLoader_(),
+      envelope_(),
+      currentSampleRate_(0),
       sampleDir_(sampleDir),
-      systemInitialized_(false), // System není připraven
+      systemInitialized_(false),
       voices_(),
       activeVoices_(),
       voicesToRemove_(),
@@ -33,7 +28,14 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
         std::exit(1);
     }
     
-    // Původní inicializace voices (zachovat!)
+    // VALIDACE: Kontrola inicializace statických dat
+    if (!EnvelopeStaticData::isInitialized()) {
+        logSafe("VoiceManager/constructor", "error", 
+               "EnvelopeStaticData not initialized. Call EnvelopeStaticData::initialize() first. Terminating.", logger);
+        std::exit(1);
+    }
+    
+    // Původní inicializace voices
     voices_.resize(128);
     for (int i = 0; i < 128; ++i) {
         voices_[i] = Voice(static_cast<uint8_t>(i));
@@ -42,21 +44,20 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
     activeVoices_.reserve(128);
     voicesToRemove_.reserve(128);
 
-    // Define callback on error and exit for RT function
-    envelope_.setErrorCallback([&logger](const std::string& component, 
-                                        const std::string& severity, 
-                                        const std::string& message) {
+    // Setup error callback pro statická envelope data
+    EnvelopeStaticData::setErrorCallback([&logger](const std::string& component, 
+                                                   const std::string& severity, 
+                                                   const std::string& message) {
         logger.log(component, severity, message);
     });
     
-    // Log success
     logSafe("VoiceManager/constructor", "info", 
            "VoiceManager created with sampleDir '" + sampleDir_ + 
-           "'. Ready for changeSampleRate() and initialization pipeline.", logger);
+           "' and shared envelope data. Ready for initialization pipeline.", logger);
 }
 
 /**
- * @brief Nastavení sample rate - deleguje na FÁZI 2
+ * @brief Nastavení sample rate
  */
 void VoiceManager::changeSampleRate(int newSampleRate, Logger& logger) {
     logger.log("VoiceManager/changeSampleRate", "info", 
@@ -71,45 +72,33 @@ void VoiceManager::changeSampleRate(int newSampleRate, Logger& logger) {
     // Stop všechny aktivní voices před změnou
     stopAllVoices();
     
-    // Delegace na FÁZI 2 - načtení pro nový sample rate
+    // Delegace na FÁZI 2
     loadForSampleRate(newSampleRate, logger);
     
     logger.log("VoiceManager/changeSampleRate", "info", 
               "Sample rate successfully changed to " + std::to_string(newSampleRate) + " Hz");
 }
 
-
 /**
- * @brief FÁZE 3: JUCE příprava - buffer sizes pro všechny voices
+ * @brief JUCE příprava
  */
 void VoiceManager::prepareToPlay(int maxBlockSize) noexcept {
-    // Prepare all 128 voices for new buffer size
     for (int i = 0; i < 128; ++i) {
         voices_[i].prepareToPlay(maxBlockSize);
     }
-    
-    // Žádné logování - metoda je noexcept a RT-safe
-    // Logger se předává jen do non-RT metod jako parametr
 }
 
 /**
- * @brief INIT FÁZE 1: Jednorázová inicializace - skenování adresáře + generování envelope dat
+ * @brief INIT FÁZE 1: Skenování adresáře
  */
 void VoiceManager::initializeSystem(Logger& logger) {
-
     logger.log("VoiceManager/initializeSystem", "info", 
               "INIT PHASE 1: System initialization ===");
     logger.log("VoiceManager/initializeSystem", "info", 
               "Scanning directory: " + sampleDir_);
     
     try {
-        // Krok 1: Skenování adresáře (najde všechny soubory pro všechny frekvence)
         samplerIO_.scanSampleDirectory(sampleDir_, logger);
-        
-        // Krok 2: Generování envelope dat (pro všechny frekvence)
-        logger.log("VoiceManager/initializeSystem", "info", 
-                  "Initializing envelope system...");
-        envelope_.initialize(logger);
         
         logger.log("VoiceManager/initializeSystem", "info", 
                   "=== INIT PHASE 1: Completed successfully ===");
@@ -122,13 +111,12 @@ void VoiceManager::initializeSystem(Logger& logger) {
 }
 
 /**
- * @brief FÁZE 2: Načtení dat + přepnutí envelope pro konkrétní sample rate
+ * @brief FÁZE 2: Načtení dat pro sample rate
  */
 void VoiceManager::loadForSampleRate(int sampleRate, Logger& logger) {
     logger.log("VoiceManager/loadForSampleRate", "info", 
               "=== INIT PHASE 2: Loading for sample rate " + std::to_string(sampleRate) + " Hz ===");
     
-    // Validace sample rate
     if (sampleRate != 44100 && sampleRate != 48000) {
         logger.log("VoiceManager/loadForSampleRate", "error", 
                   "Invalid sample rate " + std::to_string(sampleRate) + 
@@ -137,19 +125,15 @@ void VoiceManager::loadForSampleRate(int sampleRate, Logger& logger) {
     }
     
     try {
-        // Krok 1: Nastavení nového sample rate
         currentSampleRate_ = sampleRate;
         
-        // Krok 2: Přepnutí envelope na novou frekvenci
-        envelope_.setEnvelopeFrequency(sampleRate, logger);
-        
-        // Krok 3: Načtení samples pro danou frekvenci
+        // Načtení samples pro danou frekvenci
         instrumentLoader_.loadInstrumentData(samplerIO_, sampleRate, logger);
         
-        // Krok 4: Inicializace všech voices s novými daty
+        // Inicializace všech voices
         initializeVoicesWithInstruments(logger);
         
-        // Krok 5: Validace integrity
+        // Validace integrity
         instrumentLoader_.validateStereoConsistency(logger);
         
         systemInitialized_ = true;
@@ -165,8 +149,7 @@ void VoiceManager::loadForSampleRate(int sampleRate, Logger& logger) {
 }
 
 /**
- * @brief Statistiky celého systému
- * @param logger Reference na Logger
+ * @brief Statistiky systému
  */
 void VoiceManager::logSystemStatistics(Logger& logger) {
     if (!systemInitialized_) {
@@ -175,13 +158,11 @@ void VoiceManager::logSystemStatistics(Logger& logger) {
         return;
     }
     
-    // InstrumentLoader statistiky
     const int totalSamples = instrumentLoader_.getTotalLoadedSamples();
     const int monoSamples = instrumentLoader_.getMonoSamplesCount();
     const int stereoSamples = instrumentLoader_.getStereoSamplesCount();
     const int actualSampleRate = instrumentLoader_.getActualSampleRate();
     
-    // VoiceManager statistiky
     const int activeCount = getActiveVoicesCount();
     const int sustaining = getSustainingVoicesCount();
     const int releasing = getReleasingVoicesCount();
@@ -204,7 +185,7 @@ void VoiceManager::logSystemStatistics(Logger& logger) {
               "========================");
 }
 
-// ===== CORE AUDIO API IMPLEMENTATION =====
+// ===== CORE AUDIO API =====
 
 void VoiceManager::setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) noexcept {
     if (!isValidMidiNote(midiNote)) {
@@ -223,16 +204,11 @@ void VoiceManager::setNoteState(uint8_t midiNote, bool isOn, uint8_t velocity) n
     }
 }
 
-/**
- * @brief RT-SAFE: Process audio block - UNINTERLEAVED format (JUCE style)
- * Používá oddělené float* buffery pro levý a pravý kanál
- */
 bool VoiceManager::processBlockUninterleaved(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept {
     if (!outputLeft || !outputRight || samplesPerBlock <= 0) {
         return false;
     }
     
-    // Clear output buffers first
     std::fill(outputLeft, outputLeft + samplesPerBlock, 0.0f);
     std::fill(outputRight, outputRight + samplesPerBlock, 0.0f);
     
@@ -242,7 +218,6 @@ bool VoiceManager::processBlockUninterleaved(float* outputLeft, float* outputRig
     
     bool anyActive = false;
     
-    // Přímé zpracování - Voice::processBlock už používá uninterleaved formát
     for (Voice* voice : activeVoices_) {
         if (voice && voice->isActive()) {
             if (voice->processBlock(outputLeft, outputRight, samplesPerBlock)) {
@@ -262,16 +237,11 @@ bool VoiceManager::processBlockUninterleaved(float* outputLeft, float* outputRig
     return anyActive;
 }
 
-/**
- * @brief RT-SAFE: Process audio block - INTERLEAVED format
- * Používá AudioData* pro interleaved stereo data
- */
 bool VoiceManager::processBlockInterleaved(AudioData* outputBuffer, int samplesPerBlock) noexcept {
     if (!outputBuffer || samplesPerBlock <= 0) {
         return false;
     }
     
-    // Clear output buffer first
     for (int i = 0; i < samplesPerBlock; ++i) {
         outputBuffer[i].left = 0.0f;
         outputBuffer[i].right = 0.0f;
@@ -281,11 +251,9 @@ bool VoiceManager::processBlockInterleaved(AudioData* outputBuffer, int samplesP
         return false;
     }
     
-    // Temporary uninterleaved buffers for Voice::processBlock
     static thread_local std::vector<float> tempLeft;
     static thread_local std::vector<float> tempRight;
     
-    // Ensure temp buffers are large enough
     if (tempLeft.size() < static_cast<size_t>(samplesPerBlock)) {
         tempLeft.resize(samplesPerBlock);
         tempRight.resize(samplesPerBlock);
@@ -295,15 +263,12 @@ bool VoiceManager::processBlockInterleaved(AudioData* outputBuffer, int samplesP
     
     for (Voice* voice : activeVoices_) {
         if (voice && voice->isActive()) {
-            // Clear temp buffers for this voice
             std::fill(tempLeft.begin(), tempLeft.begin() + samplesPerBlock, 0.0f);
             std::fill(tempRight.begin(), tempRight.begin() + samplesPerBlock, 0.0f);
             
-            // Process voice to uninterleaved temp buffers
             if (voice->processBlock(tempLeft.data(), tempRight.data(), samplesPerBlock)) {
                 anyActive = true;
                 
-                // Mix from temp buffers to interleaved output
                 for (int i = 0; i < samplesPerBlock; ++i) {
                     outputBuffer[i].left += tempLeft[i];
                     outputBuffer[i].right += tempRight[i];
@@ -391,10 +356,6 @@ void VoiceManager::setRealTimeMode(bool enabled) noexcept {
 
 // ===== PRIVATE HELPER METHODS =====
 
-/**
- * @brief Inicializace všech voices s načtenými instrumenty
- * @param logger Reference na Logger
- */
 void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
     logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
               "Initializing all 128 voices with loaded instruments and envelope system...");
@@ -404,37 +365,21 @@ void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
         const Instrument& inst = instrumentLoader_.getInstrumentNote(midiNote);
         Voice& voice = voices_[i];
         
-        // AKTUALIZOVÁNO: Initialize voice s odpovídajícím instrumentem A envelope
         voice.initialize(inst, currentSampleRate_, envelope_, logger);
-        
-        // Prepare voice pro current buffer size
         voice.prepareToPlay(512);
     }
     
     logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
-              "All voices initialized with instruments and envelope system successfully");
+              "All voices initialized successfully");
 }
 
-/**
- * @brief Helper: Check if reinitialization needed
- */
 bool VoiceManager::needsReinitialization(int targetSampleRate) const noexcept {
-    // Debug logging pro diagnostiku
     bool currentMismatch = (currentSampleRate_ != targetSampleRate);
     bool loaderMismatch = (instrumentLoader_.getActualSampleRate() != targetSampleRate);
     
-    // Pro debugging - toto není RT-safe, ale pro diagnostiku OK
-    if (currentMismatch || loaderMismatch) {
-        // Pokud je potřeba reinicializace, debug info se vypíše v changeSampleRate()
-        return true;
-    }
-    
-    return false;
+    return currentMismatch || loaderMismatch;
 }
 
-/**
- * @brief Helper: Reinitialize if needed
- */
 void VoiceManager::reinitializeIfNeeded(int targetSampleRate, Logger& logger) {
     if (needsReinitialization(targetSampleRate)) {
         changeSampleRate(targetSampleRate, logger);
@@ -469,9 +414,6 @@ void VoiceManager::cleanupInactiveVoices() noexcept {
     voicesToRemove_.clear();
 }
 
-/**
- * @brief NON-RT SAFE: Safe logging wrapper
- */
 void VoiceManager::logSafe(const std::string& component, const std::string& severity, 
                           const std::string& message, Logger& logger) const {
     if (!rtMode_.load()) {
