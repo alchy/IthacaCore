@@ -3,9 +3,9 @@
 
 // Konstruktor - inicializace per-voice state s výchozími hodnotami
 Envelope::Envelope()
-    : attack_midi_index_(64)
-    , release_midi_index_(64)
-    , sustain_level_(0.7f) {
+    : attack_midi_index_(1)
+    , release_midi_index_(1)
+    , sustain_level_(1.0f) {
 }
 
 // RT-SAFE: Nastavení MIDI indexu pro attack

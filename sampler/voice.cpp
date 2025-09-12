@@ -278,26 +278,23 @@ bool Voice::processBlock(float* outputLeft,
     
     // APLIKOVAT gain na výstup
 
-    // TISK-DEBUG GAIN: Připravíme stream pro tisk
-    std::ostringstream gain_stream; 
     
-    gain_stream << gainBuffer_[0]; // xxx - DEBUG PRINT
+    std::ostringstream gain_stream;                                     // TISK-DEBUG
+    gain_stream << std::fixed << std::setprecision(3);                  // TISK-DEBUG
+    gain_stream << gainBuffer_[0];                                      // TISK-DEBUG
 
     for (int i = 0; i < samplesToProcess; ++i) {
         const int srcIndex = i * 2;
         
-        // Mixdown 
-        outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i];
-        outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i];
+        outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i];             // Mixdown L
+        outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i];        // Mixdown R
 
-        gain_stream << gainBuffer_[i]; // xxx - DEBUG PRINT
-        if (i > 0) gain_stream << ", "; // xxx - DEBUG PRINT
+        gain_stream << gainBuffer_[i];                                  // TISK-DEBUG
+        if (i > 0) gain_stream << ", ";                                 // TISK-DEBUG
 
     }
-       
-    
-    // // TISK-DEBUG GAIN: vytisknout celou sadu gainů na konzoli
-    std::cout << "GAINS: [" << gain_stream.str() << "]" << std::endl; // xxx - DEBUG PRINT
+
+    std::cout << "GAINS: [" << gain_stream.str() << "]" << std::endl;   // TISK-DEBUG
 
     // Čekání na stisk Enteru
     //std::cout << "Press ENTER to continue..." << std::flush; // xxx - DEBUG WAIT ENTER

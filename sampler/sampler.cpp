@@ -80,8 +80,17 @@ bool verifyBasicFunctionality(VoiceManager& voiceManager, Logger& logger) {
         voiceManager.setNoteState(testMidi, true, testVelocity);
         
         // Process block
-        bool hasAudio = voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
-        
+        bool hasAudio;
+        int i;
+        for(i = 0; i < 8; i++) {
+            hasAudio = voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
+        }
+
+        voiceManager.setNoteState(testMidi, false, testVelocity);
+        for(i = 0; i < 8; i++) {
+            hasAudio = voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
+        }
+
         // Stop note
         voiceManager.setNoteState(testMidi, false, 0);
         
