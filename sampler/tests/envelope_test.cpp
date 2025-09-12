@@ -13,7 +13,7 @@ EnvelopeTest::EnvelopeTest(Logger& logger, const TestConfig& config)
 bool EnvelopeTest::shouldExportAudio() const { return config().exportAudio; }
 
 std::vector<std::string> EnvelopeTest::getExportFileNames() const {
-    return { "envelope_attack.wav", "envelope_release.wav", "envelope_full_cycle.wav" };
+    return { "envelope_attack.wav", "envelope_sustain.wav", "envelope_release.wav", "envelope_full_cycle.wav" };  // Nové: Přidán sustain soubor
 }
 
 TestResult EnvelopeTest::runTest(VoiceManager& voiceManager) {
@@ -24,31 +24,54 @@ TestResult EnvelopeTest::runTest(VoiceManager& voiceManager) {
         uint8_t testMidi = findValidTestMidiNote(voiceManager, 60);
         uint8_t testVelocity = config().defaultTestVelocity;
         bool testPassed = true;
-
-        logger_.log("EnvelopeTest/runTest", "info", 
-                    "Testing MIDI " + std::to_string(testMidi) + 
-                    " with velocity " + std::to_string(testVelocity) + 
+        logger_.log("EnvelopeTest/runTest", "info",
+                    "Testing MIDI " + std::to_string(testMidi) +
+                    " with velocity " + std::to_string(testVelocity) +
                     " (enhanced envelope monitoring)");
-
         Voice& voice = voiceManager.getVoice(testMidi);
         
         // Get debug info before starting
         voice.getGainDebugInfo(logger_);
-
+        
+        // Nastavení délek fází v sekundách (doporučené hodnoty)
+        const double attackDurationSec = 4.0;  // Doba attack fáze v sekundách
+        const double sustainDurationSec = 4.0; // Doba sustain fáze v sekundách
+        const double releaseDurationSec = 4.0; // Doba release fáze v sekundách
         const int blockSize = config().exportBlockSize;
-        const int attackBlocks = 10;  // Blocks for attack phase
-        const int sustainBlocks = 5;  // Blocks for sustain phase  
-        const int releaseBlocks = 10; // Blocks for release phase
+        const int sampleRate = voiceManager.getCurrentSampleRate();  // Získej aktuální sample rate
+        
+        // Výpočet počtu bloků pro každou fázi
+        const int attackBlocks = static_cast<int>(std::ceil(attackDurationSec * sampleRate / blockSize));
+        const int sustainBlocks = static_cast<int>(std::ceil(sustainDurationSec * sampleRate / blockSize));
+        const int releaseBlocks = static_cast<int>(std::ceil(releaseDurationSec * sampleRate / blockSize));
         const int totalBlocks = attackBlocks + sustainBlocks + releaseBlocks;
+        
+        // Logování vypočtených délek pro kontrolu
+        logger_.log("EnvelopeTest/runTest", "info",
+                    "Calculated phases: Attack " + std::to_string(attackBlocks) + " blocks (~" + std::to_string(attackDurationSec) + "s), "
+                    "Sustain " + std::to_string(sustainBlocks) + " blocks (~" + std::to_string(sustainDurationSec) + "s), "
+                    "Release " + std::to_string(releaseBlocks) + " blocks (~" + std::to_string(releaseDurationSec) + "s)");
         
         float* leftBuffer = createDummyAudioBuffer(blockSize, 1);
         float* rightBuffer = createDummyAudioBuffer(blockSize, 1);
-        float* exportBuffer = shouldExportAudio() ? createDummyAudioBuffer(blockSize, 2) : nullptr;
+        
+        // Kumulativní vektory pro export (stereo interleaved)
+        std::vector<float> attackExportBuffer;
+        std::vector<float> sustainExportBuffer;
+        std::vector<float> releaseExportBuffer;
+        std::vector<float> fullCycleExportBuffer;
+        
+        if (shouldExportAudio()) {
+            attackExportBuffer.reserve(attackBlocks * blockSize * 2);
+            sustainExportBuffer.reserve(sustainBlocks * blockSize * 2);
+            releaseExportBuffer.reserve(releaseBlocks * blockSize * 2);
+            fullCycleExportBuffer.reserve(totalBlocks * blockSize * 2);
+        }
         
         std::vector<float> envelopeGains;
         std::vector<float> peakLevels;
         std::vector<int> voiceStates;
-
+        
         // Start note for attack phase
         voiceManager.setNoteState(testMidi, true, testVelocity);
         
@@ -65,90 +88,71 @@ TestResult EnvelopeTest::runTest(VoiceManager& voiceManager) {
             envelopeGains.push_back(currentEnvelopeGain);
             peakLevels.push_back(s.peakLevel);
             voiceStates.push_back(static_cast<int>(voice.getState()));
-
+            
             if (hasAudio) {
-                logger_.log("EnvelopeTest/runTest", "info", 
-                            "Block " + std::to_string(block) + 
-                            " - Peak: " + std::to_string(s.peakLevel) + 
+                logger_.log("EnvelopeTest/runTest", "info",
+                            "Block " + std::to_string(block) +
+                            " - Peak: " + std::to_string(s.peakLevel) +
                             ", RMS: " + std::to_string(s.rmsLevel) +
                             ", Envelope gain: " + std::to_string(currentEnvelopeGain) +
                             ", Velocity gain: " + std::to_string(voice.getVelocityGain()) +
                             ", State: " + std::to_string(static_cast<int>(voice.getState())));
-
-                // Export different phases
-                if (shouldExportAudio() && exportBuffer) {
-                    for (int i = 0; i < blockSize; ++i) {
-                        exportBuffer[i * 2] = leftBuffer[i];
-                        exportBuffer[i * 2 + 1] = rightBuffer[i];
-                    }
-                    
-                    std::string filename;
-                    if (block < attackBlocks) {
-                        filename = "envelope_attack.wav";
-                    } else if (block < attackBlocks + sustainBlocks) {
-                        filename = "envelope_sustain.wav"; 
-                    } else {
-                        filename = "envelope_release.wav";
-                    }
-                    
-                    // Only export first block of each phase to avoid overwriting
-                    if ((block == 0) || (block == attackBlocks) || (block == attackBlocks + sustainBlocks)) {
-                        exportTestAudio(filename, exportBuffer, blockSize, 2, 44100);
-                        logger_.log("EnvelopeTest/runTest", "info", "Exported: " + filename);
-                    }
-                }
             } else if (block < attackBlocks + sustainBlocks) {
-                // Should have audio during attack and sustain phases
                 testPassed = false;
-                logger_.log("EnvelopeTest/runTest", "error", 
+                logger_.log("EnvelopeTest/runTest", "error",
                             "No audio during active phase at block " + std::to_string(block));
             }
-
-            // Transition to release phase
-            if (block == attackBlocks + sustainBlocks) {
+            
+            // Kumulativní přidání bloku do export vektorů
+            if (shouldExportAudio()) {
+                for (int i = 0; i < blockSize; ++i) {
+                    if (block < attackBlocks) {
+                        attackExportBuffer.push_back(leftBuffer[i]);
+                        attackExportBuffer.push_back(rightBuffer[i]);
+                    } else if (block < attackBlocks + sustainBlocks) {
+                        sustainExportBuffer.push_back(leftBuffer[i]);
+                        sustainExportBuffer.push_back(rightBuffer[i]);
+                    } else {
+                        releaseExportBuffer.push_back(leftBuffer[i]);
+                        releaseExportBuffer.push_back(rightBuffer[i]);
+                    }
+                    fullCycleExportBuffer.push_back(leftBuffer[i]);
+                    fullCycleExportBuffer.push_back(rightBuffer[i]);
+                }
+            }
+            
+            // Transition to release phase na konci sustain
+            if (block == attackBlocks + sustainBlocks - 1) {
                 voiceManager.setNoteState(testMidi, false, 0);
-                logger_.log("EnvelopeTest/runTest", "info", 
+                logger_.log("EnvelopeTest/runTest", "info",
                             "Note-off sent - monitoring release envelope");
             }
         }
-
-        // Export full cycle
-        if (shouldExportAudio() && exportBuffer && !envelopeGains.empty()) {
-            // Create a synthetic full cycle for export
-            voiceManager.setNoteState(testMidi, true, testVelocity);
-            memset(leftBuffer, 0, blockSize * sizeof(float));
-            memset(rightBuffer, 0, blockSize * sizeof(float));
-            voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
-            
-            for (int i = 0; i < blockSize; ++i) {
-                exportBuffer[i * 2] = leftBuffer[i];
-                exportBuffer[i * 2 + 1] = rightBuffer[i];
-            }
-            exportTestAudio("envelope_full_cycle.wav", exportBuffer, blockSize, 2, 44100);
-            logger_.log("EnvelopeTest/runTest", "info", "Exported: envelope_full_cycle.wav");
-            
-            voiceManager.setNoteState(testMidi, false, 0);
+        
+        // Export kumulativních vektorů na konci testu
+        if (shouldExportAudio()) {
+            exportTestAudio("envelope_attack.wav", attackExportBuffer.data(), static_cast<int>(attackExportBuffer.size() / 2), 2, sampleRate);
+            exportTestAudio("envelope_sustain.wav", sustainExportBuffer.data(), static_cast<int>(sustainExportBuffer.size() / 2), 2, sampleRate);
+            exportTestAudio("envelope_release.wav", releaseExportBuffer.data(), static_cast<int>(releaseExportBuffer.size() / 2), 2, sampleRate);
+            exportTestAudio("envelope_full_cycle.wav", fullCycleExportBuffer.data(), static_cast<int>(fullCycleExportBuffer.size() / 2), 2, sampleRate);
+            logger_.log("EnvelopeTest/runTest", "info", "Exported all phase audio files with full duration");
         }
-
+        
         // Analyze envelope behavior
         bool attackPhaseOk = analyzeAttackPhase(envelopeGains, attackBlocks);
         bool sustainPhaseOk = analyzeSustainPhase(envelopeGains, attackBlocks, sustainBlocks);
         bool releasePhaseOk = analyzeReleasePhase(envelopeGains, attackBlocks + sustainBlocks, releaseBlocks);
-
-        logTestResult("attack_phase", attackPhaseOk, 
+        logTestResult("attack_phase", attackPhaseOk,
                      attackPhaseOk ? "Attack envelope behavior correct" : "Attack envelope issues detected");
-        logTestResult("sustain_phase", sustainPhaseOk, 
+        logTestResult("sustain_phase", sustainPhaseOk,
                      sustainPhaseOk ? "Sustain envelope behavior correct" : "Sustain envelope issues detected");
-        logTestResult("release_phase", releasePhaseOk, 
+        logTestResult("release_phase", releasePhaseOk,
                      releasePhaseOk ? "Release envelope behavior correct" : "Release envelope issues detected");
-
         destroyDummyAudioBuffer(leftBuffer);
         destroyDummyAudioBuffer(rightBuffer);
-        if (exportBuffer) destroyDummyAudioBuffer(exportBuffer);
-
         testPassed = testPassed && attackPhaseOk && sustainPhaseOk && releasePhaseOk;
         result.passed = testPassed;
-        result.details = "Envelope phases analyzed: " + std::to_string(envelopeGains.size()) + 
+        result.details = "Envelope phases analyzed: " + std::to_string(envelopeGains.size()) +
                         " samples across " + std::to_string(totalBlocks) + " blocks";
         
         if (!result.passed) {
@@ -181,8 +185,8 @@ bool EnvelopeTest::analyzeAttackPhase(const std::vector<float>& envelopeGains, i
     // Allow some tolerance - at least 70% of transitions should be increasing
     bool attackOk = (static_cast<float>(increasingCount) / static_cast<float>(attackBlocks - 1)) >= 0.7f;
     
-    logger_.log("EnvelopeTest/analyzeAttackPhase", "info", 
-               "Attack analysis: " + std::to_string(increasingCount) + "/" + 
+    logger_.log("EnvelopeTest/analyzeAttackPhase", "info",
+               "Attack analysis: " + std::to_string(increasingCount) + "/" +
                std::to_string(attackBlocks - 1) + " transitions increasing");
     
     return attackOk;
@@ -208,8 +212,8 @@ bool EnvelopeTest::analyzeSustainPhase(const std::vector<float>& envelopeGains, 
     // Sustain should be relatively stable (within 20% variation)
     bool sustainOk = (maxVariation <= 0.2f);
     
-    logger_.log("EnvelopeTest/analyzeSustainPhase", "info", 
-               "Sustain analysis: level=" + std::to_string(sustainLevel) + 
+    logger_.log("EnvelopeTest/analyzeSustainPhase", "info",
+               "Sustain analysis: level=" + std::to_string(sustainLevel) +
                ", max variation=" + std::to_string(maxVariation));
     
     return sustainOk;
@@ -231,8 +235,8 @@ bool EnvelopeTest::analyzeReleasePhase(const std::vector<float>& envelopeGains, 
     // Allow some tolerance - at least 70% of transitions should be decreasing
     bool releaseOk = (static_cast<float>(decreasingCount) / static_cast<float>(releaseBlocks - 1)) >= 0.7f;
     
-    logger_.log("EnvelopeTest/analyzeReleasePhase", "info", 
-               "Release analysis: " + std::to_string(decreasingCount) + "/" + 
+    logger_.log("EnvelopeTest/analyzeReleasePhase", "info",
+               "Release analysis: " + std::to_string(decreasingCount) + "/" +
                std::to_string(releaseBlocks - 1) + " transitions decreasing");
     
     return releaseOk;
