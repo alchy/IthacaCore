@@ -3,6 +3,7 @@
 #include <string>
 #include <cstdint>
 #include <atomic>
+#include <functional>
 #include "core_logger.h"
 
 /**
@@ -113,6 +114,12 @@ public:
      * @param enabled true pro RT mód (bez logování), false pro non-RT mód
      */
     static void setRTMode(bool enabled);
+
+    /*
+     * @brief methods for error logging (in RT)
+     */
+    using ErrorCallback = std::function<void(const std::string&, const std::string&, const std::string&)>;
+    void  setErrorCallback(ErrorCallback callback);
 
 private:
     // Konstanty podle Python skriptu
@@ -231,4 +238,11 @@ private:
      * @return bool true pokud je index platný
      */
     bool isValidSampleRateIndex(int index) const;
+
+    /*
+     * @brief methods for error logging (in RT)
+     */
+    ErrorCallback errorCallback_;
+    void reportError(const std::string& component, const std::string& severity, const std::string& message) const;
+    void exitOnError(const std::string& component, const std::string& severity, const std::string& message) const;
 };

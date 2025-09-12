@@ -41,7 +41,15 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
     
     activeVoices_.reserve(128);
     voicesToRemove_.reserve(128);
+
+    // Define callback on error and exit for RT function
+    envelope_.setErrorCallback([&logger](const std::string& component, 
+                                        const std::string& severity, 
+                                        const std::string& message) {
+        logger.log(component, severity, message);
+    });
     
+    // Log success
     logSafe("VoiceManager/constructor", "info", 
            "VoiceManager created with sampleDir '" + sampleDir_ + 
            "'. Ready for changeSampleRate() and initialization pipeline.", logger);

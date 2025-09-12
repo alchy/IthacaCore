@@ -10,7 +10,7 @@ Voice::Voice() : midiNote_(0), instrument_(nullptr), sampleRate_(0),
                  state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
                  envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(0.8f),
                  envelope_(nullptr),
-                 envelope_attack_position_(0), envelope_release_position_(0), releaseSamples_(0) {
+                 envelope_attack_position_(0), envelope_release_position_(0) {
 }
 
 // Konstruktor pro VoiceManager (pool mód)
@@ -19,7 +19,7 @@ Voice::Voice(uint8_t midiNote)
       state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
       envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(0.8f),
       envelope_(nullptr),
-      envelope_attack_position_(0), envelope_release_position_(0), releaseSamples_(0) {
+      envelope_attack_position_(0), envelope_release_position_(0) {
 }
 
 /**
@@ -58,7 +58,6 @@ void Voice::initialize(const Instrument& instrument, int sampleRate,
     envelope_attack_position_ = 0;
     envelope_release_position_ = 0;
     
-    calculateReleaseSamples();
     gainBuffer_.reserve(512);
     
     logSafe("Voice/initialize", "info", 
@@ -234,9 +233,19 @@ bool Voice::processBlock(float* outputLeft,
         return false;
     }
     
-    // OPTIMALIZACE: Calculate how many samples we can actually process
+    // OPRAVA: Safe conversion s explicitním ošetřením přetečení
     const sf_count_t samplesUntilEnd = maxFrames - position_;
-    const int samplesToProcess = static_cast<int>(std::min(static_cast<sf_count_t>(samplesPerBlock), samplesUntilEnd));
+    const sf_count_t samplesRequested = static_cast<sf_count_t>(samplesPerBlock);
+    const sf_count_t samplesToProcessLong = std::min(samplesRequested, samplesUntilEnd);
+    
+    // Bezpečná konverze na int s kontrolou rozsahu
+    if (samplesToProcessLong > static_cast<sf_count_t>(std::numeric_limits<int>::max())) {
+        // Teoreticky by se to nemělo stát při normálních block sizes (512-4096)
+        state_ = VoiceState::Idle;
+        return false;
+    }
+    
+    const int samplesToProcess = static_cast<int>(samplesToProcessLong);
     
     // Use pre-allocated buffer
     if (gainBuffer_.size() < static_cast<size_t>(samplesToProcess)) {
@@ -253,20 +262,18 @@ bool Voice::processBlock(float* outputLeft,
     const sf_count_t startIndex = position_ * 2;
     const float* srcPtr = stereoBuffer + startIndex;
     
-    // Kombinuj gain komponenty mimo envelope (který je per-sample)
-    //const float baseGain = velocity_gain_ * master_gain_;
-    
     // KRITICKÁ OPRAVA: APLIKOVAT gain na výstup!
     for (int i = 0; i < samplesToProcess; ++i) {
         const int srcIndex = i * 2;
         
         // OPRAVA: Mixdown s aplikovaným gainem
-        outputLeft[i] += srcPtr[srcIndex];// * gainBuffer_.data()[i];
-        outputRight[i] += srcPtr[srcIndex + 1];// * gainBuffer_.data()[i];
+        const float gain = gainBuffer_[i] * velocity_gain_ * master_gain_;
+        outputLeft[i] += srcPtr[srcIndex] * gain;
+        outputRight[i] += srcPtr[srcIndex + 1] * gain;
     }
     
-    // Batch position update
-    position_ += samplesToProcess;
+    // Batch position update - OPRAVA: Safe conversion zpět
+    position_ += static_cast<sf_count_t>(samplesToProcess);
     
     // End condition check - OPRAVA: proper transition to Idle
     if (position_ >= maxFrames) {
@@ -278,17 +285,6 @@ bool Voice::processBlock(float* outputLeft,
 }
 
 // ===== PRIVATE RT-SAFE METODY =====
-
-/**
- * @brief RT-SAFE: Výpočet releaseSamples na základě sampleRate_ (500 ms release).
- */
-void Voice::calculateReleaseSamples() noexcept {
-    if (sampleRate_ > 0) {
-        releaseSamples_ = static_cast<sf_count_t>(0.5 * sampleRate_);  // 500 ms = 0.5 s
-    } else {
-        releaseSamples_ = 0;
-    }
-}
 
 /**
  * @brief RT-SAFE: NOVÁ metoda pro aplikaci MIDI velocity na hlasitost

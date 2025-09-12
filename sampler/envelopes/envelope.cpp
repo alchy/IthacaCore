@@ -24,6 +24,23 @@ Envelope::Envelope()
     }
 }
 
+// error and exit logging in RT via callback
+void Envelope::setErrorCallback(ErrorCallback callback) {
+    errorCallback_ = callback;
+}
+
+void Envelope::reportError(const std::string& component, const std::string& severity, const std::string& message) const {
+    if (!rtMode_.load() && errorCallback_) {
+        errorCallback_(component, severity, message);
+    }
+}
+
+void Envelope::exitOnError(const std::string& component, const std::string& severity, const std::string& message)const {
+    reportError(component, "error", message + ". Terminating.");
+    std::exit(1);
+}
+
+
 bool Envelope::initialize(Logger& logger) {
     logSafe("Envelope/initialize", "info", "Starting envelope generation for both sample rates", logger);
     
@@ -100,9 +117,8 @@ bool Envelope::getAttackGains(float* gain_buffer, int num_samples, int envelope_
     
     // KRITICKÁ CHYBA: Kontrola inicializace a nastavení frekvence
     if (!isValidSampleRateIndex(sample_rate_index_)) {
-        Logger dummy_logger;
-        logSafe("Envelope/getAttackGains", "error", 
-               "Sample rate not set (call setEnvelopeFrequency first). Terminating.", dummy_logger);
+        exitOnError("Envelope/getAttackGains", "error", 
+            "Sample rate not set (call setEnvelopeFrequency first). Terminating.");
         std::exit(1);
     }
     
@@ -111,10 +127,8 @@ bool Envelope::getAttackGains(float* gain_buffer, int num_samples, int envelope_
     
     // KRITICKÁ CHYBA: Kontrola inicializace dat
     if (!envelope_idx.data || envelope_idx.length == 0) {
-        Logger dummy_logger;
-        logSafe("Envelope/getAttackGains", "error", 
-               "Attack envelope data not initialized (call initialize first). Terminating.", dummy_logger);
-        std::exit(1);
+        exitOnError("Envelope/getAttackGains", "error", 
+               "Attack envelope data not initialized (call initialize first). Terminating.");
     }
     
     const float* data = envelope_idx.data;
@@ -134,11 +148,12 @@ bool Envelope::getAttackGains(float* gain_buffer, int num_samples, int envelope_
     }
     
     // Logování vrácených hodnot (pouze v non-RT módu)
+    /*
     if (!rtMode_.load()) {
-        Logger dummy_logger;
         logGainsData(gain_buffer, num_samples, "Attack", envelope_attack_position, 
                     current_sample_rate_, dummy_logger);
     }
+    */
     
     return continues;
 }
@@ -151,10 +166,8 @@ bool Envelope::getReleaseGains(float* gain_buffer, int num_samples, int envelope
     
     // KRITICKÁ CHYBA: Kontrola inicializace a nastavení frekvence
     if (!isValidSampleRateIndex(sample_rate_index_)) {
-        Logger dummy_logger;
-        logSafe("Envelope/getReleaseGains", "error", 
-               "Sample rate not set (call setEnvelopeFrequency first). Terminating.", dummy_logger);
-        std::exit(1);
+        exitOnError("Envelope/getReleaseGains", "error", 
+               "Sample rate not set (call setEnvelopeFrequency first). Terminating.");
     }
     
     // Výběr správného indexu podle vzorkovací frekvence
@@ -162,10 +175,8 @@ bool Envelope::getReleaseGains(float* gain_buffer, int num_samples, int envelope
     
     // KRITICKÁ CHYBA: Kontrola inicializace dat
     if (!envelope_idx.data || envelope_idx.length == 0) {
-        Logger dummy_logger;
-        logSafe("Envelope/getReleaseGains", "error", 
-               "Release envelope data not initialized (call initialize first). Terminating.", dummy_logger);
-        std::exit(1);
+        exitOnError("Envelope/getReleaseGains", "error", 
+               "Release envelope data not initialized (call initialize first). Terminating.");
     }
     
     const float* data = envelope_idx.data;
@@ -185,11 +196,13 @@ bool Envelope::getReleaseGains(float* gain_buffer, int num_samples, int envelope
     }
     
     // Logování vrácených hodnot (pouze v non-RT módu)
+    /*
     if (!rtMode_.load()) {
         Logger dummy_logger;
         logGainsData(gain_buffer, num_samples, "Release", envelope_release_position, 
                     current_sample_rate_, dummy_logger);
     }
+    */
     
     return continues;
 }
@@ -197,10 +210,8 @@ bool Envelope::getReleaseGains(float* gain_buffer, int num_samples, int envelope
 void Envelope::setAttackMIDI(uint8_t midi_value) {
     // Kontrola inicializace před nastavením MIDI hodnoty
     if (!isValidSampleRateIndex(sample_rate_index_)) {
-        Logger dummy_logger;
-        logSafe("Envelope/setAttackMIDI", "error", 
-               "Cannot set attack MIDI before setting sample rate (call setEnvelopeFrequency first). Terminating.", dummy_logger);
-        std::exit(1);
+        exitOnError("Envelope/setAttackMIDI", "error", 
+               "Cannot set attack MIDI before setting sample rate (call setEnvelopeFrequency first). Terminating.");
     }
     
     bool buffers_empty = true;
@@ -212,10 +223,8 @@ void Envelope::setAttackMIDI(uint8_t midi_value) {
     }
     
     if (buffers_empty) {
-        Logger dummy_logger;
-        logSafe("Envelope/setAttackMIDI", "error", 
-               "Cannot set attack MIDI before initialization (call initialize first). Terminating.", dummy_logger);
-        std::exit(1);
+        exitOnError("Envelope/setAttackMIDI", "error", 
+               "Cannot set attack MIDI before initialization (call initialize first). Terminating.");
     }
     
     // RT-SAFE: Pouze přiřazení hodnoty
@@ -225,10 +234,8 @@ void Envelope::setAttackMIDI(uint8_t midi_value) {
 void Envelope::setReleaseMIDI(uint8_t midi_value) {
     // Kontrola inicializace před nastavením MIDI hodnoty
     if (!isValidSampleRateIndex(sample_rate_index_)) {
-        Logger dummy_logger;
-        logSafe("Envelope/setReleaseMIDI", "error", 
-               "Cannot set release MIDI before setting sample rate (call setEnvelopeFrequency first). Terminating.", dummy_logger);
-        std::exit(1);
+        exitOnError("Envelope/setReleaseMIDI", "error", 
+               "Cannot set release MIDI before setting sample rate (call setEnvelopeFrequency first). Terminating.");
     }
     
     bool buffers_empty = true;
@@ -240,10 +247,8 @@ void Envelope::setReleaseMIDI(uint8_t midi_value) {
     }
     
     if (buffers_empty) {
-        Logger dummy_logger;
-        logSafe("Envelope/setReleaseMIDI", "error", 
-               "Cannot set release MIDI before initialization (call initialize first). Terminating.", dummy_logger);
-        std::exit(1);
+        exitOnError("Envelope/setReleaseMIDI", "error", 
+               "Cannot set release MIDI before initialization (call initialize first). Terminating.");
     }
     
     // RT-SAFE: Pouze přiřazení hodnoty
@@ -263,20 +268,16 @@ float Envelope::getSustainLevel() const {
 float Envelope::getAttackLength() const {
     // KRITICKÁ CHYBA: Kontrola inicializace
     if (!isValidSampleRateIndex(sample_rate_index_) || current_sample_rate_ <= 0) {
-        Logger dummy_logger;
-        logSafe("Envelope/getAttackLength", "error", 
-               "Sample rate not set or envelope not initialized. Terminating.", dummy_logger);
-        std::exit(1);
+        exitOnError("Envelope/getAttackLength", "error", 
+               "Sample rate not set or envelope not initialized. Terminating.");
     }
     
     const EnvelopeIndex& envelope_idx = attack_index_[sample_rate_index_][attack_midi_index_];
     
     if (envelope_idx.data == nullptr) {
-        Logger dummy_logger;
-        logSafe("Envelope/getAttackLength", "error", 
+        exitOnError("Envelope/getAttackLength", "error", 
                "Attack envelope not initialized for " + std::to_string(current_sample_rate_) + 
-               " Hz. Terminating.", dummy_logger);
-        std::exit(1);
+               " Hz. Terminating.");
     }
     
     const int length = envelope_idx.length;
@@ -286,20 +287,16 @@ float Envelope::getAttackLength() const {
 float Envelope::getReleaseLength() const {
     // KRITICKÁ CHYBA: Kontrola inicializace
     if (!isValidSampleRateIndex(sample_rate_index_) || current_sample_rate_ <= 0) {
-        Logger dummy_logger;
-        logSafe("Envelope/getReleaseLength", "error", 
-               "Sample rate not set or envelope not initialized. Terminating.", dummy_logger);
-        std::exit(1);
+        exitOnError("Envelope/getReleaseLength", "error", 
+               "Sample rate not set or envelope not initialized. Terminating.");
     }
     
     const EnvelopeIndex& envelope_idx = release_index_[sample_rate_index_][release_midi_index_];
     
     if (envelope_idx.data == nullptr) {
-        Logger dummy_logger;
-        logSafe("Envelope/getReleaseLength", "error", 
+        exitOnError("Envelope/getReleaseLength", "error", 
                "Release envelope not initialized for " + std::to_string(current_sample_rate_) + 
-               " Hz. Terminating.", dummy_logger);
-        std::exit(1);
+               " Hz. Terminating.");
     }
     
     const int length = envelope_idx.length;

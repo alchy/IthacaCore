@@ -181,10 +181,8 @@ private:
     const Envelope* envelope_;          // Pointer na Envelope (non-owning)
 
     // PŘIDAT TYTO ŘÁDKY:
-    sf_count_t envelope_attack_position_;   // Pozice v attack envelope
-    sf_count_t envelope_release_position_;  // Pozice v release envelope
-
-    sf_count_t releaseSamples_;             // Délka release v samplech (např. 0.5 * sampleRate)
+    int envelope_attack_position_;      // Pozice v attack envelope
+    int envelope_release_position_;     // Pozice v release envelope
     
     // RT-SAFE: Pre-allocated buffer pro gain calculations
     // Resized pouze během prepareToPlay() calls, nikdy během RT processing
@@ -194,11 +192,6 @@ private:
     static std::atomic<bool> rtMode_;
 
     // RT-SAFE PRIVATE METODY:
-
-    /**
-     * @brief RT-SAFE: Vypočítá releaseSamples na základě sampleRate_ (500 ms release).
-     */
-    void calculateReleaseSamples() noexcept;
 
     /**
      * @brief RT-SAFE: NOVÁ metoda pro aplikaci MIDI velocity na hlasitost
