@@ -1,204 +1,311 @@
-#include "sampler.h"
-#include "voice_manager.h"
-
-// Podmíněné include pro testovací systém
-#ifdef ENABLE_TESTS
-
-// NOVÝ testovací framework
-#include "tests/test_registry.h"
-#include "tests/velocity_gain_test.h"
-#include "tests/envelope_test.h"
-#include "tests/single_note_test.h"
-#include "tests/polyphony_test.h"
-#include "tests/edge_case_test.h"
-#include "tests/performance_test.h"
-#endif
-
 #include <iostream>
 #include <memory>
 
+#include "sampler.h"
+#include "voice_manager.h"
+#include "envelopes/envelope_static_data.h"
+#include "wav_file_exporter.h"
+
+
 /**
- * @brief REFAKTOROVÁNO: runSampler s hybridním testovacím přístupem
+ * @brief CORE: runSampler - čistá produkční implementace
  * 
- * NOVÁ ARCHITEKTURA:
- * FÁZE 1: Jednorázová inicializace (skenování adresáře + envelope generování)
- * FÁZE 2: Načtení pro konkrétní sample rate (data loading + envelope přepnutí)
- * FÁZE 3: JUCE příprava (buffer sizes pro voices)
- * FÁZE 4: HYBRIDNÍ TESTOVÁNÍ - kombinace starých a nových testů
- * 
- * Test pipeline:
- * 1. VoiceManager instance creation
- * 2. 3-fázová inicializace
- * 3. Starý VoiceManager tester (pokud ENABLE_TESTS)
- * 4. NOVÝ test framework s registrací
- * 5. Demo testy s envelope systémem
- * 6. System statistics
- * 
- * @param logger Reference na Logger pro zaznamenání celého procesu
- * @return 0 při úspěchu, 1 při kritické chybě
+ * Inicializuje a ověří základní funkčnost sampler systému.
+ * Bez testů, bez demo funkcí - pouze core funkcionalita.
  */
 int runSampler(Logger& logger) {
-    logger.log("runSampler", "info", "=== STARTING HYBRID SAMPLER TEST SUITE ===");
-    logger.log("runSampler", "info", "Using VoiceManager with 3-phase initialization + HYBRID testing framework");
+    logger.log("runSampler", "info", "=== CORE SAMPLER SYSTEM STARTING ===");
     
     try {
-        // 1. VYTVOŘENÍ VOICEMANAGER INSTANCE
+        // FÁZE 0: KRITICKÁ - Globální inicializace envelope dat
+        logger.log("runSampler", "info", "Initializing envelope static data...");
+        if (!EnvelopeStaticData::initialize(logger)) {
+            logger.log("runSampler", "error", "Failed to initialize envelope static data");
+            return 1;
+        }
+
+        // FÁZE 1: Vytvoření VoiceManager instance
         logger.log("runSampler", "info", "Creating VoiceManager instance...");
         VoiceManager voiceManager(DEFAULT_SAMPLE_DIR, logger);
         
-        // 2. FÁZE 1: Jednorázová inicializace (skenování + envelope generování)
-        logger.log("runSampler", "info", "=== INIT PHASE 1: System initialization ===");
-        logger.log("runSampler", "info", "Scanning sample directory and generating envelope data...");
+        // FÁZE 2: Systémová inicializace
+        logger.log("runSampler", "info", "Initializing system...");
         voiceManager.initializeSystem(logger);
         
-        // 3. FÁZE 2: Načtení pro konkrétní sample rate
-        logger.log("runSampler", "info", "=== INIT PHASE 2: Loading for sample rate ===");
-        logger.log("runSampler", "info", "Loading samples and configuring envelope for " + 
-                  std::to_string(DEFAULT_SAMPLE_RATE) + " Hz...");
+        // FÁZE 3: Načtení pro sample rate
+        logger.log("runSampler", "info", "Loading for sample rate " + std::to_string(DEFAULT_SAMPLE_RATE) + " Hz");
         voiceManager.loadForSampleRate(DEFAULT_SAMPLE_RATE, logger);
         
-        // 4. FÁZE 3: JUCE příprava
-        logger.log("runSampler", "info", "=== INIT PHASE 3: JUCE preparation ===");
-        logger.log("runSampler", "info", "Preparing voices for audio processing...");
+        // FÁZE 4: JUCE příprava
+        logger.log("runSampler", "info", "Preparing for audio processing...");
         voiceManager.prepareToPlay(DEFAULT_JUCE_BLOCK_SIZE);
         
-        #ifdef ENABLE_TESTS
-        // 5. HYBRIDNÍ TESTOVACÍ SUITE
-        logger.log("runSampler", "info", "=== STARTING HYBRID TEST SUITE ===");
-        
-        int totalFailures = 0;
-                
-        // === TESTOVACÍ FRAMEWORK ===
-        logger.log("runSampler", "info", "=== PART B: New Test Framework ===");
-        
-        // Inicializace nového test frameworku
-        TestRegistry registry(logger);
-        
-        // Konfigurace testů s exportem povoleným
-        TestConfig config;
-        config.exportAudio = true;
-        config.exportBlockSize = 512;
-        config.defaultTestVelocity = 100;
-        config.testMasterGains = {0.1f, 0.3f, 0.5f, 0.8f, 1.0f};
-        config.exportDir = "./exports/tests";
-        config.verboseLogging = true;
-        
-        logger.log("runSampler", "info", "Registering new test framework tests...");
-        
-        // Registrace všech nových testů
-        registry.registerTest(std::make_unique<VelocityGainTest>(logger, config));
-        registry.registerTest(std::make_unique<EnvelopeTest>(logger, config));
-        registry.registerTest(std::make_unique<SingleNoteTest>(logger, config));
-        registry.registerTest(std::make_unique<PolyphonyTest>(logger, config));
-        registry.registerTest(std::make_unique<EdgeCaseTest>(logger, config));
-        registry.registerTest(std::make_unique<PerformanceTest>(logger, config));
-        
-        logger.log("runSampler", "info", "Running new framework tests...");
-        
-        // Spuštění všech nových testů
-        auto newTestResults = registry.runAll(voiceManager, config);
-        
-        // Analýza výsledků nových testů
-        int newTestFailures = 0;
-        for (const auto& [testName, result] : newTestResults) {
-            if (!result.passed) {
-                newTestFailures++;
-                logger.log("runSampler", "error", "New test FAILED: " + testName + 
-                          " - " + result.errorMessage);
-            } else {
-                logger.log("runSampler", "info", "New test PASSED: " + testName + 
-                          " - " + result.details);
-            }
+        // FÁZE 5: Základní ověření funkčnosti
+        logger.log("runSampler", "info", "Verifying basic functionality...");
+        if (!verifyBasicFunctionality(voiceManager, logger)) {
+            logger.log("runSampler", "error", "Basic functionality verification failed");
+            return 1;
         }
         
-        totalFailures += newTestFailures;
-        
-        logger.log("runSampler", "info", "New framework tests completed with " + 
-                  std::to_string(newTestFailures) + " failures");
-        
-        // === ČÁST C: HYBRIDNÍ VÝSLEDKY ===
-        logger.log("runSampler", "info", "=== HYBRID TEST RESULTS ===");
-        logger.log("runSampler", "info", "Legacy tests: Critical functionality verified");
-        logger.log("runSampler", "info", "New tests: " + std::to_string(newTestResults.size()) + 
-                  " comprehensive tests with export capability");
-        logger.log("runSampler", "info", "Total test failures: " + std::to_string(totalFailures));
-        
-        if (totalFailures > 0) {
-            logger.log("runSampler", "error", 
-                      "HYBRID test suite failed with " + std::to_string(totalFailures) + " failures");
-            // Pokračujeme v demo testech i při selhání, ale označíme výsledek
-        } else {
-            logger.log("runSampler", "info", "All HYBRID tests passed successfully");
-        }
-        
-        #else
-        logger.log("runSampler", "info", "ENABLE_TESTS not defined - skipping test suites");
-        #endif
-        
-        // 6. SYSTEM STATISTICS
-        logger.log("runSampler", "info", "=== FINAL SYSTEM STATISTICS ===");
+        // FÁZE 6: Systémové statistiky
         voiceManager.logSystemStatistics(logger);
         
-        // 7. DEMO TESTY S ENVELOPE SYSTÉMEM
-        logger.log("runSampler", "info", "=== DEMO TESTS WITH ENVELOPE SYSTEM ===");
-        try {
-            // Demo single note s envelope
-            uint8_t testMidi = 108;
-            uint8_t testVelocity = 100;
+        logger.log("runSampler", "info", "=== CORE SAMPLER SYSTEM READY ===");
+        return 0;
+        
+    } catch (const std::exception& e) {
+        logger.log("runSampler", "error", "CRITICAL ERROR: " + std::string(e.what()));
+        return 1;
+    } catch (...) {
+        logger.log("runSampler", "error", "UNKNOWN CRITICAL ERROR");
+        return 1;
+    }
+}
+
+// ... (existující includes v sampler.cpp)
+// Přidej tyto, pokud chybí:
+#include <vector>
+#include <cmath>
+#include <algorithm>
+#include "wav_file_exporter.h"  // Pro WavExporter
+
+// Helper pro export audio do WAV pomocí WavExporter
+void exportTestAudio(const std::string& filename, const float* data, int numFrames, int channels, int sampleRate, Logger& logger) {
+    // Inicializace WavExporter s cestou "./exports/tests/" a formátem Float
+    WavExporter exporter("./exports/tests/", logger, ExportFormat::Float);
+    float* buffer = exporter.wavFileCreate(filename, sampleRate, numFrames, channels == 2, true);  // Reálný zápis
+    // Kopírování dat do bufferu (interleaved)
+    std::memcpy(buffer, data, static_cast<size_t>(numFrames) * channels * sizeof(float));
+    bool success = exporter.wavFileWriteBuffer(buffer, numFrames);
+    if (!success) {
+        logger.log("exportTestAudio", "error", "Failed to write WAV: " + filename);
+    } else {
+        logger.log("exportTestAudio", "info", "Exported WAV: " + filename);
+    }
+    // Destruktor exporteru se postará o close a free
+}
+
+// Analýza attack fáze (zvýšení gainů)
+bool analyzeAttackPhase(const std::vector<float>& envelopeGains, int attackBlocks, Logger& logger) {
+    if (envelopeGains.size() < static_cast<size_t>(attackBlocks) || attackBlocks <= 1) return false;
+    
+    int increasingCount = 0;
+    for (int i = 1; i < attackBlocks; ++i) {
+        if (envelopeGains[i] >= envelopeGains[i - 1]) increasingCount++;
+    }
+    
+    float ratio = static_cast<float>(increasingCount) / (attackBlocks - 1);
+    bool ok = ratio >= 0.7f;
+    logger.log("analyzeAttackPhase", "info", "Attack: " + std::to_string(increasingCount) + "/" + std::to_string(attackBlocks - 1) + " increasing (ratio: " + std::to_string(ratio) + ")");
+    return ok;
+}
+
+// Analýza sustain fáze (stabilita gainů)
+bool analyzeSustainPhase(const std::vector<float>& envelopeGains, int attackBlocks, int sustainBlocks, Logger& logger) {
+    int start = attackBlocks;
+    int end = attackBlocks + sustainBlocks;
+    if (envelopeGains.size() < static_cast<size_t>(end) || sustainBlocks <= 1) return false;
+    
+    float sustainLevel = envelopeGains[start];
+    float maxVariation = 0.0f;
+    for (int i = start; i < end; ++i) {
+        maxVariation = std::max(maxVariation, std::abs(envelopeGains[i] - sustainLevel));
+    }
+    
+    bool ok = maxVariation <= 0.2f;
+    logger.log("analyzeSustainPhase", "info", "Sustain: level=" + std::to_string(sustainLevel) + ", max variation=" + std::to_string(maxVariation));
+    return ok;
+}
+
+// Analýza release fáze (snížení gainů)
+bool analyzeReleasePhase(const std::vector<float>& envelopeGains, int releaseStart, int releaseBlocks, Logger& logger) {
+    if (envelopeGains.size() < static_cast<size_t>(releaseStart + releaseBlocks) || releaseBlocks <= 1) return false;
+    
+    int decreasingCount = 0;
+    for (int i = releaseStart + 1; i < releaseStart + releaseBlocks; ++i) {
+        if (envelopeGains[i] <= envelopeGains[i - 1]) decreasingCount++;
+    }
+    
+    float ratio = static_cast<float>(decreasingCount) / (releaseBlocks - 1);
+    bool ok = ratio >= 0.7f;
+    logger.log("analyzeReleasePhase", "info", "Release: " + std::to_string(decreasingCount) + "/" + std::to_string(releaseBlocks - 1) + " decreasing (ratio: " + std::to_string(ratio) + ")");
+    return ok;
+}
+
+/**
+ * @brief Základní ověření funkčnosti - minimální test včetně envelope_test
+ *
+ * Funkce provede původní jednoduchý test note-on/off a přidá envelope_test
+ * s exportem do WAV souborů. Používá dummy buffery pro simulaci audio vstupu.
+ * Analyzuje chování envelope fází (attack, sustain, release).
+ *
+ * @param voiceManager Reference na VoiceManager pro testování
+ * @param logger Reference na Logger pro logování
+ * @return true pokud všechny testy prošly, jinak false
+ */
+bool verifyBasicFunctionality(VoiceManager& voiceManager, Logger& logger) {
+    try {
+        // --- Původní jednoduchý test (basic_test) ---
+        // Jednoduchý test - start note, process block, stop note
+        uint8_t testMidi = 70;
+        uint8_t testVelocity = 100;
+        const int blockSize = 512;
+        
+        float* leftBuffer = new float[blockSize];
+        float* rightBuffer = new float[blockSize];
+        
+        // Clear buffers
+        std::fill(leftBuffer, leftBuffer + blockSize, 0.0f);
+        std::fill(rightBuffer, rightBuffer + blockSize, 0.0f);
+        
+        // Start note
+        bool hasAudio;
+        int i;
+        voiceManager.setNoteState(testMidi, true, testVelocity);
+        for(i = 0; i < 12; i++) {
+            hasAudio = voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
+        }
+        voiceManager.setNoteState(testMidi, false, testVelocity);
+        for(i = 0; i < 512; i++) {
+            hasAudio = voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
+        }
+        
+        if (hasAudio) {
+            logger.log("verifyBasicFunctionality", "info", "Basic functionality verification passed");
+        } else {
+            logger.log("verifyBasicFunctionality", "warn", "No audio output detected in basic test");
+            // Pokračujeme i při varování, ale označíme jako neúspěch na konci
+        }
+        
+        // --- Nový test: envelope_test ---
+        logger.log("verifyBasicFunctionality", "info", "Starting envelope_test");
+        
+        // Konfigurace envelope testu
+        bool exportAudio = true;  // Zapnuto pro export do WAV
+        int exportBlockSize = 512;
+        uint8_t defaultTestVelocity = 100;
+        int sampleRate = voiceManager.getCurrentSampleRate();  // Získání sample rate z VoiceManager
+        
+        // Délky fází v sekundách
+        const double attackDurationSec = 4.0;
+        const double sustainDurationSec = 4.0;
+        const double releaseDurationSec = 4.0;
+        
+        // Výpočet počtu bloků pro každou fázi
+        const int attackBlocks = static_cast<int>(std::ceil(attackDurationSec * sampleRate / exportBlockSize));
+        const int sustainBlocks = static_cast<int>(std::ceil(sustainDurationSec * sampleRate / exportBlockSize));
+        const int releaseBlocks = static_cast<int>(std::ceil(releaseDurationSec * sampleRate / exportBlockSize));
+        const int totalBlocks = attackBlocks + sustainBlocks + releaseBlocks;
+        
+        logger.log("verifyBasicFunctionality", "info",
+                   "Envelope test phases: Attack " + std::to_string(attackBlocks) + " blocks, "
+                   "Sustain " + std::to_string(sustainBlocks) + " blocks, "
+                   "Release " + std::to_string(releaseBlocks) + " blocks");
+        
+        // Získání voice pro testMidi
+        Voice& voice = voiceManager.getVoice(testMidi);
+        
+        // Dummy buffery s konstantní 1.0f pro test gainů
+        std::fill(leftBuffer, leftBuffer + blockSize, 1.0f);
+        std::fill(rightBuffer, rightBuffer + blockSize, 1.0f);
+        
+        // Kumulativní vektory pro export (stereo interleaved [L,R,L,R...])
+        std::vector<float> attackExportBuffer;
+        std::vector<float> sustainExportBuffer;
+        std::vector<float> releaseExportBuffer;
+        std::vector<float> fullCycleExportBuffer;
+        
+        if (exportAudio) {
+            attackExportBuffer.reserve(attackBlocks * blockSize * 2);
+            sustainExportBuffer.reserve(sustainBlocks * blockSize * 2);
+            releaseExportBuffer.reserve(releaseBlocks * blockSize * 2);
+            fullCycleExportBuffer.reserve(totalBlocks * blockSize * 2);
+        }
+        
+        // Vektor pro sběr envelope gainů pro analýzu
+        std::vector<float> envelopeGains;
+        envelopeGains.reserve(totalBlocks);
+        
+        // Start note-on pro attack fázi
+        voiceManager.setNoteState(testMidi, true, defaultTestVelocity);
+        
+        // Procesování všech bloků
+        for (int block = 0; block < totalBlocks; ++block) {
+            // Clear output buffery před procesováním
+            std::fill(leftBuffer, leftBuffer + blockSize, 0.0f);
+            std::fill(rightBuffer, rightBuffer + blockSize, 0.0f);
             
-            logger.log("runSampler", "info", "Demo: Playing MIDI " + std::to_string(testMidi) + 
-                      " with velocity " + std::to_string(testVelocity) + " (envelope-enabled)");
+            hasAudio = voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
             
-            voiceManager.setNoteState(testMidi, true, testVelocity);
+            // Získání aktuálního envelope gainu
+            float currentEnvelopeGain = voice.getCurrentEnvelopeGain();
+            envelopeGains.push_back(currentEnvelopeGain);
             
-            // Process několik bloků pro demonstraci envelope
-            const int blockSize = 512;
-            float* leftBuffer = new float[blockSize];
-            float* rightBuffer = new float[blockSize];
+            // Logování pro každý blok (pro debugging)
+            logger.log("verifyBasicFunctionality", "info",
+                       "Block " + std::to_string(block) +
+                       " - Envelope gain: " + std::to_string(currentEnvelopeGain) +
+                       ", State: " + std::to_string(static_cast<int>(voice.getState())));
             
-            for (int i = 0; i < 5; ++i) {
-                if (voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize)) {
-                    float peakL = 0.0f;
-                    for (int j = 0; j < blockSize; ++j) {
-                        peakL = std::max(peakL, std::abs(leftBuffer[j]));
+            // Přidání do export vektorů, pokud je export zapnut
+            if (exportAudio) {
+                for (int j = 0; j < blockSize; ++j) {
+                    if (block < attackBlocks) {
+                        attackExportBuffer.push_back(leftBuffer[j]);
+                        attackExportBuffer.push_back(rightBuffer[j]);
+                    } else if (block < attackBlocks + sustainBlocks) {
+                        sustainExportBuffer.push_back(leftBuffer[j]);
+                        sustainExportBuffer.push_back(rightBuffer[j]);
+                    } else {
+                        releaseExportBuffer.push_back(leftBuffer[j]);
+                        releaseExportBuffer.push_back(rightBuffer[j]);
                     }
-                    logger.log("runSampler", "info", 
-                              "Demo block " + std::to_string(i) + " peak: " + std::to_string(peakL) + 
-                              " (with envelope processing)");
+                    fullCycleExportBuffer.push_back(leftBuffer[j]);
+                    fullCycleExportBuffer.push_back(rightBuffer[j]);
                 }
             }
             
-            voiceManager.setNoteState(testMidi, false, 0);
-            delete[] leftBuffer;
-            delete[] rightBuffer;
-            
-            logger.log("runSampler", "info", "Demo tests completed successfully");
-        } catch (...) {
-            logger.log("runSampler", "warn", "Demo tests failed - continuing anyway");
+            // Note-off na konci sustain fáze
+            if (block == attackBlocks + sustainBlocks - 1) {
+                voiceManager.setNoteState(testMidi, false, defaultTestVelocity);
+                logger.log("verifyBasicFunctionality", "info", "Note-off sent - starting release phase");
+            }
         }
         
-        // 8. ÚSPĚŠNÉ UKONČENÍ
-        logger.log("runSampler", "info", "=== HYBRID SAMPLER TEST SUITE COMPLETED ===");
-        logger.log("runSampler", "info", "Architecture verified: 3-phase initialization + hybrid testing");
-        logger.log("runSampler", "info", "Legacy tests: Critical functionality preserved");
-        logger.log("runSampler", "info", "New framework: Comprehensive testing with export capability");
-        logger.log("runSampler", "info", "Envelope system integrated: runtime generation + frequency switching");
-        logger.log("runSampler", "info", "Export files available in: ./exports/tests/");
-        logger.log("runSampler", "info", "System ready for production use.");
+        // Export WAV souborů, pokud je zapnuto
+        if (exportAudio) {
+            exportTestAudio("envelope_attack.wav", attackExportBuffer.data(), static_cast<int>(attackExportBuffer.size() / 2), 2, sampleRate, logger);
+            exportTestAudio("envelope_sustain.wav", sustainExportBuffer.data(), static_cast<int>(sustainExportBuffer.size() / 2), 2, sampleRate, logger);
+            exportTestAudio("envelope_release.wav", releaseExportBuffer.data(), static_cast<int>(releaseExportBuffer.size() / 2), 2, sampleRate, logger);
+            exportTestAudio("envelope_full_cycle.wav", fullCycleExportBuffer.data(), static_cast<int>(fullCycleExportBuffer.size() / 2), 2, sampleRate, logger);
+            logger.log("verifyBasicFunctionality", "info", "Exported all envelope phase audio files");
+        }
         
-        #ifdef ENABLE_TESTS
-        return (totalFailures > 0) ? 1 : 0;  // Návrat podle výsledků testů
-        #else
-        return 0;  // Bez testů = úspěch
-        #endif
+        // Analýza fází envelope
+        bool attackPhaseOk = analyzeAttackPhase(envelopeGains, attackBlocks, logger);
+        bool sustainPhaseOk = analyzeSustainPhase(envelopeGains, attackBlocks, sustainBlocks, logger);
+        bool releasePhaseOk = analyzeReleasePhase(envelopeGains, attackBlocks + sustainBlocks, releaseBlocks, logger);
+        
+        bool envelopeTestPassed = attackPhaseOk && sustainPhaseOk && releasePhaseOk;
+        
+        if (envelopeTestPassed) {
+            logger.log("verifyBasicFunctionality", "info", "Envelope test passed");
+        } else {
+            logger.log("verifyBasicFunctionality", "warn", "Envelope test failed in one or more phases");
+        }
+        
+        // Cleanup
+        delete[] leftBuffer;
+        delete[] rightBuffer;
+        
+        // Celkový úspěch: původní test AND envelope test
+        return hasAudio && envelopeTestPassed;
         
     } catch (const std::exception& e) {
-        logger.log("runSampler", "error", 
-                  "CRITICAL ERROR in hybrid runSampler: " + std::string(e.what()));
-        return 1;  // Chyba
+        logger.log("verifyBasicFunctionality", "error", "Verification failed: " + std::string(e.what()));
+        return false;
     } catch (...) {
-        logger.log("runSampler", "error", 
-                  "UNKNOWN CRITICAL ERROR in hybrid runSampler");
-        return 1;  // Neznámá chyba
+        logger.log("verifyBasicFunctionality", "error", "Verification failed: unknown error");
+        return false;
     }
 }

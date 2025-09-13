@@ -1,6 +1,7 @@
 #ifndef TEST_BASE_H
 #define TEST_BASE_H
 
+#include "test_common.h"  // NOVÝ INCLUDE pro sdílené struktury
 #include <string>
 #include <vector>
 #include <chrono>
@@ -10,42 +11,6 @@
 class Logger;
 class VoiceManager;
 class Voice;
-
-// Přidané chybějící definice struktur
-struct TestConfig {
-    std::string exportDir = "./exports/tests";
-    int exportBlockSize = 512;
-    bool exportAudio = true;
-    bool verboseLogging = true;
-    int defaultTestVelocity = 100;
-    std::vector<float> testMasterGains = {0.1f, 0.3f, 0.5f, 0.8f, 1.0f};
-};
-
-struct TestResult {
-    std::string testName;
-    bool passed = false;
-    std::string errorMessage;
-    std::string details;
-};
-
-struct AudioStats {
-    float peakLevel = 0.0f;
-    float rmsLevel = 0.0f;
-};
-
-// Chybějící definice pro MasterGainTest
-struct MasterGainTestData {
-    float masterGain = 0.0f;
-    float measuredLevel = 0.0f;
-    bool passed = false;
-};
-
-// Chybějící definice pro PerformanceTest
-struct PerformanceMetrics {
-    size_t voiceCount = 0;
-    double avgBlockTimeUs = 0.0;
-    double audioBlocksRatio = 0.0;
-};
 
 /**
  * @class TestBase
@@ -81,7 +46,7 @@ protected:
     uint8_t findValidTestMidiNote(VoiceManager& vm, uint8_t fallback = 60);
     
     /**
-     * @brief Vyhledání více not pro polyfonní testy
+     * @brief Vyhledání více not pro polyfonnĺ testy
      */
     std::vector<uint8_t> findValidNotesForPolyphony(VoiceManager& vm, size_t count, uint8_t start = 48);
 

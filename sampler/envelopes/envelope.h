@@ -1,75 +1,96 @@
-#ifndef ENVELOPE_H
-#define ENVELOPE_H
-
+#pragma once
 #include <cstdint>
-#include <vector>
-#include <cmath>
-#include <algorithm>
-#include <string>
+#include "envelope_static_data.h"
 
-// Definice sf_count_t pokud není definovaná jinde
-#ifndef sf_count_t
-typedef long long sf_count_t;
-#endif
-
-// Forward declaration pro Logger
-class Logger;
-
+/**
+ * @brief Per-voice envelope state manager (refaktorovaná třída)
+ * 
+ * Tato třída nyní slouží pouze jako per-voice wrapper pro statická envelope data.
+ * Všechna těžká data (předpočítané křivky) jsou ve třídě EnvelopeStaticData,
+ * což dramaticky snižuje paměťovou spotřebu při více instancích VoiceManager.
+ * 
+ * Zachovává původní API pro kompatibilitu s Voice třídou, ale interně
+ * deleguje všechny operace na EnvelopeStaticData.
+ */
 class Envelope {
 public:
-    // Konstruktor: Inicializuje parametry pro generování obálek
-    explicit Envelope(Logger& logger);
-    
-    // Nastaví frekvenci a odpovídající index (0=44100Hz, 1=48000Hz)
-    void setEnvelopeFrequency(int freq, Logger& logger);
-    
-    // Vyplní gainBuffer gainy pro attack fázi s debug logováním
-    void getGainBufferAttack(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed, Logger& logger) const noexcept;
-    
-    // Vyplní gainBuffer gainy pro release fázi s debug logováním
-    void getGainBufferRelease(uint8_t midi, float* gainBuffer, int numSamples, sf_count_t start_elapsed, Logger& logger) const noexcept;
+    /**
+     * @brief Prázdný konstruktor
+     * Inicializuje per-voice state s výchozími hodnotami
+     */
+    Envelope();
+
+    /**
+     * @brief RT-SAFE: Nastaví MIDI hodnotu pro attack obálku
+     * 
+     * @param midi_value MIDI hodnota (0-127)
+     */
+    void setAttackMIDI(uint8_t midi_value) noexcept;
+
+    /**
+     * @brief RT-SAFE: Nastaví MIDI hodnotu pro release obálku
+     * 
+     * @param midi_value MIDI hodnota (0-127)
+     */
+    void setReleaseMIDI(uint8_t midi_value) noexcept;
+
+    /**
+     * @brief RT-SAFE: Nastaví sustain úroveň na základě MIDI hodnoty
+     * 
+     * @param midi_value MIDI hodnota (0-127) → lineárně mapováno na (0.0f-1.0f)
+     */
+    void setSustainLevelMIDI(uint8_t midi_value) noexcept;
+
+    /**
+     * @brief RT-SAFE: Vrátí aktuální sustain úroveň
+     * 
+     * @return float Sustain úroveň (0.0f-1.0f)
+     */
+    float getSustainLevel() const noexcept;
+
+    /**
+     * @brief RT-SAFE: Získá hodnoty attack obálky (deleguje na static data)
+     * 
+     * @param gain_buffer Ukazatel na buffer pro výstupní hodnoty
+     * @param num_samples Počet požadovaných vzorků
+     * @param envelope_attack_position Pozice v obálce (offset)
+     * @param sample_rate Vzorkovací frekvence
+     * @return true pokud obálka pokračuje, false při dosažení konce
+     */
+    bool getAttackGains(float* gain_buffer, int num_samples, 
+                       int envelope_attack_position, int sample_rate) const noexcept;
+
+    /**
+     * @brief RT-SAFE: Získá hodnoty release obálky (deleguje na static data)
+     * 
+     * @param gain_buffer Ukazatel na buffer pro výstupní hodnoty
+     * @param num_samples Počet požadovaných vzorků
+     * @param envelope_release_position Pozice v obálce (offset)
+     * @param sample_rate Vzorkovací frekvence
+     * @return true pokud obálka pokračuje, false při dosažení konce
+     */
+    bool getReleaseGains(float* gain_buffer, int num_samples, 
+                        int envelope_release_position, int sample_rate) const noexcept;
+
+    /**
+     * @brief RT-SAFE: Vrátí délku attack obálky v milisekundách (deleguje na static data)
+     * 
+     * @param sample_rate Vzorkovací frekvence
+     * @return float Délka v ms na základě aktuální MIDI hodnoty
+     */
+    float getAttackLength(int sample_rate) const noexcept;
+
+    /**
+     * @brief RT-SAFE: Vrátí délku release obálky v milisekundách (deleguje na static data)
+     * 
+     * @param sample_rate Vzorkovací frekvence
+     * @return float Délka v ms na základě aktuální MIDI hodnoty
+     */
+    float getReleaseLength(int sample_rate) const noexcept;
 
 private:
-    // Konstanty z Python kódu
-    static constexpr double TOTAL_DURATION = 12.0;  // seconds
-    static constexpr double TAU_DIVISOR = 5.0;      // For ~99% change at max length
-    static constexpr int MIDI_MIN = 0;
-    static constexpr int MIDI_MAX = 127;
-    static constexpr double CONVERGENCE_THRESHOLD = 0.01;  // 99% convergence
-    
-    // Podporované sample rates
-    static constexpr int SAMPLE_RATES[2] = {44100, 48000};
-    
-    // Stav instance
-    int bitrate_;
-    int sample_rate_index_;
-    
-    // Pomocné metody pro generování dat
-    double calculateTau(uint8_t midi) const noexcept;
-    int calculateEnvelopeLength(uint8_t midi, int sample_rate, bool is_attack) const noexcept;
-    void generateEnvelopeData(uint8_t midi, int sample_rate, bool is_attack, 
-                            float* buffer, int buffer_size, int& actual_length) const noexcept;
-    
-    // Pomocné metody pro debug logování
-    std::string formatValuesForLog(const float* values, int count) const noexcept;
-    void logEnvelopeData(const std::string& envelope_type, int sample_rate, uint8_t midi, 
-                        const float* data, int length, Logger& logger) const noexcept;
-    void logRuntimeBuffer(const std::string& envelope_type, uint8_t midi, 
-                         const float* buffer, int numSamples, sf_count_t start_elapsed, 
-                         Logger& logger) const noexcept;
-    
-    // Inline metoda pro rychlé generování jednotlivého vzorku
-    inline float calculateEnvelopeSample(double t, double tau, bool is_attack) const noexcept {
-        if (tau == 0.0) {
-            return is_attack ? 1.0f : 0.0f;
-        }
-        
-        if (is_attack) {
-            return static_cast<float>(1.0 - std::exp(-t / tau));
-        } else {
-            return static_cast<float>(std::exp(-t / tau));
-        }
-    }
+    // Per-voice state (minimální paměťová spotřeba)
+    uint8_t attack_midi_index_;      // Aktuální MIDI index pro attack (0-127)
+    uint8_t release_midi_index_;     // Aktuální MIDI index pro release (0-127)
+    float sustain_level_;            // Sustain úroveň (0.0f-1.0f)
 };
-
-#endif // ENVELOPE_H
