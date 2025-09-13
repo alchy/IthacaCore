@@ -40,21 +40,6 @@ IthacaCore je profesionální audio sampler engine napsaný v C++17, navržený 
 
 **Poznámka**: Upravte cestu k `vcvars64.bat` v `tasks.json`, pokud používáte Visual Studio Community: `C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat`. Pro PowerShell povolte skripty: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`.
 
-## Použití v projektu
-Pro integraci do vlastního projektu zahrňte hlavičky a linkujte `libsndfile`. Minimální příklad:
-
-<xaiArtifact>
-```cpp
-#include "core_logger.h"
-#include "sampler.h"
-
-int main() {
-    Logger logger("./");
-    int result = runSampler(logger); // Spustí workflow (SamplerIO, InstrumentLoader, VoiceManager, Envelope)
-    return result;
-}
-```
-
 ### Třída `SamplerIO`
 Spravuje IO operace, prohledávání a metadata WAV souborů.
 
