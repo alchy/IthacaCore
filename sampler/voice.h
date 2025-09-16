@@ -1,10 +1,7 @@
 #ifndef VOICE_H
 #define VOICE_H
 
-#define VOICE_GAIN 1.0f
-#define DEFAULT_VELOCITY 80
-#define ENVELOPE_TRIGGER_END_ATTACK  0.99f
-#define ENVELOPE_TRIGGER_END_RELEASE 0.01f
+#include "IthacaConfig.h"  // PŘIDÁNO - nahrazuje duplicitní definice
 
 #include <cstdint>
 #include <atomic>
@@ -38,7 +35,6 @@ enum class VoiceState {
  * @class Voice
  * @brief Jedna hlasová jednotka pro přehrávání sample s obálkou a stavy.
  * 
-
  * Logger se předává jako reference pouze do non-RT metod.
  * ProcessBlock je 100% RT-safe bez loggingu a alokací.
  */
@@ -60,6 +56,7 @@ public:
      * NON-RT SAFE: Může logovat inicializaci.
      * @param instrument Reference na Instrument.
      * @param sampleRate Frekvence vzorkování (např. 44100 Hz).
+     * @param envelope Reference na Envelope.
      * @param logger Reference na Logger.
      */
     void initialize(const Instrument& instrument, int sampleRate, const Envelope& envelope, Logger& logger);
@@ -76,6 +73,7 @@ public:
      * NON-RT SAFE: Může logovat reinicializaci.
      * @param instrument Nový Instrument.
      * @param sampleRate Nový sample rate.
+     * @param envelope Reference na Envelope.
      * @param logger Reference na Logger.
      */
     void reinitialize(const Instrument& instrument, int sampleRate, const Envelope& envelope, Logger& logger);
@@ -90,10 +88,10 @@ public:
     /**
      * @brief Nastaví stav note s SPRÁVNOU aplikací velocity.
      * RT-SAFE: Žádné alokace, pouze state changes + velocity gain update.
-     * Existují dvě metody, jedna je s MIDI velocit a druhá ji nepožaduje.
+     * Existující dvě metody, jedna je s MIDI velocity a druhá ji nepožaduje.
      * V případě volání NOTE OFF se použije druhá metoda bez velocity parametru.
      * @param isOn True pro start, false pro stop.
-     * @param velocity Velocity (0-127) - NYní SPRÁVNĚ ovlivňuje hlasitost!
+     * @param velocity Velocity (0-127) - NYNÍ SPRÁVNĚ ovlivňuje hlasitost!
      */
     void setNoteState(bool isOn, uint8_t velocity) noexcept;
     void setNoteState(bool isOn) noexcept;
@@ -156,14 +154,21 @@ public:
     /**
      * @brief NON-RT SAFE: Nastaví master gain pro voice (0.0-1.0)
      * @param gain Master gain (0.0-1.0, default 0.8)
+     * @param logger Reference na Logger
      */
     void setMasterGain(float gain, Logger& logger);
+
+    /**
+     * @brief RT-SAFE: Nastaví master gain pro voice bez loggingu
+     * @param gain Master gain (0.0-1.0)
+     */
+    void setMasterGainRTSafe(float gain) noexcept;
 
     /**
      * @brief RT-SAFE: Nastaví pan pro voice (L -1.0 <0> +1.0 R)
      * @param pan default 0
      */
-    void setPan(float pan);
+    void setPan(float pan) noexcept;
 
     /**
      * @brief NON-RT SAFE: Získá debug informace o gain structure

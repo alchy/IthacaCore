@@ -1,7 +1,9 @@
-// main.cpp - Minimální produkční verze
-#include "core_logger.h"
-#include "sampler.h"
-#include "envelopes/envelope_static_data.h"
+// main.cpp - Minimální verze
+#include "IthacaConfig.h"
+
+#include "sampler/core_logger.h"
+#include "sampler/sampler.h"
+#include "sampler/envelopes/envelope_static_data.h"
 #include <iostream>
 #include <string>
 
@@ -22,10 +24,10 @@ int main(int argc, char* argv[]) {
         
         if (result == 0) {
             logger.log("main", "info", "Sampler system initialized successfully");
-            std::cout << "✓ Sampler system ready for use" << std::endl;
+            std::cout << "Sampler system ready for use" << std::endl;
         } else {
             logger.log("main", "error", "Sampler system initialization failed");
-            std::cout << "✗ Sampler system initialization failed" << std::endl;
+            std::cout << "Sampler system initialization or tests failed" << std::endl;
         }
         
         // Cleanup envelope dat

@@ -9,13 +9,6 @@
 #include "core_logger.h"
 #include "envelopes/envelope_static_data.h"
 
-// Configuration constants
-#define DEFAULT_SAMPLE_DIR_VARIANT R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)"
-#define DEFAULT_SAMPLE_DIR R"(C:\Users\nemej992\AppData\Roaming\IthacaPlayer\instrument)"
-#define DEFAULT_SAMPLE_RATE 44100
-#define ALTERNATIVE_SAMPLE_RATE 48000
-#define DEFAULT_JUCE_BLOCK_SIZE 512
-#define MAX_JUCE_BLOCK_SIZE 2048
 
 /**
  * @struct SampleInfo
