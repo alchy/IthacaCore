@@ -1,7 +1,7 @@
 #ifndef VOICE_H
 #define VOICE_H
 
-#include "IthacaConfig.h"  // PŘIDÁNO - nahrazuje duplicitní definice
+#include "../IthacaConfig.h"  // PŘIDÁNO - nahrazuje duplicitní definice
 
 #include <cstdint>
 #include <atomic>

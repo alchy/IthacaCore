@@ -154,7 +154,6 @@ void Voice::setNoteState(bool isOn, uint8_t velocity) noexcept {
         release_start_gain_ = 0.0f;                                 // reset na 0.0f při note ON (attack začíná od nuly, připraveno pro případný brzký note OFF)
     } else {
         if (state_ == VoiceState::Sustaining || state_ == VoiceState::Attacking) {
-            std::cout << "-> VoiceState::Releasing";                // xxx - DEBUG PRINT
             state_ = VoiceState::Releasing;
             envelope_release_position_ = 0;
             release_start_gain_ = envelope_gain_;                   // zachytit aktuální gain pro škálování release (od attack nebo sustain)
@@ -206,13 +205,13 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
             
             envelope_attack_position_ += numSamples;
             
-            // Dokončení attack
-            if (!attackContinues || gainBuffer[numSamples - 1] >= 0.95f) {
+            // Attack nepokracuje protoze je gain obalka na svem konci
+            if (!attackContinues || gainBuffer[numSamples - 1] >= ENVELOPE_TRIGGERS_END_ATTACK) {
                 state_ = VoiceState::Sustaining;
                 // Dokončit blok sustain hodnotami
                 const float sustainLevel = envelope_->getSustainLevel();
                 for (int i = 0; i < numSamples; ++i) {
-                    if (gainBuffer[i] >= ENVELOPE_TRIGGER_END_ATTACK) gainBuffer[i] = sustainLevel;
+                    if (gainBuffer[i] >= ENVELOPE_TRIGGERS_END_ATTACK) gainBuffer[i] = sustainLevel;
                 }
                 release_start_gain_ = sustainLevel;
             }
@@ -234,12 +233,19 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
             // Přidán sample_rate_ parametr pro delegaci
             bool releaseContinues = envelope_->getReleaseGains(gainBuffer, numSamples, 
                                                              envelope_release_position_, sampleRate_);
+
+            // zde pri release se vraceny buffer musi prepocitat nasobkem posledni hodnoty gain
+            // coz je release_start_gain_
+            // ÚPRAVA: Škálovat release gain podle výchozí hodnoty
+            for (int i = 0; i < numSamples; ++i) {
+                gainBuffer[i] *= release_start_gain_;
+            }
             
             envelope_release_position_ += numSamples;
             envelope_gain_ = gainBuffer[numSamples - 1];
             
             // Proper transition to idle when release ends
-            if (!releaseContinues || envelope_gain_ <= ENVELOPE_TRIGGER_END_RELEASE) {
+            if (!releaseContinues || envelope_gain_ <= ENVELOPE_TRIGGERS_END_RELEASE) {
                 state_ = VoiceState::Idle;
                 envelope_gain_ = 0.0f;
                 return false;
