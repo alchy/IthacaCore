@@ -404,8 +404,8 @@ bool EnvelopeStaticData::isValidMidiValue(uint8_t midi) noexcept {
 }
 
 void EnvelopeStaticData::reportError(const std::string& component, 
-                                   const std::string& severity, 
-                                   const std::string& message) noexcept {
+                                     const std::string& severity, 
+                                     const std::string& message) noexcept {
     if (errorCallback_) {
         try {
             errorCallback_(component, severity, message);
@@ -416,9 +416,9 @@ void EnvelopeStaticData::reportError(const std::string& component,
 }
 
 void EnvelopeStaticData::exitOnError(const std::string& component, 
-                                   const std::string& severity, 
-                                   const std::string& message) noexcept {
-    reportError(component, "error", message + ". Terminating.");
+                                     const std::string& severity, 
+                                     const std::string& message) noexcept {
+    reportError(component, severity, message + ". Terminating.");
     std::exit(1);
 }
 

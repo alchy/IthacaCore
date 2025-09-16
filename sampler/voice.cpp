@@ -1,10 +1,13 @@
-#include "voice.h"
-#include "envelopes/envelope_static_data.h"
 #include <algorithm>  // Pro std::min a clamp
 #include <cmath>      // Pro float výpočty
 #include <iostream>
 #include <sstream>
 #include <iomanip>
+
+#include "IthacaConfig.h"  // Hlavní config (z root) - o ceste rozhodude CmakeList.txt
+#include "voice.h"
+#include "envelopes/envelope_static_data.h"
+
 
 // Static member initialization
 std::atomic<bool> Voice::rtMode_{false};
@@ -107,17 +110,15 @@ void Voice::prepareToPlay(int maxBlockSize) noexcept {
  */
 void Voice::cleanup(Logger& logger) {
     state_ = VoiceState::Idle;          // Explicitně nastavit Idle
-    position_       = 0;                
-    envelope_gain_  = 0.0f;
-    velocity_gain_  = 0.0f;
-    master_gain_    = 0.8f;
+    position_           = 0;                
+    envelope_gain_      = 0.0f;
+    velocity_gain_      = 0.0f;
+    master_gain_        = 0.8f;
+    release_start_gain_ = 0.0f;
     
     // Reset envelope positions
     envelope_attack_position_ = 0;
     envelope_release_position_ = 0;
-
-    // Reset release start gain pro čistý stav
-    release_start_gain_ = 1.0f;
     
     logSafe("Voice/cleanup", "info", 
            "Voice cleaned up and reset to idle for MIDI " + std::to_string(midiNote_), logger);
@@ -151,12 +152,10 @@ void Voice::setNoteState(bool isOn, uint8_t velocity) noexcept {
         position_ = 0;                                              // reset sample position in frames
         envelope_gain_ = 0.0f;                                      // reset envelope gain
         envelope_attack_position_ = 0;                              // reset envelope attack position
-        release_start_gain_ = 0.0f;                                 // reset na 0.0f při note ON (attack začíná od nuly, připraveno pro případný brzký note OFF)
     } else {
-        if (state_ == VoiceState::Sustaining || state_ == VoiceState::Attacking) {
+        if (state_ == VoiceState::Attacking || state_ == VoiceState::Sustaining) {
             state_ = VoiceState::Releasing;
             envelope_release_position_ = 0;
-            release_start_gain_ = envelope_gain_;                   // zachytit aktuální gain pro škálování release (od attack nebo sustain)
         }
     }
 }
@@ -179,12 +178,10 @@ void Voice::setNoteState(bool isOn) noexcept {
         position_ = 0;                                              // reset sample position in frames
         envelope_gain_ = 0.0f;                                      // reset envelope gain
         envelope_attack_position_ = 0;                              // reset envelope attack position
-        release_start_gain_ = 0.0f;                                 // reset na 0.0f při note ON (attack začíná od nuly, připraveno pro případný brzký note OFF)
     } else {
-        if (state_ == VoiceState::Sustaining || state_ == VoiceState::Attacking) {
+        if (state_ == VoiceState::Attacking || state_ == VoiceState::Sustaining) {
             state_ = VoiceState::Releasing;
             envelope_release_position_ = 0;
-            release_start_gain_ = envelope_gain_;                   // zachytit aktuální gain pro škálování release (od attack nebo sustain)
         }
     }
 }
@@ -213,10 +210,11 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
                 for (int i = 0; i < numSamples; ++i) {
                     if (gainBuffer[i] >= ENVELOPE_TRIGGERS_END_ATTACK) gainBuffer[i] = sustainLevel;
                 }
-                release_start_gain_ = sustainLevel;
+                //release_start_gain_ = sustainLevel;
             }
             
             envelope_gain_ = gainBuffer[numSamples - 1];
+            release_start_gain_ = envelope_gain_;
             return true;
         }
         
@@ -226,6 +224,7 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
                 gainBuffer[i] = sustainLevel;
             }
             envelope_gain_ = sustainLevel;
+            release_start_gain_ = envelope_gain_;
             return true;
         }
         

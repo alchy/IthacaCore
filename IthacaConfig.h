@@ -1,10 +1,14 @@
 #pragma once
 
+// Načti fallback config pouze pokud není načten hlavní
+#ifndef ITHACA_CORE_VERSION_MAJOR
+
 /**
- * @file IthacaConfig.h
- * @brief Configuration constants and defines for IthacaCore + JUCE integration
+ * @file IthacaConfig.h - FALLBACK VERSION
+ * @brief Fallback configuration for standalone ithaca-core usage
  * 
- * This file centralizes all configuration for the integrated sampler plugin.
+ * This config is used only when ithaca-core is compiled standalone.
+ * When used as module, the main IthacaConfig.h from parent project takes priority.
  */
 
 // ===== ITHACA CORE VERSION =====
@@ -54,15 +58,15 @@
 
 // Platform-specific default paths
 #ifdef _WIN32
-    #define ITHACA_DEFAULT_SAMPLE_DIR_VARIANT            R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)"
-    #define ITHACA_DEFAULT_SAMPLE_DIR  R"(C:\Users\nemej992\AppData\Roaming\IthacaPlayer\instrument)"
+    #define ITHACA_DEFAULT_SAMPLE_DIR_VARIANT   R"(C:\Users\jindr\AppData\Roaming\IthacaPlayer\instrument)"
+    #define ITHACA_DEFAULT_SAMPLE_DIR           R"(C:\Users\nemej992\AppData\Roaming\IthacaPlayer\instrument)"
     #define ITHACA_FALLBACK_SAMPLE_DIR          R"(C:\ProgramData\IthacaPlayer\samples)"
 #elif __APPLE__
-    #define ITHACA_DEFAULT_SAMPLE_DIR "~/Library/Application Support/IthacaPlayer/instrument"
-    #define ITHACA_FALLBACK_SAMPLE_DIR "/Library/Application Support/IthacaPlayer/samples"
+    #define ITHACA_DEFAULT_SAMPLE_DIR           "~/Library/Application Support/IthacaPlayer/instrument"
+    #define ITHACA_FALLBACK_SAMPLE_DIR          "/Library/Application Support/IthacaPlayer/samples"
 #else
-    #define ITHACA_DEFAULT_SAMPLE_DIR "~/.local/share/IthacaPlayer/instrument"
-    #define ITHACA_FALLBACK_SAMPLE_DIR "/usr/share/IthacaPlayer/samples"
+    #define ITHACA_DEFAULT_SAMPLE_DIR           "~/.local/share/IthacaPlayer/instrument"
+    #define ITHACA_FALLBACK_SAMPLE_DIR          "/usr/share/IthacaPlayer/samples"
 #endif
 
 // ===== JUCE PLUGIN INTEGRATION =====
@@ -261,3 +265,5 @@
 #define ENVELOPE_TRIGGERS_END_RELEASE ITHACA_ENVELOPE_TRIGGERS_END_RELEASE
 
 // ===== END OF CONFIGURATION =====
+
+#endif // ITHACA_CORE_VERSION_MAJOR
