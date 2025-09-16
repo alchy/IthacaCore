@@ -3,7 +3,9 @@
 
 #include <vector>
 #include <string>
-#include "core_logger.h"
+
+#include "../core_logger.h"
+
 
 /**
  * @brief Vytvoří export adresář pro testy, pokud neexistuje

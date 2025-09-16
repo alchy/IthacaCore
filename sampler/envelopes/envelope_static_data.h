@@ -1,10 +1,13 @@
 #pragma once
+
 #include <vector>
 #include <string>
 #include <cstdint>
 #include <atomic>
 #include <functional>
-#include "core_logger.h"
+
+#include "../core_logger.h"
+
 
 /**
  * @brief Statická třída pro sdílená envelope data mezi všemi VoiceManager instancemi
