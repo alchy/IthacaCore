@@ -1,0 +1,4 @@
+build/
+libsndfile/
+exports/
+core_logger/
