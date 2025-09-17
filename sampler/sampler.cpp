@@ -43,7 +43,7 @@ int runSampler(Logger& logger) {
         
         // FÁZE 5: Základní ověření funkčnosti (refaktorováno do tests/)
         logger.log("runSampler", "info", "Verifying basic functionality...");
-        if (!verifyBasicFunctionality(voiceManager, logger)) {
+        if (!runSimpleNoteTest(voiceManager, logger)) {
             logger.log("runSampler", "error", "Basic functionality verification failed");
             return 1;
         }

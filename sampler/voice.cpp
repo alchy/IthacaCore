@@ -154,8 +154,11 @@ void Voice::setNoteState(bool isOn, uint8_t velocity) noexcept {
         envelope_attack_position_ = 0;                              // reset envelope attack position
     } else {
         if (state_ == VoiceState::Attacking || state_ == VoiceState::Sustaining) {
+            std::cout << "Voice state set to: Releasing" << std::endl; // Debug výpis
             state_ = VoiceState::Releasing;
             envelope_release_position_ = 0;
+            release_start_gain_ = envelope_gain_;
+            std::cout << "Release start gain in [setNoteState] set to: " << release_start_gain_ << " a envelope_gain_ is: " << envelope_gain_ << std::endl;  // Debug výpis
         }
     }
 }
@@ -180,8 +183,11 @@ void Voice::setNoteState(bool isOn) noexcept {
         envelope_attack_position_ = 0;                              // reset envelope attack position
     } else {
         if (state_ == VoiceState::Attacking || state_ == VoiceState::Sustaining) {
+            std::cout << "Voice state set to: Releasing" << std::endl; // Debug výpis
             state_ = VoiceState::Releasing;
             envelope_release_position_ = 0;
+            release_start_gain_ = envelope_gain_;
+            std::cout << "Release start gain in [setNoteState] set to: " << release_start_gain_ << " a envelope_gain_ is: " << envelope_gain_ << std::endl;  // Debug výpis
         }
     }
 }
@@ -197,6 +203,7 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
     switch (state_) {
         case VoiceState::Attacking: {
             // Přidán sample_rate_ parametr pro delegaci
+            std::cout << "VoiceState::Attacking" << std::endl;  // Debug výpis
             bool attackContinues = envelope_->getAttackGains(gainBuffer, numSamples, 
                                                            envelope_attack_position_, sampleRate_);
             
@@ -206,36 +213,40 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
             if (!attackContinues || gainBuffer[numSamples - 1] >= ENVELOPE_TRIGGERS_END_ATTACK) {
                 state_ = VoiceState::Sustaining;
                 // Dokončit blok sustain hodnotami
-                const float sustainLevel = envelope_->getSustainLevel();
+                const float sustainLevel = envelope_gain_;  // je vsustain podle toho co zbylo v attack
                 for (int i = 0; i < numSamples; ++i) {
                     if (gainBuffer[i] >= ENVELOPE_TRIGGERS_END_ATTACK) gainBuffer[i] = sustainLevel;
                 }
-                //release_start_gain_ = sustainLevel;
+                release_start_gain_ = sustainLevel;
+            } else {
+                envelope_gain_ = gainBuffer[numSamples - 1];
+                release_start_gain_ = envelope_gain_;
             }
-            
-            envelope_gain_ = gainBuffer[numSamples - 1];
-            release_start_gain_ = envelope_gain_;
+            std::cout << "Release start gain in [calculate block gains] set to: " << release_start_gain_ << " a envelope_gain_ is: " << envelope_gain_ << std::endl;  // Debug výpis
             return true;
         }
         
         case VoiceState::Sustaining: {
+            std::cout << "VoiceState::Sustaining" << std::endl;  // Debug výpis
             const float sustainLevel = envelope_->getSustainLevel();
             for (int i = 0; i < numSamples; ++i) {
                 gainBuffer[i] = sustainLevel;
             }
             envelope_gain_ = sustainLevel;
             release_start_gain_ = envelope_gain_;
+            std::cout << "Release start gain in [calculate block gains] set to: " << release_start_gain_ << " a envelope_gain_ is: " << envelope_gain_ << std::endl;  // Debug výpis
             return true;
         }
         
         case VoiceState::Releasing: {
+            std::cout << "VoiceState::Releasing" << std::endl;  // Debug výpis
             // Přidán sample_rate_ parametr pro delegaci
+            std::cout << "Release start gain in [calculate block gains] set to: " << release_start_gain_ << " a envelope_gain_ is: " << envelope_gain_ << std::endl;  // Debug výpis
             bool releaseContinues = envelope_->getReleaseGains(gainBuffer, numSamples, 
                                                              envelope_release_position_, sampleRate_);
 
             // zde pri release se vraceny buffer musi prepocitat nasobkem posledni hodnoty gain
-            // coz je release_start_gain_
-            // ÚPRAVA: Škálovat release gain podle výchozí hodnoty
+            // śkálovat release gain podle poslední hodnoty
             for (int i = 0; i < numSamples; ++i) {
                 gainBuffer[i] *= release_start_gain_;
             }
@@ -316,6 +327,7 @@ bool Voice::processBlock(float* outputLeft,
         // sample z RAM L,R * gainBuffer (velocity gain)
         outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i] * pan_left_gain * master_gain_;          // Mixdown L
         outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i] * pan_right_gain * master_gain_;    // Mixdown R
+        // outputRight[i] += gainBuffer_[i]; do praveho kanalu zapisujeme envelopu jen pri debugu
     }
 
     // Batch position update - safe conversion zpět
