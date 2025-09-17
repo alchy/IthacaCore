@@ -1,5 +1,5 @@
-#include <algorithm>  // Pro std::min a clamp
-#include <cmath>      // Pro float výpočty
+#include <algorithm>        // Pro std::min a clamp
+#include <cmath>            // Pro float výpočty
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -8,8 +8,8 @@
 #include "voice.h"
 #include "envelopes/envelope_static_data.h"
 
-// DEBUG CONTROL - zapnout/vypnout debug výpisy
-#define VOICE_DEBUG_ENABLED 1
+// DEBUG CONTROL - zapnout/vypnout oba debug výpisy
+#define VOICE_DEBUG_ENABLED 0
 
 #if VOICE_DEBUG_ENABLED
     #define DEBUG_PRINT(x) std::cout << x << std::endl
