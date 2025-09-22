@@ -59,7 +59,7 @@ public:
      * @param envelope Reference na Envelope.
      * @param logger Reference na Logger.
      */
-    void initialize(const Instrument& instrument, int sampleRate, const Envelope& envelope, Logger& logger);
+    void initialize(const Instrument& instrument, int sampleRate, Envelope& envelope, Logger& logger);
 
     /**
      * @brief Cleanup: Reset na idle stav.
@@ -76,7 +76,7 @@ public:
      * @param envelope Reference na Envelope.
      * @param logger Reference na Logger.
      */
-    void reinitialize(const Instrument& instrument, int sampleRate, const Envelope& envelope, Logger& logger);
+    void reinitialize(const Instrument& instrument, int sampleRate, Envelope& envelope, Logger& logger);
     
     /**
      * @brief NON-RT SAFE: Updates internal buffer size for DAW block size changes
@@ -95,6 +95,24 @@ public:
      */
     void setNoteState(bool isOn, uint8_t velocity) noexcept;
     void setNoteState(bool isOn) noexcept;
+
+    /**
+     * @brief RT-SAFE: Nastavení MIDI hodnoty pro attack envelope
+     * @param midi_value MIDI hodnota (0-127) pro attack rychlost
+     */
+    void setAttackMIDI(uint8_t midi_value) noexcept;
+
+    /**
+     * @brief RT-SAFE: Nastavení MIDI hodnoty pro release envelope  
+     * @param midi_value MIDI hodnota (0-127) pro release rychlost
+     */
+    void setReleaseMIDI(uint8_t midi_value) noexcept;
+
+    /**
+     * @brief RT-SAFE: Nastavení sustain úrovně pomocí MIDI hodnoty
+     * @param midi_value MIDI hodnota (0-127) pro sustain level
+     */
+    void setSustainLevelMIDI(uint8_t midi_value) noexcept;
 
     /**
      * @brief Získá aktuální stereo audio data s aplikovanou kompletní gain chain.
@@ -178,24 +196,24 @@ public:
     std::string getGainDebugInfo(Logger& logger) const;
 
 private:
-    uint8_t             midiNote_;              // MIDI nota (0-127)
-    const Instrument*   instrument_;            // Pointer na Instrument (nevolnit, patří Loader)
-    int                 sampleRate_;            // Frekvence vzorkování pro obálku (Hz)
-    VoiceState          state_;                 // Aktuální stav
-    int                 position_;              // Pozice v samples (frames)
-    uint8_t             currentVelocityLayer_;  // Aktuální velocity layer (0-7)
+    uint8_t             midiNote_;                      // MIDI nota (0-127)
+    const Instrument*   instrument_;                    // Pointer na Instrument (nevolnit, patří Loader)
+    int                 sampleRate_;                    // Frekvence vzorkování pro obálku (Hz)
+    VoiceState          state_;                         // Aktuální stav
+    int                 position_;                      // Pozice v samples (frames)
+    uint8_t             currentVelocityLayer_;          // Aktuální velocity layer (0-7)
     
-    float               master_gain_;           // Master volume kontrola (default 0.8f)
-    float               velocity_gain_;         // MIDI velocity gain (0-127 → 0.0-1.0)
-    float               envelope_gain_;         // Dynamická obálka (attack/sustain/release): 0.0-1.0
-    float               pan_;                   // PAN left right (-1.0f až +1.0f) 0 je střed
+    float               master_gain_;                   // Master volume kontrola (default 0.8f)
+    float               velocity_gain_;                 // MIDI velocity gain (0-127 → 0.0-1.0)
+    float               envelope_gain_;                 // Dynamická obálka (attack/sustain/release): 0.0-1.0
+    float               pan_;                           // PAN left right (-1.0f až +1.0f) 0 je střed
 
-    const Envelope*     envelope_;              // Pointer na Envelope (non-owning)
+    Envelope*           envelope_;                      // Pointer na Envelope (non-owning)
 
-    int         envelope_attack_position_;      // Pozice v attack envelope
-    int         envelope_release_position_;     // Pozice v release envelope
+    int                 envelope_attack_position_;      // Pozice v attack envelope
+    int                 envelope_release_position_;     // Pozice v release envelope
 
-    float       release_start_gain_;            // Hodnota gain pri svem zacatku (nastavuje se v note on a pak ji nastavuje attack vzdy v miste, kde se meni na release / note-off)
+    float               release_start_gain_;            // Hodnota gain pri svem zacatku (nastavuje se v note on a pak ji nastavuje attack vzdy v miste, kde se meni na release / note-off)
     
     // RT-SAFE: Pre-allocated buffer pro gain calculations
     // Resized pouze během prepareToPlay() calls, nikdy během RT processing

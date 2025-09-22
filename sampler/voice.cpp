@@ -37,7 +37,7 @@ Voice::Voice(uint8_t midiNote)
  * @brief initialize s envelope validation a exception handling
  */
 void Voice::initialize(const Instrument& instrument, int sampleRate, 
-                      const Envelope& envelope, Logger& logger) {
+                      Envelope& envelope, Logger& logger) {
     instrument_ = &instrument;
     sampleRate_ = sampleRate;
     envelope_ = &envelope;
@@ -77,6 +77,11 @@ void Voice::initialize(const Instrument& instrument, int sampleRate,
     envelope_attack_position_ = 0;
     envelope_release_position_ = 0;
     release_start_gain_ = 1.0f;
+    
+    // OPRAVA: Nastavení envelope parametrů
+    envelope_->setAttackMIDI(0);            // Nejkratší attack (okamžitá změna)
+    envelope_->setReleaseMIDI(8);           // Střední release hodnota  
+    envelope_->setSustainLevelMIDI(127);    // Maximum sustain level
     
     // gain buffer s dostatečnou rezervou bloků
     gainBuffer_.reserve(32767);
@@ -128,7 +133,7 @@ void Voice::cleanup(Logger& logger) {
  * @brief reinitialize s envelope
  */
 void Voice::reinitialize(const Instrument& instrument, int sampleRate,
-                         const Envelope& envelope, Logger& logger) {
+                         Envelope& envelope, Logger& logger) {
     initialize(instrument, sampleRate, envelope, logger);
 
     logSafe("Voice/reinitialize", "info", 
@@ -394,6 +399,33 @@ std::string Voice::getGainDebugInfo(Logger& logger) const {
     
     logSafe("Voice/getGainDebugInfo", "info", info, logger);
     return info;
+}
+
+/**
+ * @brief RT-SAFE: Nastavení MIDI hodnoty pro attack envelope
+ */
+void Voice::setAttackMIDI(uint8_t midi_value) noexcept {
+    if (envelope_) {
+        envelope_->setAttackMIDI(midi_value);
+    }
+}
+
+/**
+ * @brief RT-SAFE: Nastavení MIDI hodnoty pro release envelope  
+ */
+void Voice::setReleaseMIDI(uint8_t midi_value) noexcept {
+    if (envelope_) {
+        envelope_->setReleaseMIDI(midi_value);
+    }
+}
+
+/**
+ * @brief RT-SAFE: Nastavení sustain úrovně pomocí MIDI hodnoty
+ */
+void Voice::setSustainLevelMIDI(uint8_t midi_value) noexcept {
+    if (envelope_) {
+        envelope_->setSustainLevelMIDI(midi_value);
+    }
 }
 
 /**
