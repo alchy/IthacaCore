@@ -112,6 +112,24 @@ public:
     void setAllVoicesPanMIDI(uint8_t midi_pan) noexcept;
 
     /**
+     * @brief Nastavení attack pro všechny voices
+     * @param midi_attack Attack hodnota jako MIDI hodnota (0-127)
+     */
+    void setAllVoicesAttackMIDI(uint8_t midi_attack) noexcept;
+
+    /**
+     * @brief Nastavení release pro všechny voices
+     * @param midi_release Release hodnota jako MIDI hodnota (0-127)
+     */
+    void setAllVoicesReleaseMIDI(uint8_t midi_release) noexcept;
+
+    /**
+     * @brief Nastavení sustain level pro všechny voices
+     * @param midi_sustain Sustain level jako MIDI hodnota (0-127)
+     */
+    void setAllVoicesSustainLevelMIDI(uint8_t midi_sustain) noexcept;
+    
+    /**
      * @brief RT-SAFE: Process audio block - INTERLEAVED format
      * @param outputBuffer Interleaved stereo buffer (AudioData array)
      * @param samplesPerBlock Number of samples to process
