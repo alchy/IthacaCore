@@ -337,6 +337,11 @@ void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
         voice.initialize(inst, currentSampleRate_, envelope_, logger);
         voice.prepareToPlay(512);
     }
+
+    // Nastavení výchozích envelope parametrů pro všechny voices
+    setAllVoicesAttackMIDI(0);                                  // attack
+    setAllVoicesReleaseMIDI(4);                                 //  release
+    setAllVoicesSustainLevelMIDI(127);                          // sustain
     
     logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
               "All voices initialized with instruments and shared envelope system successfully");
@@ -410,6 +415,36 @@ void VoiceManager::setAllVoicesPanMIDI(uint8_t midi_pan) noexcept {
     
     for (int i = 0; i < 128; ++i) {
         voices_[i].setPan(pan);
+    }
+}
+
+void VoiceManager::setAllVoicesAttackMIDI(uint8_t midi_attack) noexcept {
+    if (midi_attack > 127) {
+        return;
+    }
+    
+    for (int i = 0; i < 128; ++i) {
+        voices_[i].setAttackMIDI(midi_attack);
+    }
+}
+
+void VoiceManager::setAllVoicesReleaseMIDI(uint8_t midi_release) noexcept {
+    if (midi_release > 127) {
+        return;
+    }
+    
+    for (int i = 0; i < 128; ++i) {
+        voices_[i].setReleaseMIDI(midi_release);
+    }
+}
+
+void VoiceManager::setAllVoicesSustainLevelMIDI(uint8_t midi_sustain) noexcept {
+    if (midi_sustain > 127) {
+        return;
+    }
+    
+    for (int i = 0; i < 128; ++i) {
+        voices_[i].setSustainLevelMIDI(midi_sustain);
     }
 }
 

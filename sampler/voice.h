@@ -59,7 +59,8 @@ public:
      * @param envelope Reference na Envelope.
      * @param logger Reference na Logger.
      */
-    void initialize(const Instrument& instrument, int sampleRate, Envelope& envelope, Logger& logger);
+    void initialize(const Instrument& instrument, int sampleRate, Envelope& envelope, Logger& logger,
+               uint8_t attackMIDI = 0, uint8_t releaseMIDI = 16, uint8_t sustainMIDI = 127);
 
     /**
      * @brief Cleanup: Reset na idle stav.
@@ -76,7 +77,8 @@ public:
      * @param envelope Reference na Envelope.
      * @param logger Reference na Logger.
      */
-    void reinitialize(const Instrument& instrument, int sampleRate, Envelope& envelope, Logger& logger);
+    void reinitialize(const Instrument& instrument, int sampleRate, Envelope& envelope, Logger& logger,
+                 uint8_t attackMIDI = 0, uint8_t releaseMIDI = 16, uint8_t sustainMIDI = 127);
     
     /**
      * @brief NON-RT SAFE: Updates internal buffer size for DAW block size changes

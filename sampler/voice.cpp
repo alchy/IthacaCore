@@ -37,7 +37,8 @@ Voice::Voice(uint8_t midiNote)
  * @brief initialize s envelope validation a exception handling
  */
 void Voice::initialize(const Instrument& instrument, int sampleRate, 
-                      Envelope& envelope, Logger& logger) {
+                      Envelope& envelope, Logger& logger,
+                      uint8_t attackMIDI, uint8_t releaseMIDI, uint8_t sustainMIDI) {
     instrument_ = &instrument;
     sampleRate_ = sampleRate;
     envelope_ = &envelope;
@@ -78,12 +79,12 @@ void Voice::initialize(const Instrument& instrument, int sampleRate,
     envelope_release_position_ = 0;
     release_start_gain_ = 1.0f;
     
-    // OPRAVA: Nastavení envelope parametrů
-    envelope_->setAttackMIDI(0);            // Nejkratší attack (okamžitá změna)
-    envelope_->setReleaseMIDI(8);           // Střední release hodnota  
-    envelope_->setSustainLevelMIDI(127);    // Maximum sustain level
-    
-    // gain buffer s dostatečnou rezervou bloků
+    //Nastavení envelope parametrů z argumentů
+    envelope_->setAttackMIDI(attackMIDI);
+    envelope_->setReleaseMIDI(releaseMIDI);
+    envelope_->setSustainLevelMIDI(sustainMIDI);
+
+    // Gain buffer s dostatečnou rezervou bloků
     gainBuffer_.reserve(32767);
     
     logSafe("Voice/initialize", "info", 
@@ -133,8 +134,9 @@ void Voice::cleanup(Logger& logger) {
  * @brief reinitialize s envelope
  */
 void Voice::reinitialize(const Instrument& instrument, int sampleRate,
-                         Envelope& envelope, Logger& logger) {
-    initialize(instrument, sampleRate, envelope, logger);
+                         Envelope& envelope, Logger& logger,
+                         uint8_t attackMIDI, uint8_t releaseMIDI, uint8_t sustainMIDI) {
+    initialize(instrument, sampleRate, envelope, logger, attackMIDI, releaseMIDI, sustainMIDI);
 
     logSafe("Voice/reinitialize", "info", 
            "Voice reinitialized with new instrument, sampleRate and ADSR envelope for MIDI " + std::to_string(midiNote_), logger);
