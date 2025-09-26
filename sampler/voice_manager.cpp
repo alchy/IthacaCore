@@ -340,8 +340,9 @@ void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
 
     // Nastavení výchozích envelope parametrů pro všechny voices
     setAllVoicesAttackMIDI(0);                                  // attack
-    setAllVoicesReleaseMIDI(4);                                 //  release
+    setAllVoicesReleaseMIDI(3);                                 // release
     setAllVoicesSustainLevelMIDI(127);                          // sustain
+    setAllVoicesMasterGainMIDI(100, logger);                    // gain -- remove logger
     
     logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
               "All voices initialized with instruments and shared envelope system successfully");
