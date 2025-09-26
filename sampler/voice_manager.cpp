@@ -342,7 +342,7 @@ void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
     setAllVoicesAttackMIDI(0);                                  // attack
     setAllVoicesReleaseMIDI(3);                                 // release
     setAllVoicesSustainLevelMIDI(127);                          // sustain
-    setAllVoicesMasterGainMIDI(100, logger);                    // gain -- remove logger
+    setAllVoicesMasterGainMIDI(64, logger);                     // gain -- remove logger
     
     logger.log("VoiceManager/initializeVoicesWithInstruments", "info", 
               "All voices initialized with instruments and shared envelope system successfully");
