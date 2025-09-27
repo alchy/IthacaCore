@@ -6,6 +6,7 @@
 #include "envelopes/envelope_static_data.h"
 #include "instrument_loader.h"
 #include "sampler.h"
+#include "lfopan.h"
 
 #include <vector>
 #include <string>
@@ -14,15 +15,23 @@
 
 /**
  * @class VoiceManager
- * @brief Polyphonic audio system manager with optimized resource usage
+ * @brief Polyphonic audio system manager with optimized resource usage and LFO panning
  * 
  * Core Features:
  * - 128 simultaneous voices (one per MIDI note)
  * - Dynamic sample rate management (44100/48000 Hz)
  * - Shared envelope data system for memory efficiency
  * - Constant power panning with pre-calculated lookup tables
+ * - LFO automatic panning for electric piano effects
  * - RT-safe audio processing with pre-allocated buffers
  * - Swap-and-pop vector optimizations for O(1) performance
+ * 
+ * LFO Panning Features:
+ * - Automatic sinusoidal panning motion (0-2 Hz frequency range)
+ * - MIDI-controllable speed and depth (0-127 values)
+ * - RT-safe operation with pre-calculated sine tables
+ * - Global synchronization across all voices
+ * - Independent from static pan control
  * 
  * Architecture:
  * - Stack-allocated components (SamplerIO, InstrumentLoader)
@@ -39,6 +48,7 @@
  * - Fixed 128 voice pool: ~8MB for gain buffers (64KB each)
  * - Shared envelope lookup tables: ~2MB total (global)
  * - Pan lookup tables: <1KB per instance
+ * - LFO lookup tables: ~16KB (global, shared)
  */
 class VoiceManager {
 public:
@@ -56,6 +66,7 @@ public:
      * Initializes:
      * - 128-voice pool with pre-allocated buffers
      * - Constant power panning lookup tables
+     * - LFO panning lookup tables
      * - Error callbacks for envelope system
      */
     VoiceManager(const std::string& sampleDir, Logger& logger);
@@ -138,7 +149,7 @@ public:
      * @param outputBuffer Interleaved stereo buffer (AudioData array)
      * @param samplesPerBlock Number of samples to process
      * @return true if any voices are active
-     * @note RT-safe: pre-allocated temp buffers, additive mixing
+     * @note RT-safe: pre-allocated temp buffers, additive mixing, includes LFO panning
      */
     bool processBlockInterleaved(AudioData* outputBuffer, int samplesPerBlock) noexcept;
     
@@ -148,7 +159,7 @@ public:
      * @param outputRight Right channel buffer (float array) 
      * @param samplesPerBlock Number of samples to process
      * @return true if any voices are active
-     * @note RT-safe: direct mixing to separate channel buffers
+     * @note RT-safe: direct mixing to separate channel buffers, includes LFO panning
      */
     bool processBlockUninterleaved(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept;
 
@@ -161,9 +172,9 @@ public:
     void stopAllVoices() noexcept;
     
     /**
-     * @brief Reset all voices to idle state
+     * @brief Reset all voices to idle state and LFO parameters
      * @param logger Reference to Logger
-     * @note Non-RT: may log reset operation
+     * @note Non-RT: may log reset operation, resets LFO phase and parameters
      */
     void resetAllVoices(Logger& logger);
 
@@ -178,9 +189,9 @@ public:
     void setAllVoicesMasterGainMIDI(uint8_t midi_gain, Logger& logger);
 
     /**
-     * @brief Set pan for all voices via MIDI value
+     * @brief Set static pan for all voices via MIDI value
      * @param midi_pan Pan as MIDI value (0-127, where 64 = center)
-     * @note RT-safe: direct parameter update
+     * @note RT-safe: direct parameter update, overridden by LFO panning if active
      */
     void setAllVoicesPanMIDI(uint8_t midi_pan) noexcept;
 
@@ -204,6 +215,44 @@ public:
      * @note RT-safe: direct parameter update
      */
     void setAllVoicesSustainLevelMIDI(uint8_t midi_sustain) noexcept;
+
+    // ===== LFO PANNING CONTROL =====
+
+    /**
+     * @brief Set LFO panning speed for all voices via MIDI value
+     * @param midi_speed LFO speed as MIDI value (0-127)
+     *                   0 = panning disabled (0 Hz)
+     *                   127 = fastest panning (2 Hz, 500ms cycle)
+     * @note RT-safe: updates LFO frequency and phase increment
+     */
+    void setAllVoicesPanSpeedMIDI(uint8_t midi_speed) noexcept;
+
+    /**
+     * @brief Set LFO panning depth for all voices via MIDI value
+     * @param midi_depth LFO depth as MIDI value (0-127)
+     *                   0 = no panning effect (static position)
+     *                   127 = full range panning (-1.0 to +1.0)
+     * @note RT-safe: updates LFO amplitude scaling
+     */
+    void setAllVoicesPanDepthMIDI(uint8_t midi_depth) noexcept;
+
+    /**
+     * @brief Get current LFO panning speed
+     * @return Current LFO frequency in Hz (0.0-2.0)
+     */
+    float getLfoPanSpeed() const noexcept { return panSpeed_; }
+
+    /**
+     * @brief Get current LFO panning depth
+     * @return Current LFO depth (0.0-1.0)
+     */
+    float getLfoPanDepth() const noexcept { return panDepth_; }
+
+    /**
+     * @brief Check if LFO panning is active
+     * @return true if both speed and depth are > 0
+     */
+    bool isLfoPanningActive() const noexcept { return panSpeed_ > 0.0f && panDepth_ > 0.0f; }
 
     // ===== VOICE ACCESS AND STATISTICS =====
 
@@ -268,7 +317,7 @@ public:
     // ===== SYSTEM DIAGNOSTICS =====
     
     /**
-     * @brief Log comprehensive system statistics
+     * @brief Log comprehensive system statistics including LFO panning
      * @param logger Reference to Logger
      * @note Non-RT: comprehensive system analysis and logging
      */
@@ -296,6 +345,13 @@ private:
     mutable std::atomic<int> activeVoicesCount_{0}; // Thread-safe active voice counter
     std::atomic<bool> rtMode_{false};               // RT mode flag
 
+    // ===== LFO PANNING STATE =====
+    
+    float panSpeed_;                   // LFO frequency in Hz (0.0-2.0)
+    float panDepth_;                   // LFO amplitude (0.0-1.0)
+    float lfoPhase_;                   // Current LFO phase (0.0-2π)
+    float lfoPhaseIncrement_;          // Phase increment per sample
+
     // ===== PRIVATE HELPER METHODS =====
     
     /**
@@ -317,6 +373,27 @@ private:
      * @param logger Reference to Logger
      */
     void reinitializeIfNeeded(int targetSampleRate, Logger& logger);
+
+    // ===== LFO PANNING HELPERS =====
+    
+    /**
+     * @brief Update LFO phase for current audio block
+     * @param samplesPerBlock Number of samples in current block
+     * @note RT-safe: advances LFO phase and wraps to valid range
+     */
+    void updateLfoPhase(int samplesPerBlock) noexcept;
+    
+    /**
+     * @brief Apply LFO panning to all active voices
+     * @note RT-safe: calculates current pan position and applies to voices
+     */
+    void applyLfoPanning() noexcept;
+    
+    /**
+     * @brief Reset LFO parameters to default values
+     * @note Resets speed, depth, and phase to initial state
+     */
+    void resetLfoParameters() noexcept;
 
     // ===== VOICE POOL MANAGEMENT =====
     

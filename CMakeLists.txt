@@ -61,6 +61,8 @@ add_executable(IthacaCore
     # Pan
     sampler/pan.cpp
     sampler/pan.h
+    sampler/lfopan.cpp
+    sampler/lfopan.h
 
     # tests
     sampler/tests/test_helpers.cpp

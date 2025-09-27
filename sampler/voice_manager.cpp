@@ -3,6 +3,7 @@
 #include "instrument_loader.h"
 #include "envelopes/envelope_static_data.h"
 #include "pan.h"
+#include "lfopan.h"
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
@@ -20,7 +21,11 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
       activeVoices_(),
       voicesToRemove_(),
       activeVoicesCount_(0),
-      rtMode_(false) {
+      rtMode_(false),
+      panSpeed_(0.0f),
+      panDepth_(0.0f),
+      lfoPhase_(0.0f),
+      lfoPhaseIncrement_(0.0f) {
     
     // Validate sample directory
     if (sampleDir_.empty()) {
@@ -38,6 +43,9 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
     
     // Initialize pan lookup tables
     Panning::initializePanTables();
+    
+    // Initialize LFO panning lookup tables
+    LfoPanning::initializeLfoTables();
     
     // Initialize voice pool (128 voices for all MIDI notes)
     for (int i = 0; i < 128; ++i) {
@@ -57,7 +65,7 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
     
     logSafe("VoiceManager/constructor", "info", 
            "VoiceManager created with sampleDir '" + sampleDir_ + 
-           "' using shared envelope data and constant power panning. Ready for initialization pipeline.", logger);
+           "' using shared envelope data, constant power panning, and LFO panning. Ready for initialization pipeline.", logger);
 }
 
 // ===== SYSTEM INITIALIZATION =====
@@ -105,8 +113,13 @@ void VoiceManager::loadForSampleRate(int sampleRate, Logger& logger) {
         instrumentLoader_.validateStereoConsistency(logger);
         systemInitialized_ = true;
         
+        // Update LFO phase increment for new sample rate
+        if (panSpeed_ > 0.0f) {
+            lfoPhaseIncrement_ = LfoPanning::calculatePhaseIncrement(panSpeed_, currentSampleRate_);
+        }
+        
         logSafe("VoiceManager/loadForSampleRate", "info", 
-                "=== INIT PHASE 2: Completed successfully (using shared envelope data) ===", logger);
+                "=== INIT PHASE 2: Completed successfully (using shared envelope data and LFO panning) ===", logger);
         
     } catch (...) {
         const std::string errorMsg = "[VoiceManager/loadForSampleRate] error: INIT PHASE 2: Loading failed";
@@ -183,6 +196,12 @@ bool VoiceManager::processBlockUninterleaved(float* outputLeft, float* outputRig
     
     if (activeVoices_.empty()) return false;
     
+    // Apply LFO panning if active
+    if (isLfoPanningActive()) {
+        applyLfoPanning();
+        updateLfoPhase(samplesPerBlock);
+    }
+    
     bool anyActive = false;
     
     // Process all active voices
@@ -216,6 +235,12 @@ bool VoiceManager::processBlockInterleaved(AudioData* outputBuffer, int samplesP
     }
     
     if (activeVoices_.empty()) return false;
+    
+    // Apply LFO panning if active
+    if (isLfoPanningActive()) {
+        applyLfoPanning();
+        updateLfoPhase(samplesPerBlock);
+    }
     
     // Pre-allocated temp buffers to avoid RT allocations
     static thread_local std::vector<float> tempLeft(16384);
@@ -280,7 +305,10 @@ void VoiceManager::resetAllVoices(Logger& logger) {
     voicesToRemove_.clear();
     activeVoicesCount_.store(0);
     
-    logSafe("VoiceManager/resetAllVoices", "info", "Reset all 128 voices to idle state", logger);
+    // Reset LFO parameters
+    resetLfoParameters();
+    
+    logSafe("VoiceManager/resetAllVoices", "info", "Reset all 128 voices to idle state and LFO parameters", logger);
 }
 
 // ===== GLOBAL VOICE PARAMETERS =====
@@ -308,8 +336,11 @@ void VoiceManager::setAllVoicesPanMIDI(uint8_t midi_pan) noexcept {
 
     float pan = (midi_pan - 64.0f) / 63.0f;
     
-    for (int i = 0; i < 128; ++i) {
-        voices_[i].setPan(pan);
+    // Static pan is overridden by LFO panning if active
+    if (!isLfoPanningActive()) {
+        for (int i = 0; i < 128; ++i) {
+            voices_[i].setPan(pan);
+        }
     }
 }
 
@@ -335,6 +366,25 @@ void VoiceManager::setAllVoicesSustainLevelMIDI(uint8_t midi_sustain) noexcept {
     for (int i = 0; i < 128; ++i) {
         voices_[i].setSustainLevelMIDI(midi_sustain);
     }
+}
+
+// ===== LFO PANNING CONTROL =====
+
+void VoiceManager::setAllVoicesPanSpeedMIDI(uint8_t midi_speed) noexcept {
+    if (midi_speed > 127) return;
+    
+    panSpeed_ = LfoPanning::getFrequencyFromMIDI(midi_speed);
+    
+    // Update phase increment if sample rate is available
+    if (currentSampleRate_ > 0) {
+        lfoPhaseIncrement_ = LfoPanning::calculatePhaseIncrement(panSpeed_, currentSampleRate_);
+    }
+}
+
+void VoiceManager::setAllVoicesPanDepthMIDI(uint8_t midi_depth) noexcept {
+    if (midi_depth > 127) return;
+    
+    panDepth_ = LfoPanning::getDepthFromMIDI(midi_depth);
 }
 
 // ===== VOICE ACCESS AND STATISTICS =====
@@ -401,6 +451,12 @@ void VoiceManager::logSystemStatistics(Logger& logger) {
             ", Originally stereo: " + std::to_string(stereoSamples), logger);
     logSafe("VoiceManager/statistics", "info", "Voice Activity - Active: " + std::to_string(activeCount) + 
             ", Sustaining: " + std::to_string(sustaining) + ", Releasing: " + std::to_string(releasing), logger);
+    
+    // LFO Panning statistics
+    logSafe("VoiceManager/statistics", "info", "LFO Panning - Speed: " + std::to_string(panSpeed_) + " Hz" + 
+            ", Depth: " + std::to_string(panDepth_) + ", Active: " + 
+            (isLfoPanningActive() ? "Yes" : "No"), logger);
+    
     logSafe("VoiceManager/statistics", "info", "========================", logger);
 }
 
@@ -421,9 +477,14 @@ void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
     }
 
     // Set default envelope parameters for all voices
-    setAllVoicesAttackMIDI(0);      // Fast attack
-    setAllVoicesReleaseMIDI(4);     // Short release
-    setAllVoicesSustainLevelMIDI(127); // Full sustain
+    setAllVoicesAttackMIDI(0);              // Fast attack
+    setAllVoicesReleaseMIDI(4);             // Short release
+    setAllVoicesSustainLevelMIDI(127);      // Full sustain
+
+    // Set default pan parameters for all voices
+    setAllVoicesPanMIDI(64);                // Center pan (MIDI 64 = center)
+    setAllVoicesPanSpeedMIDI(32);            // LFO panning disabled initially
+    setAllVoicesPanDepthMIDI(127);            // No LFO depth initially
     
     logSafe("VoiceManager/initializeVoicesWithInstruments", "info", 
             "All voices initialized with instruments and shared envelope system successfully", logger);
@@ -438,6 +499,38 @@ void VoiceManager::reinitializeIfNeeded(int targetSampleRate, Logger& logger) {
     if (needsReinitialization(targetSampleRate)) {
         changeSampleRate(targetSampleRate, logger);
     }
+}
+
+// ===== LFO PANNING HELPERS =====
+
+void VoiceManager::updateLfoPhase(int samplesPerBlock) noexcept {
+    if (panSpeed_ <= 0.0f || lfoPhaseIncrement_ <= 0.0f) return;
+    
+    // Advance LFO phase by block size
+    lfoPhase_ += lfoPhaseIncrement_ * static_cast<float>(samplesPerBlock);
+    
+    // Wrap phase to valid range (0.0-2π)
+    lfoPhase_ = LfoPanning::wrapPhase(lfoPhase_);
+}
+
+void VoiceManager::applyLfoPanning() noexcept {
+    if (!isLfoPanningActive()) return;
+    
+    // Calculate current pan position from LFO
+    float lfoValue = LfoPanning::getSineValue(lfoPhase_);
+    float currentPan = lfoValue * panDepth_;
+    
+    // Apply to all voices (both active and inactive for consistency)
+    for (int i = 0; i < 128; ++i) {
+        voices_[i].setPan(currentPan);
+    }
+}
+
+void VoiceManager::resetLfoParameters() noexcept {
+    panSpeed_ = 0.0f;
+    panDepth_ = 0.0f;
+    lfoPhase_ = 0.0f;
+    lfoPhaseIncrement_ = 0.0f;
 }
 
 // ===== VOICE POOL MANAGEMENT =====
