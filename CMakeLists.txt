@@ -58,6 +58,10 @@ add_executable(IthacaCore
     sampler/envelopes/envelope_static_data.cpp
     sampler/envelopes/envelope_static_data.h
 
+    # Pan
+    sampler/pan.cpp
+    sampler/pan.h
+
     # tests
     sampler/tests/test_helpers.cpp
     sampler/tests/test_helpers.h

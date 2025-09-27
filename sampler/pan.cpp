@@ -1,5 +1,6 @@
 #include "pan.h"
 #include <cmath>
+#include <algorithm>
 
 // Definice M_PI pro konzistenci
 #ifndef M_PI
