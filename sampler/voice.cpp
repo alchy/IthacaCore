@@ -1,14 +1,18 @@
-#include <algorithm>        // Pro std::min a clamp
-#include <cmath>            // Pro float výpočty
+#include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
 
-#include "IthacaConfig.h"  // Hlavní config (z root) - o ceste rozhodude CmakeList.txt
+#ifndef M_PI
+#define M_PI 3.14159f
+#endif
+
+#include "IthacaConfig.h"
 #include "voice.h"
 #include "envelopes/envelope_static_data.h"
 
-// DEBUG CONTROL - zapnout/vypnout oba debug výpisy
+// Debug control
 #define VOICE_DEBUG_ENABLED 0
 
 #if VOICE_DEBUG_ENABLED
@@ -22,7 +26,8 @@
 // Static member initialization
 std::atomic<bool> Voice::rtMode_{false};
 
-// Default konstruktor
+// ===== CONSTRUCTORS =====
+
 Voice::Voice() : midiNote_(0), instrument_(nullptr), sampleRate_(0),
                  state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
                  envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(1.0f),
@@ -30,9 +35,11 @@ Voice::Voice() : midiNote_(0), instrument_(nullptr), sampleRate_(0),
                  envelope_(nullptr),
                  envelope_attack_position_(0), envelope_release_position_(0), 
                  release_start_gain_(1.0f) {
+    
+    // Pre-allocate buffer with large reserve (64KB for maximum buffer size)
+    gainBuffer_.reserve(16384);
 }
 
-// Konstruktor pro VoiceManager (pool mód)
 Voice::Voice(uint8_t midiNote)
     : midiNote_(midiNote), instrument_(nullptr), sampleRate_(0),
       state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
@@ -41,11 +48,13 @@ Voice::Voice(uint8_t midiNote)
       envelope_(nullptr),
       envelope_attack_position_(0), envelope_release_position_(0), 
       release_start_gain_(1.0f) {
+    
+    // Pre-allocate buffer with large reserve (64KB for maximum buffer size)
+    gainBuffer_.reserve(16384);
 }
 
-/**
- * @brief initialize s envelope validation a exception handling
- */
+// ===== INITIALIZATION AND LIFECYCLE =====
+
 void Voice::initialize(const Instrument& instrument, int sampleRate, 
                       Envelope& envelope, Logger& logger,
                       uint8_t attackMIDI, uint8_t releaseMIDI, uint8_t sustainMIDI) {
@@ -53,49 +62,40 @@ void Voice::initialize(const Instrument& instrument, int sampleRate,
     sampleRate_ = sampleRate;
     envelope_ = &envelope;
     
-    // Validace sampleRate - ZMĚNA: throw exception místo std::exit()
+    // Validate parameters with unified error handling
     if (sampleRate_ <= 0) {
-        logSafe("Voice/initialize", "error", 
-               "Invalid sampleRate " + std::to_string(sampleRate_) + 
-               " - must be > 0", logger);
+        const std::string errorMsg = "[Voice/initialize] error: Invalid sampleRate " + 
+                                   std::to_string(sampleRate_) + " - must be > 0";
+        logSafe("Voice/initialize", "error", errorMsg, logger);
         throw std::invalid_argument("Invalid sample rate: " + std::to_string(sampleRate_));
     }
     
-    // Validace envelope - ZMĚNA: throw exception místo std::exit()
     if (!envelope_) {
-        logSafe("Voice/initialize", "error", 
-               "Envelope reference is null", logger);
+        const std::string errorMsg = "[Voice/initialize] error: Envelope reference is null";
+        logSafe("Voice/initialize", "error", errorMsg, logger);
         throw std::invalid_argument("Envelope reference is null");
     }
     
-    // Kontrola, zda jsou statická data inicializována - ZMĚNA: throw exception místo std::exit()
     if (!EnvelopeStaticData::isInitialized()) {
-        logSafe("Voice/initialize", "error", 
-               "EnvelopeStaticData not initialized", logger);
+        const std::string errorMsg = "[Voice/initialize] error: EnvelopeStaticData not initialized";
+        logSafe("Voice/initialize", "error", errorMsg, logger);
         throw std::runtime_error("EnvelopeStaticData not initialized. Call EnvelopeStaticData::initialize() first");
     }
     
-    // Reset všech stavů pro čistý start
-    state_ = VoiceState::Idle;
-    position_               = 0;
-    currentVelocityLayer_   = 0;
-    master_gain_            = 1.0f;
-    velocity_gain_          = 0.0f;
-    envelope_gain_          = 0.0f;
-    pan_                    = 0.0f;
+    // Reset all states for clean start
+    resetVoiceState();
     
-    // Reset envelope positions
-    envelope_attack_position_ = 0;
-    envelope_release_position_ = 0;
-    release_start_gain_ = 1.0f;
-    
-    //Nastavení envelope parametrů z argumentů
+    // Configure envelope parameters
     envelope_->setAttackMIDI(attackMIDI);
     envelope_->setReleaseMIDI(releaseMIDI);
     envelope_->setSustainLevelMIDI(sustainMIDI);
 
-    // Gain buffer s dostatečnou rezervou bloků
-    gainBuffer_.reserve(32767);
+    // Verify buffer is pre-allocated
+    if (gainBuffer_.capacity() < 16384) {
+        const std::string errorMsg = "[Voice/initialize] warning: gainBuffer capacity insufficient, attempting reserve";
+        logSafe("Voice/initialize", "warning", errorMsg, logger);
+        gainBuffer_.reserve(16384);
+    }
     
     logSafe("Voice/initialize", "info", 
            "Voice initialized for MIDI " + std::to_string(midiNote_) + 
@@ -103,46 +103,27 @@ void Voice::initialize(const Instrument& instrument, int sampleRate,
            ", R:" + std::to_string(envelope_->getReleaseLength(sampleRate_)) + " ms)", logger);
 }
 
-/**
- * @brief NON-RT SAFE: Updates internal buffer size for DAW block size changes
- * Must be called from audio thread during buffer size changes, NOT during processing
- */
 void Voice::prepareToPlay(int maxBlockSize) noexcept {
-    // NON-RT SAFE: This method should be called from audio thread during setup/buffer size changes
-    // Never call during active audio processing
+    // Buffer size validation - critical errors must be logged even in RT
+    if (maxBlockSize > 16384) {
+        std::cout << "[Voice/prepareToPlay] error: Block size " << maxBlockSize 
+                  << " exceeds pre-allocated buffer capacity 16384" << std::endl;
+        return; // Fail gracefully but visibly
+    }
     
-    if (maxBlockSize > 0 && gainBuffer_.size() < static_cast<size_t>(maxBlockSize)) {
-        try {
-            gainBuffer_.resize(maxBlockSize);
-        } catch (...) {
-            // In case of allocation failure, keep old buffer
-            // This is better than crashing, though not ideal
-        }
+    // Resize only if buffer is smaller and we're in safe context
+    if (gainBuffer_.size() < static_cast<size_t>(maxBlockSize)) {
+        gainBuffer_.resize(maxBlockSize);
     }
 }
 
-/**
- * @brief cleanup s envelope position reset a idle transition
- */
 void Voice::cleanup(Logger& logger) {
-    state_ = VoiceState::Idle;          // Explicitně nastavit Idle
-    position_           = 0;                
-    envelope_gain_      = 0.0f;
-    velocity_gain_      = 0.0f;
-    master_gain_        = 0.8f;
-    release_start_gain_ = 0.0f;
-    
-    // Reset envelope positions
-    envelope_attack_position_ = 0;
-    envelope_release_position_ = 0;
+    resetVoiceState();
     
     logSafe("Voice/cleanup", "info", 
            "Voice cleaned up and reset to idle for MIDI " + std::to_string(midiNote_), logger);
 }
 
-/**
- * @brief reinitialize s envelope
- */
 void Voice::reinitialize(const Instrument& instrument, int sampleRate,
                          Envelope& envelope, Logger& logger,
                          uint8_t attackMIDI, uint8_t releaseMIDI, uint8_t sustainMIDI) {
@@ -152,209 +133,125 @@ void Voice::reinitialize(const Instrument& instrument, int sampleRate,
            "Voice reinitialized with new instrument, sampleRate and ADSR envelope for MIDI " + std::to_string(midiNote_), logger);
 }
 
-/**
- * @brief setNoteState vcetne MIDI velocity
- */
+// ===== NOTE CONTROL =====
+
 void Voice::setNoteState(bool isOn, uint8_t velocity) noexcept {
-    if (!instrument_ || sampleRate_ <= 0 || !envelope_) {
-        return;
-    }
+    if (!isVoiceReady()) return;
     
     if (isOn) {
-        currentVelocityLayer_ = 
-            std::min(static_cast<uint8_t>(velocity / 16), 
-            static_cast<uint8_t>(7));                               // nastavi sample z velocity layeru podle MIDI velocity
-        updateVelocityGain(velocity);                               // update velicity gain se vola jen pri note on
-        state_ = VoiceState::Attacking;                             // set voice state 
-        position_ = 0;                                              // reset sample position in frames
-        envelope_gain_ = 0.0f;                                      // reset envelope gain
-        envelope_attack_position_ = 0;                              // reset envelope attack position
+        startNote(velocity);
     } else {
-        if (state_ == VoiceState::Attacking || state_ == VoiceState::Sustaining) {
-            DEBUG_PRINT("Voice state set to: Releasing");
-            state_ = VoiceState::Releasing;
-            envelope_release_position_ = 0;
-            release_start_gain_ = envelope_gain_;
-            DEBUG_PRINT("Release start gain in [setNoteState] set to: " << release_start_gain_ << " a envelope_gain_ is: " << envelope_gain_);
-        }
+        stopNote();
     }
 }
 
-/**
- * @brief setNoteState bez MIDI velocity (DEFAULT_VELOCITY)
- * currentVelocityLayer_ se nemění při NOTE-OFF.
- */
 void Voice::setNoteState(bool isOn) noexcept {
-    if (!instrument_ || sampleRate_ <= 0 || !envelope_) {
-        return;
-    }
+    if (!isVoiceReady()) return;
 
     if (isOn) {
-        currentVelocityLayer_ = 
-            std::min(static_cast<uint8_t>(DEFAULT_VELOCITY / 16), 
-            static_cast<uint8_t>(7));                               // nastavi sample z velocity layeru podle MIDI velocity
-        updateVelocityGain(DEFAULT_VELOCITY);                       // update velicity gain se vola jen pri note on
-        state_ = VoiceState::Attacking;                             // set voice state 
-        position_ = 0;                                              // reset sample position in frames
-        envelope_gain_ = 0.0f;                                      // reset envelope gain
-        envelope_attack_position_ = 0;                              // reset envelope attack position
+        startNote(DEFAULT_VELOCITY);
     } else {
-        if (state_ == VoiceState::Attacking || state_ == VoiceState::Sustaining) {
-            DEBUG_PRINT("Voice state set to: Releasing");
-            state_ = VoiceState::Releasing;
-            envelope_release_position_ = 0;
-            release_start_gain_ = envelope_gain_;
-            DEBUG_PRINT("Release start gain in [setNoteState] set to: " << release_start_gain_ << " a envelope_gain_ is: " << envelope_gain_);
-        }
+        stopNote();
     }
 }
 
-/**
- * @brief calculateBlockGains pro ADSR envelope
- */
+// ===== ENVELOPE CONTROL =====
+
+void Voice::setAttackMIDI(uint8_t midi_value) noexcept {
+    if (envelope_) {
+        envelope_->setAttackMIDI(midi_value);
+    }
+}
+
+void Voice::setReleaseMIDI(uint8_t midi_value) noexcept {
+    if (envelope_) {
+        envelope_->setReleaseMIDI(midi_value);
+    }
+}
+
+void Voice::setSustainLevelMIDI(uint8_t midi_value) noexcept {
+    if (envelope_) {
+        envelope_->setSustainLevelMIDI(midi_value);
+    }
+}
+
+// ===== AUDIO PROCESSING =====
+
 bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
     if (state_ == VoiceState::Idle || !gainBuffer || numSamples <= 0) {
         return false;
     }
     
+    // Buffer overflow protection - critical error must be visible
+    if (static_cast<size_t>(numSamples) > gainBuffer_.capacity()) {
+        std::cout << "[Voice/calculateBlockGains] error: Buffer overflow - requested " 
+                  << numSamples << " samples, capacity " << gainBuffer_.capacity() << std::endl;
+        return false; // Fail gracefully but visibly
+    }
+    
     switch (state_) {
-        case VoiceState::Attacking: {
-            // Přidán sample_rate_ parametr pro delegaci
-            DEBUG_PRINT("VoiceState::Attacking");
-            bool attackContinues = envelope_->getAttackGains(gainBuffer, numSamples, 
-                                                           envelope_attack_position_, sampleRate_);
+        case VoiceState::Attacking:
+            return processAttackPhase(gainBuffer, numSamples);
             
-            envelope_attack_position_ += numSamples;
+        case VoiceState::Sustaining:
+            return processSustainPhase(gainBuffer, numSamples);
             
-            // Attack nepokracuje protoze je gain obalka na svem konci
-            if (!attackContinues || gainBuffer[numSamples - 1] >= ENVELOPE_TRIGGERS_END_ATTACK) {
-                state_ = VoiceState::Sustaining;
-                // Dokončit blok sustain hodnotami
-                const float sustainLevel = envelope_gain_;  // je vsustain podle toho co zbylo v attack
-                for (int i = 0; i < numSamples; ++i) {
-                    if (gainBuffer[i] >= ENVELOPE_TRIGGERS_END_ATTACK) gainBuffer[i] = sustainLevel;
-                }
-                release_start_gain_ = sustainLevel;
-            } else {
-                envelope_gain_ = gainBuffer[numSamples - 1];
-                release_start_gain_ = envelope_gain_;
-            }
-            DEBUG_PRINT("Release start gain in [calculate block gains] set to: " << release_start_gain_ << " a envelope_gain_ is: " << envelope_gain_);
-            return true;
-        }
-        
-        case VoiceState::Sustaining: {
-            DEBUG_PRINT("VoiceState::Sustaining");
-            const float sustainLevel = envelope_->getSustainLevel();
-            for (int i = 0; i < numSamples; ++i) {
-                gainBuffer[i] = sustainLevel;
-            }
-            envelope_gain_ = sustainLevel;
-            release_start_gain_ = envelope_gain_;
-            DEBUG_PRINT("Release start gain in [calculate block gains] set to: " << release_start_gain_ << " a envelope_gain_ is: " << envelope_gain_);
-            return true;
-        }
-        
-        case VoiceState::Releasing: {
-            DEBUG_PRINT("VoiceState::Releasing");
-            // Přidán sample_rate_ parametr pro delegaci
-            DEBUG_PRINT("Release start gain in [calculate block gains] set to: " << release_start_gain_ << " a envelope_gain_ is: " << envelope_gain_);
-            bool releaseContinues = envelope_->getReleaseGains(gainBuffer, numSamples, 
-                                                             envelope_release_position_, sampleRate_);
-
-            // zde pri release se vraceny buffer musi prepocitat nasobkem posledni hodnoty gain
-            // śkálovat release gain podle poslední hodnoty
-            for (int i = 0; i < numSamples; ++i) {
-                gainBuffer[i] *= release_start_gain_;
-            }
-            
-            envelope_release_position_ += numSamples;
-            envelope_gain_ = gainBuffer[numSamples - 1];
-            
-            // Proper transition to idle when release ends
-            if (!releaseContinues || envelope_gain_ <= ENVELOPE_TRIGGERS_END_RELEASE) {
-                state_ = VoiceState::Idle;
-                envelope_gain_ = 0.0f;
-                return false;
-            }
-            return true;
-        }
+        case VoiceState::Releasing:
+            return processReleasePhase(gainBuffer, numSamples);
 
         default:
             return false;
     }
 }
 
-/**
- * @brief Aplikuje gain na výstup
- */
-bool Voice::processBlock(float* outputLeft, 
-                         float* outputRight, 
-                         int    samplesPerBlock) noexcept {
-
-    // Early exit conditions - RT optimized
-    if (state_ == VoiceState::Idle || !instrument_ || sampleRate_ <= 0) {
-        return false;  // Voice není aktivní
+bool Voice::processBlock(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept {
+    // Early exit conditions
+    if (!isVoiceReady() || state_ == VoiceState::Idle) {
+        return false;
     }
     
     if (!outputLeft || !outputRight || samplesPerBlock <= 0) {
-        return false; // Není inicializován left nebo right buffer nebo samplesPerBlock jsou nula či minus
+        return false;
     }
     
-    // Cache frequently used values
+    // Get instrument data
     const float* stereoBuffer = instrument_->get_sample_begin_pointer(currentVelocityLayer_);
     const int maxFrames = instrument_->get_frame_count(currentVelocityLayer_);
 
     if (!stereoBuffer || maxFrames == 0) {
         state_ = VoiceState::Idle;
-        return false;  // Není inicializován/nacten sampl v RAM nebo maxFrames je 0
+        return false;
     }
     
-    // Safe conversion s explicitním ošetřením přetečení
+    // Calculate samples to process
     const int samplesUntilEnd = maxFrames - position_;
-    const int samplesRequested = samplesPerBlock;
-    const int samplesToProcess = std::min(samplesRequested, samplesUntilEnd); // pokud je pocet samplesUntilEnd mensi, pouzije se hodnota samplesUntilEnd
+    const int samplesToProcess = std::min(samplesPerBlock, samplesUntilEnd);
     
-    // Use pre-allocated buffer
-    if (gainBuffer_.size() < static_cast<size_t>(samplesToProcess)) {
-        return false;   // Buffer je mensi nez pozadovany pocet samplu
+    // Verify buffer capacity - critical error must be visible
+    if (gainBuffer_.capacity() < static_cast<size_t>(samplesToProcess)) {
+        std::cout << "[Voice/processBlock] error: Buffer capacity insufficient - need " 
+                  << samplesToProcess << " samples, have " << gainBuffer_.capacity() << std::endl;
+        return false; // Buffer capacity insufficient - visible failure
     }
     
-    // Pre-calculate envelope gains for the block
+    // Ensure buffer is sized correctly for this block
+    if (gainBuffer_.size() < static_cast<size_t>(samplesToProcess)) {
+        gainBuffer_.resize(samplesToProcess);
+    }
+    
+    // Calculate envelope gains for the block
     if (!calculateBlockGains(gainBuffer_.data(), samplesToProcess)) {
         state_ = VoiceState::Idle;
         return false;
     }
     
-    // GAIN CHAIN - envelope * velocity * master
-    const int       startIndex = position_ * 2; // pozice v samplech * 2 -> pozice pro zacatky ve frames
-    const float*    srcPtr = stereoBuffer + startIndex; // stereoBuffer je pointer na zacatek sampu nastroje v RAM
+    // Apply audio processing with gain chain
+    processAudioWithGains(outputLeft, outputRight, stereoBuffer, samplesToProcess);
     
-    // Spočítej pan gainy
-    float pan_left_gain  = std::max(0.0f, -pan_);       // pan=-1.0 → 1.0, pan=0.0 → 0.0, pan=1.0 → 0.0
-    float pan_right_gain = std::max(0.0f, pan_);        // pan=-1.0 → 0.0, pan=0.0 → 0.0, pan=1.0 → 1.0
-
-    // Baseline pro střed
-    pan_left_gain = pan_left_gain + (1.0f - std::abs(pan_));
-    pan_right_gain = pan_right_gain + (1.0f - std::abs(pan_));
-
-    for (int i = 0; i < samplesToProcess; ++i) {
-        const int srcIndex = i * 2;
-        
-        // sample z RAM L,R * gainBuffer (velocity gain)
-        outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i] * pan_left_gain * master_gain_;          // Mixdown L
-        
-#if DEBUG_ENVELOPE_TO_RIGHT_CHANNEL
-        outputRight[i] += gainBuffer_[i]; // do praveho kanalu zapisujeme envelopu jen pri debugu
-#else
-        outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i] * pan_right_gain * master_gain_;    // Mixdown R
-#endif
-    }
-
-    // Batch position update - safe conversion zpět
-    position_ += static_cast<int>(samplesToProcess);
+    // Update position
+    position_ += samplesToProcess;
     
-    // End condition check - proper transition to Idle
+    // Check for end condition
     if (position_ >= maxFrames) {
         state_ = VoiceState::Idle;
         return false;
@@ -363,41 +260,18 @@ bool Voice::processBlock(float* outputLeft,
     return state_ != VoiceState::Idle;
 }
 
-// ===== PRIVATE RT-SAFE METODY =====
+// ===== GAIN CONTROL =====
 
-/**
- * @brief RT-SAFE: metoda pro aplikaci MIDI velocity na hlasitost
- * Mapuje velocity 0-127 na velocity_gain_ 0.0-1.0 s logaritmickou křivkou.
- */
-void Voice::updateVelocityGain(uint8_t velocity) noexcept {
-    if (velocity == 0) {
-        velocity_gain_ = 0.0f;  // Silence pro velocity 0
-        return;
-    }
-    
-    // Logaritmická křivka pro přirozenější velocity response
-    float normalized = static_cast<float>(velocity) / 127.0f;
-    velocity_gain_ = std::sqrt(normalized);
-    
-    // Clamp pro bezpečnost
-    velocity_gain_ = std::max(0.0f, std::min(1.0f, velocity_gain_));
-}
-
-/**
- * @brief RT-SAFE: Nastaví master pan pro voice (L -1.0 <0> +1.0 R)
- */
 void Voice::setPan(float pan) noexcept {
     pan_ = pan;
 }
 
-/**
- * @brief NON-RT SAFE: Nastaví master gain pro voice (0.0-1.0)
- */
 void Voice::setMasterGain(float gain, Logger& logger) {
     if (gain < 0.0f || gain > 1.0f) {
-        logSafe("Voice/setMasterGain", "error", 
-               "Invalid master gain " + std::to_string(gain) + 
-               " (must be 0.0-1.0) for MIDI " + std::to_string(midiNote_), logger);
+        const std::string errorMsg = "[Voice/setMasterGain] error: Invalid master gain " + 
+                                   std::to_string(gain) + " (must be 0.0-1.0) for MIDI " + 
+                                   std::to_string(midiNote_);
+        logSafe("Voice/setMasterGain", "error", errorMsg, logger);
         return;
     }
     master_gain_ = gain;
@@ -406,18 +280,14 @@ void Voice::setMasterGain(float gain, Logger& logger) {
            " for MIDI " + std::to_string(midiNote_), logger);
 }
 
-/**
- * @brief RT-SAFE: Nastaví master gain pro voice bez loggingu
- */
 void Voice::setMasterGainRTSafe(float gain) noexcept {
     if (gain >= 0.0f && gain <= 1.0f) {
         master_gain_ = gain;
     }
 }
 
-/**
- * @brief NON-RT SAFE: Získá debug informace o gain structure
- */
+// ===== DEBUG AND DIAGNOSTICS =====
+
 std::string Voice::getGainDebugInfo(Logger& logger) const {
     std::string info = "MIDI " + std::to_string(midiNote_) + 
                       " Gains - Envelope: " + std::to_string(envelope_gain_) +
@@ -429,41 +299,162 @@ std::string Voice::getGainDebugInfo(Logger& logger) const {
     return info;
 }
 
-/**
- * @brief RT-SAFE: Nastavení MIDI hodnoty pro attack envelope
- */
-void Voice::setAttackMIDI(uint8_t midi_value) noexcept {
-    if (envelope_) {
-        envelope_->setAttackMIDI(midi_value);
+// ===== PRIVATE HELPER METHODS =====
+
+void Voice::resetVoiceState() noexcept {
+    state_ = VoiceState::Idle;
+    position_ = 0;
+    currentVelocityLayer_ = 0;
+    master_gain_ = 1.0f;
+    velocity_gain_ = 0.0f;
+    envelope_gain_ = 0.0f;
+    pan_ = 0.0f;
+    envelope_attack_position_ = 0;
+    envelope_release_position_ = 0;
+    release_start_gain_ = 1.0f;
+}
+
+bool Voice::isVoiceReady() const noexcept {
+    return instrument_ && sampleRate_ > 0 && envelope_;
+}
+
+void Voice::startNote(uint8_t velocity) noexcept {
+    currentVelocityLayer_ = std::min(static_cast<uint8_t>(velocity / 16), static_cast<uint8_t>(7));
+    updateVelocityGain(velocity);
+    state_ = VoiceState::Attacking;
+    position_ = 0;
+    envelope_gain_ = 0.0f;
+    envelope_attack_position_ = 0;
+}
+
+void Voice::stopNote() noexcept {
+    if (state_ == VoiceState::Attacking || state_ == VoiceState::Sustaining) {
+        DEBUG_PRINT("Voice state set to: Releasing");
+        state_ = VoiceState::Releasing;
+        envelope_release_position_ = 0;
+        release_start_gain_ = envelope_gain_;
+        DEBUG_PRINT("Release start gain set to: " << release_start_gain_);
     }
 }
 
-/**
- * @brief RT-SAFE: Nastavení MIDI hodnoty pro release envelope  
- */
-void Voice::setReleaseMIDI(uint8_t midi_value) noexcept {
-    if (envelope_) {
-        envelope_->setReleaseMIDI(midi_value);
+void Voice::updateVelocityGain(uint8_t velocity) noexcept {
+    if (velocity == 0) {
+        velocity_gain_ = 0.0f;
+        return;
+    }
+    
+    // Logarithmic curve for more natural velocity response
+    float normalized = static_cast<float>(velocity) / 127.0f;
+    velocity_gain_ = std::sqrt(normalized);
+    velocity_gain_ = std::max(0.0f, std::min(1.0f, velocity_gain_));
+}
+
+bool Voice::processAttackPhase(float* gainBuffer, int numSamples) noexcept {
+    DEBUG_PRINT("VoiceState::Attacking");
+    bool attackContinues = envelope_->getAttackGains(gainBuffer, numSamples, 
+                                                   envelope_attack_position_, sampleRate_);
+    
+    envelope_attack_position_ += numSamples;
+    
+    // Check if attack phase is complete
+    if (!attackContinues || gainBuffer[numSamples - 1] >= ENVELOPE_TRIGGERS_END_ATTACK) {
+        state_ = VoiceState::Sustaining;
+        // Fill block with sustain values
+        const float sustainLevel = envelope_gain_;
+        for (int i = 0; i < numSamples; ++i) {
+            if (gainBuffer[i] >= ENVELOPE_TRIGGERS_END_ATTACK) {
+                gainBuffer[i] = sustainLevel;
+            }
+        }
+        release_start_gain_ = sustainLevel;
+    } else {
+        envelope_gain_ = gainBuffer[numSamples - 1];
+        release_start_gain_ = envelope_gain_;
+    }
+    DEBUG_PRINT("Release start gain set to: " << release_start_gain_);
+    return true;
+}
+
+bool Voice::processSustainPhase(float* gainBuffer, int numSamples) noexcept {
+    DEBUG_PRINT("VoiceState::Sustaining");
+    const float sustainLevel = envelope_->getSustainLevel();
+    for (int i = 0; i < numSamples; ++i) {
+        gainBuffer[i] = sustainLevel;
+    }
+    envelope_gain_ = sustainLevel;
+    release_start_gain_ = envelope_gain_;
+    DEBUG_PRINT("Release start gain set to: " << release_start_gain_);
+    return true;
+}
+
+bool Voice::processReleasePhase(float* gainBuffer, int numSamples) noexcept {
+    DEBUG_PRINT("VoiceState::Releasing");
+    DEBUG_PRINT("Release start gain: " << release_start_gain_);
+    
+    bool releaseContinues = envelope_->getReleaseGains(gainBuffer, numSamples, 
+                                                     envelope_release_position_, sampleRate_);
+
+    // Scale release gain according to last value
+    for (int i = 0; i < numSamples; ++i) {
+        gainBuffer[i] *= release_start_gain_;
+    }
+    
+    envelope_release_position_ += numSamples;
+    envelope_gain_ = gainBuffer[numSamples - 1];
+    
+    // Transition to idle when release ends
+    if (!releaseContinues || envelope_gain_ <= ENVELOPE_TRIGGERS_END_RELEASE) {
+        state_ = VoiceState::Idle;
+        envelope_gain_ = 0.0f;
+        return false;
+    }
+    return true;
+}
+
+void Voice::processAudioWithGains(float* outputLeft, float* outputRight, 
+                                 const float* stereoBuffer, int samplesToProcess) noexcept {
+    const int startIndex = position_ * 2; // Convert position to stereo frame index
+    const float* srcPtr = stereoBuffer + startIndex;
+    
+    // Calculate pan gains using constant power panning
+    float pan_left_gain, pan_right_gain;
+    calculatePanGains(pan_, pan_left_gain, pan_right_gain);
+
+    // Apply gain chain: sample * envelope * velocity * pan * master
+    for (int i = 0; i < samplesToProcess; ++i) {
+        const int srcIndex = i * 2;
+        
+        outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i] * pan_left_gain * master_gain_;
+        
+#if DEBUG_ENVELOPE_TO_RIGHT_CHANNEL
+        outputRight[i] += gainBuffer_[i]; // Debug: envelope to right channel
+#else
+        outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i] * pan_right_gain * master_gain_;
+#endif
     }
 }
 
-/**
- * @brief RT-SAFE: Nastavení sustain úrovně pomocí MIDI hodnoty
- */
-void Voice::setSustainLevelMIDI(uint8_t midi_value) noexcept {
-    if (envelope_) {
-        envelope_->setSustainLevelMIDI(midi_value);
-    }
+void Voice::calculatePanGains(float pan, float& leftGain, float& rightGain) noexcept {
+    // Constant power panning implementation
+    // Temporary implementation - will be moved to pan_utils.h
+    float clamped_pan = std::max(-1.0f, std::min(1.0f, pan));
+    
+    // Convert to angle (0 to π/2)
+    float normalized = (clamped_pan + 1.0f) * 0.5f;  // -1..1 → 0..1
+    float angle = normalized * (M_PI / 2.0f);        // 0..1 → 0..π/2
+    
+    // Constant power panning
+    leftGain = std::cos(angle);   // 1.0 at left, 0.707 at center, 0.0 at right
+    rightGain = std::sin(angle);  // 0.0 at left, 0.707 at center, 1.0 at right
 }
 
-/**
- * @brief NON-RT: Safe logging wrapper pro non-critical operations.
- * Používá se pouze v initialize/cleanup/reinitialize metodách.
- */
 void Voice::logSafe(const std::string& component, const std::string& severity, 
                    const std::string& message, Logger& logger) const {
-    // Conditional logging - skip pokud je RT mode zapnutý
     if (!rtMode_.load()) {
+        // Non-RT context: use proper logger
         logger.log(component, severity, message);
+    } else {
+        // RT context or development: always log to stdout for visibility
+        std::cout << "[" << component << "] " << severity << ": " << message << std::endl;
     }
 }
