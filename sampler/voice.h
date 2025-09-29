@@ -16,6 +16,24 @@
 #define DAMPING_RELEASE_MS 3.0f  // Milliseconds
 #endif
 
+// ===== VELOCITY LAYER MODULATION CONFIGURATION =====
+// Fine-tune gain adjustment within velocity layers for smooth dynamic response
+#ifndef VELOCITY_LAYER_MODULATION
+#define VELOCITY_LAYER_MODULATION 0.08f  // ±8% gain adjustment within layer
+#endif
+
+#ifndef VELOCITY_LAYER_SIZE
+#define VELOCITY_LAYER_SIZE 16.0f  // MIDI range per layer (128/8 layers)
+#endif
+
+#ifndef VELOCITY_LAYER_HALF_SIZE
+#define VELOCITY_LAYER_HALF_SIZE 8.0f  // Half size for symmetric modulation
+#endif
+
+#ifndef VELOCITY_LAYER_CENTER_OFFSET
+#define VELOCITY_LAYER_CENTER_OFFSET 7.5f  // Exact center offset within 16-value layer
+#endif
+
 // Simulation of JUCE AudioBuffer for stereo output (without JUCE dependency)
 struct AudioData {
     float left;

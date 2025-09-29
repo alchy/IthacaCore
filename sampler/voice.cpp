@@ -384,12 +384,37 @@ void Voice::updateVelocityGain(uint8_t velocity) noexcept {
         return;
     }
     
-    // ===== CALCULATE LOGARITHMIC VELOCITY CURVE =====
+    // ===== LAYER CENTER CALCULATION =====
     
-    // Logarithmic curve provides more natural velocity response
-    // than linear mapping, matching human perception
-    const float normalized = static_cast<float>(velocity) / 127.0f;
-    velocity_gain_ = std::sqrt(normalized);
+    // Each layer represents a specific dynamic range in the sampled instrument
+    // Samples are already recorded at their natural dynamic level
+    // Calculate exact center of the selected velocity layer
+    const float layerCenter = (currentVelocityLayer_ * VELOCITY_LAYER_SIZE) + VELOCITY_LAYER_CENTER_OFFSET;
+    
+    // ===== BASE GAIN FOR LAYER CENTER =====
+    
+    // Calculate base gain for the center of this layer
+    // Uses logarithmic curve for natural velocity response
+    const float normalizedCenter = layerCenter / 127.0f;
+    const float baseGain = std::sqrt(normalizedCenter);
+    
+    // ===== SYMMETRIC MODULATION WITHIN LAYER =====
+    
+    // Fine-tune gain based on position within the layer
+    // This provides smooth transitions within the selected velocity layer
+    const float offsetFromCenter = static_cast<float>(velocity) - layerCenter;
+    
+    // Normalize to -1.0 to +1.0 range (divide by half size for symmetry)
+    // Range is symmetric: -7.5 to +7.5 MIDI values from center
+    const float positionInLayer = offsetFromCenter / VELOCITY_LAYER_HALF_SIZE;
+    
+    // Apply configurable gain modulation based on position in layer
+    // Default ±8% compensates for discrete layer selection while maintaining sample authenticity
+    const float layerModulation = 1.0f + (positionInLayer * VELOCITY_LAYER_MODULATION);
+    
+    // ===== FINAL GAIN CALCULATION =====
+    
+    velocity_gain_ = baseGain * layerModulation;
     
     // Clamp to valid range (should always be in range, but safety first)
     velocity_gain_ = std::max(0.0f, std::min(1.0f, velocity_gain_));
