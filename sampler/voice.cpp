@@ -12,7 +12,7 @@
 #include "voice.h"
 #include "envelopes/envelope_static_data.h"
 
-// Debug control
+// ===== DEBUG CONTROL =====
 #define VOICE_DEBUG_ENABLED 0
 
 #if VOICE_DEBUG_ENABLED
@@ -23,37 +23,72 @@
     #define DEBUG_ENVELOPE_TO_RIGHT_CHANNEL 0
 #endif
 
-// Static member initialization
+// ===== STATIC MEMBER INITIALIZATION =====
 std::atomic<bool> Voice::rtMode_{false};
 
-// ===== CONSTRUCTORS =====
+// =====================================================================
+// CONSTRUCTORS
+// =====================================================================
 
-Voice::Voice() : midiNote_(0), instrument_(nullptr), sampleRate_(0),
-                 state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
-                 envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(1.0f),
-                 pan_(0),
-                 envelope_(nullptr),
-                 envelope_attack_position_(0), envelope_release_position_(0), 
-                 release_start_gain_(1.0f) {
+Voice::Voice() 
+    : midiNote_(0), 
+      instrument_(nullptr), 
+      sampleRate_(0),
+      state_(VoiceState::Idle), 
+      position_(0), 
+      currentVelocityLayer_(0),
+      envelope_gain_(0.0f), 
+      velocity_gain_(0.0f), 
+      master_gain_(1.0f),
+      pan_(0.0f),
+      envelope_(nullptr),
+      envelope_attack_position_(0), 
+      envelope_release_position_(0), 
+      release_start_gain_(1.0f),
+      dampingLength_(0),
+      dampingPosition_(0),
+      dampingActive_(false) {
     
-    // Pre-allocate buffer with large reserve (64KB for maximum buffer size)
+    // Pre-allocate gain buffer with large reserve (64KB for maximum buffer size)
     gainBuffer_.reserve(16384);
+    
+    // Pre-allocate damping buffers (will be properly sized in initialize())
+    // Reserve ~21ms @ 48kHz = 1024 samples
+    dampingBufferLeft_.reserve(1024);
+    dampingBufferRight_.reserve(1024);
 }
 
 Voice::Voice(uint8_t midiNote)
-    : midiNote_(midiNote), instrument_(nullptr), sampleRate_(0),
-      state_(VoiceState::Idle), position_(0), currentVelocityLayer_(0),
-      envelope_gain_(0.0f), velocity_gain_(0.0f), master_gain_(1.0f),
-      pan_(0),
+    : midiNote_(midiNote), 
+      instrument_(nullptr), 
+      sampleRate_(0),
+      state_(VoiceState::Idle), 
+      position_(0), 
+      currentVelocityLayer_(0),
+      envelope_gain_(0.0f), 
+      velocity_gain_(0.0f), 
+      master_gain_(1.0f),
+      pan_(0.0f),
       envelope_(nullptr),
-      envelope_attack_position_(0), envelope_release_position_(0), 
-      release_start_gain_(1.0f) {
+      envelope_attack_position_(0), 
+      envelope_release_position_(0), 
+      release_start_gain_(1.0f),
+      dampingLength_(0),
+      dampingPosition_(0),
+      dampingActive_(false) {
     
-    // Pre-allocate buffer with large reserve (64KB for maximum buffer size)
+    // Pre-allocate gain buffer with large reserve (64KB for maximum buffer size)
     gainBuffer_.reserve(16384);
+    
+    // Pre-allocate damping buffers (will be properly sized in initialize())
+    // Reserve ~21ms @ 48kHz = 1024 samples
+    dampingBufferLeft_.reserve(1024);
+    dampingBufferRight_.reserve(1024);
 }
 
-// ===== INITIALIZATION AND LIFECYCLE =====
+// =====================================================================
+// INITIALIZATION AND LIFECYCLE
+// =====================================================================
 
 void Voice::initialize(const Instrument& instrument, int sampleRate, 
                       Envelope& envelope, Logger& logger,
@@ -62,7 +97,8 @@ void Voice::initialize(const Instrument& instrument, int sampleRate,
     sampleRate_ = sampleRate;
     envelope_ = &envelope;
     
-    // Validate parameters with unified error handling
+    // ===== PARAMETER VALIDATION =====
+    
     if (sampleRate_ <= 0) {
         const std::string errorMsg = "[Voice/initialize] error: Invalid sampleRate " + 
                                    std::to_string(sampleRate_) + " - must be > 0";
@@ -82,34 +118,61 @@ void Voice::initialize(const Instrument& instrument, int sampleRate,
         throw std::runtime_error("EnvelopeStaticData not initialized. Call EnvelopeStaticData::initialize() first");
     }
     
+    // ===== CALCULATE DAMPING BUFFER LENGTH =====
+    
+    // Convert milliseconds to samples based on sample rate
+    dampingLength_ = static_cast<int>((DAMPING_RELEASE_MS / 1000.0f) * sampleRate_);
+    
+    // Ensure damping buffers have sufficient capacity
+    if (dampingBufferLeft_.capacity() < static_cast<size_t>(dampingLength_)) {
+        dampingBufferLeft_.reserve(dampingLength_);
+        dampingBufferRight_.reserve(dampingLength_);
+    }
+    
+    // Resize to exact length needed
+    dampingBufferLeft_.resize(dampingLength_);
+    dampingBufferRight_.resize(dampingLength_);
+    
+    // ===== RESET STATE =====
+    
     // Reset all states for clean start
     resetVoiceState();
     
-    // Configure envelope parameters
+    // ===== CONFIGURE ENVELOPE =====
+    
     envelope_->setAttackMIDI(attackMIDI);
     envelope_->setReleaseMIDI(releaseMIDI);
     envelope_->setSustainLevelMIDI(sustainMIDI);
 
-    // Verify buffer is pre-allocated
+    // ===== VERIFY GAIN BUFFER =====
+    
     if (gainBuffer_.capacity() < 16384) {
         const std::string errorMsg = "[Voice/initialize] warning: gainBuffer capacity insufficient, attempting reserve";
         logSafe("Voice/initialize", "warning", errorMsg, logger);
         gainBuffer_.reserve(16384);
     }
     
+    // ===== LOG INITIALIZATION SUCCESS =====
+    
     logSafe("Voice/initialize", "info", 
            "Voice initialized for MIDI " + std::to_string(midiNote_) + 
            " with static envelope system (A:" + std::to_string(envelope_->getAttackLength(sampleRate_)) + 
-           ", R:" + std::to_string(envelope_->getReleaseLength(sampleRate_)) + " ms)", logger);
+           ", R:" + std::to_string(envelope_->getReleaseLength(sampleRate_)) + " ms)" +
+           " and damping buffer (" + std::to_string(dampingLength_) + " samples = " + 
+           std::to_string(DAMPING_RELEASE_MS) + "ms)", logger);
 }
 
 void Voice::prepareToPlay(int maxBlockSize) noexcept {
-    // Buffer size validation - critical errors must be logged even in RT
+    // ===== BUFFER SIZE VALIDATION =====
+    
+    // Critical errors must be logged even in RT context for visibility
     if (maxBlockSize > 16384) {
         std::cout << "[Voice/prepareToPlay] error: Block size " << maxBlockSize 
                   << " exceeds pre-allocated buffer capacity 16384" << std::endl;
         return; // Fail gracefully but visibly
     }
+    
+    // ===== RESIZE GAIN BUFFER IF NEEDED =====
     
     // Resize only if buffer is smaller and we're in safe context
     if (gainBuffer_.size() < static_cast<size_t>(maxBlockSize)) {
@@ -127,13 +190,17 @@ void Voice::cleanup(Logger& logger) {
 void Voice::reinitialize(const Instrument& instrument, int sampleRate,
                          Envelope& envelope, Logger& logger,
                          uint8_t attackMIDI, uint8_t releaseMIDI, uint8_t sustainMIDI) {
+    // Full re-initialization including damping buffer recalculation
     initialize(instrument, sampleRate, envelope, logger, attackMIDI, releaseMIDI, sustainMIDI);
 
     logSafe("Voice/reinitialize", "info", 
-           "Voice reinitialized with new instrument, sampleRate and ADSR envelope for MIDI " + std::to_string(midiNote_), logger);
+           "Voice reinitialized with new instrument, sampleRate and ADSR envelope for MIDI " + 
+           std::to_string(midiNote_), logger);
 }
 
-// ===== NOTE CONTROL =====
+// =====================================================================
+// NOTE CONTROL
+// =====================================================================
 
 void Voice::setNoteState(bool isOn, uint8_t velocity) noexcept {
     if (!isVoiceReady()) return;
@@ -155,7 +222,9 @@ void Voice::setNoteState(bool isOn) noexcept {
     }
 }
 
-// ===== ENVELOPE CONTROL =====
+// =====================================================================
+// ENVELOPE CONTROL
+// =====================================================================
 
 void Voice::setAttackMIDI(uint8_t midi_value) noexcept {
     if (envelope_) {
@@ -175,19 +244,27 @@ void Voice::setSustainLevelMIDI(uint8_t midi_value) noexcept {
     }
 }
 
-// ===== AUDIO PROCESSING =====
+// =====================================================================
+// AUDIO PROCESSING
+// =====================================================================
 
 bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
+    // ===== EARLY EXIT CONDITIONS =====
+    
     if (state_ == VoiceState::Idle || !gainBuffer || numSamples <= 0) {
         return false;
     }
     
-    // Buffer overflow protection - critical error must be visible
+    // ===== BUFFER OVERFLOW PROTECTION =====
+    
+    // Critical error must be visible even in RT context
     if (static_cast<size_t>(numSamples) > gainBuffer_.capacity()) {
         std::cout << "[Voice/calculateBlockGains] error: Buffer overflow - requested " 
                   << numSamples << " samples, capacity " << gainBuffer_.capacity() << std::endl;
         return false; // Fail gracefully but visibly
     }
+    
+    // ===== PROCESS CURRENT ENVELOPE STATE =====
     
     switch (state_) {
         case VoiceState::Attacking:
@@ -205,7 +282,39 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
 }
 
 bool Voice::processBlock(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept {
-    // Early exit conditions
+    // =====================================================================
+    // PHASE 1: PROCESS DAMPING BUFFER (if retrigger active)
+    // =====================================================================
+    
+    if (dampingActive_) {
+        // Calculate how many damping samples remain
+        const int dampingSamplesRemaining = dampingLength_ - dampingPosition_;
+        const int dampingSamplesToProcess = std::min(samplesPerBlock, dampingSamplesRemaining);
+        
+        // Mix pre-computed damping buffer directly into output
+        // No gain calculations needed - buffer already contains final audio
+        for (int i = 0; i < dampingSamplesToProcess; ++i) {
+            const int bufferIndex = dampingPosition_ + i;
+            outputLeft[i] += dampingBufferLeft_[bufferIndex];
+            outputRight[i] += dampingBufferRight_[bufferIndex];
+        }
+        
+        // Update damping playback position
+        dampingPosition_ += dampingSamplesToProcess;
+        
+        // Deactivate damping if we've finished playback
+        if (dampingPosition_ >= dampingLength_) {
+            dampingActive_ = false;
+            dampingPosition_ = 0; // Reset for potential future use
+        }
+    }
+    
+    // =====================================================================
+    // PHASE 2: PROCESS MAIN VOICE (new note after retrigger or normal playback)
+    // =====================================================================
+    
+    // ===== EARLY EXIT CONDITIONS =====
+    
     if (!isVoiceReady() || state_ == VoiceState::Idle) {
         return false;
     }
@@ -214,7 +323,8 @@ bool Voice::processBlock(float* outputLeft, float* outputRight, int samplesPerBl
         return false;
     }
     
-    // Get instrument data
+    // ===== GET INSTRUMENT DATA =====
+    
     const float* stereoBuffer = instrument_->get_sample_begin_pointer(currentVelocityLayer_);
     const int maxFrames = instrument_->get_frame_count(currentVelocityLayer_);
 
@@ -223,35 +333,43 @@ bool Voice::processBlock(float* outputLeft, float* outputRight, int samplesPerBl
         return false;
     }
     
-    // Calculate samples to process
+    // ===== CALCULATE SAMPLES TO PROCESS =====
+    
     const int samplesUntilEnd = maxFrames - position_;
     const int samplesToProcess = std::min(samplesPerBlock, samplesUntilEnd);
     
-    // Verify buffer capacity - critical error must be visible
+    // ===== VERIFY BUFFER CAPACITY =====
+    
+    // Critical error must be visible even in RT context
     if (gainBuffer_.capacity() < static_cast<size_t>(samplesToProcess)) {
         std::cout << "[Voice/processBlock] error: Buffer capacity insufficient - need " 
                   << samplesToProcess << " samples, have " << gainBuffer_.capacity() << std::endl;
         return false; // Buffer capacity insufficient - visible failure
     }
     
-    // Ensure buffer is sized correctly for this block
+    // ===== ENSURE BUFFER IS SIZED CORRECTLY =====
+    
     if (gainBuffer_.size() < static_cast<size_t>(samplesToProcess)) {
         gainBuffer_.resize(samplesToProcess);
     }
     
-    // Calculate envelope gains for the block
+    // ===== CALCULATE ENVELOPE GAINS =====
+    
     if (!calculateBlockGains(gainBuffer_.data(), samplesToProcess)) {
         state_ = VoiceState::Idle;
         return false;
     }
     
-    // Apply audio processing with gain chain
+    // ===== APPLY AUDIO PROCESSING WITH GAIN CHAIN =====
+    
     processAudioWithGains(outputLeft, outputRight, stereoBuffer, samplesToProcess);
     
-    // Update position
+    // ===== UPDATE POSITION =====
+    
     position_ += samplesToProcess;
     
-    // Check for end condition
+    // ===== CHECK FOR END CONDITION =====
+    
     if (position_ >= maxFrames) {
         state_ = VoiceState::Idle;
         return false;
@@ -260,13 +378,17 @@ bool Voice::processBlock(float* outputLeft, float* outputRight, int samplesPerBl
     return state_ != VoiceState::Idle;
 }
 
-// ===== GAIN CONTROL =====
+// =====================================================================
+// GAIN CONTROL
+// =====================================================================
 
 void Voice::setPan(float pan) noexcept {
     pan_ = pan;
 }
 
 void Voice::setMasterGain(float gain, Logger& logger) {
+    // ===== VALIDATE GAIN RANGE =====
+    
     if (gain < 0.0f || gain > 1.0f) {
         const std::string errorMsg = "[Voice/setMasterGain] error: Invalid master gain " + 
                                    std::to_string(gain) + " (must be 0.0-1.0) for MIDI " + 
@@ -274,44 +396,73 @@ void Voice::setMasterGain(float gain, Logger& logger) {
         logSafe("Voice/setMasterGain", "error", errorMsg, logger);
         return;
     }
+    
     master_gain_ = gain;
+    
     logSafe("Voice/setMasterGain", "info", 
            "Master gain set to " + std::to_string(master_gain_) + 
            " for MIDI " + std::to_string(midiNote_), logger);
 }
 
 void Voice::setMasterGainRTSafe(float gain) noexcept {
+    // RT-safe version: silent validation without logging
     if (gain >= 0.0f && gain <= 1.0f) {
         master_gain_ = gain;
     }
 }
 
-// ===== DEBUG AND DIAGNOSTICS =====
+// =====================================================================
+// DEBUG AND DIAGNOSTICS
+// =====================================================================
 
 std::string Voice::getGainDebugInfo(Logger& logger) const {
-    std::string info = "MIDI " + std::to_string(midiNote_) + 
-                      " Gains - Envelope: " + std::to_string(envelope_gain_) +
-                      ", Velocity: " + std::to_string(velocity_gain_) +
-                      ", Master: " + std::to_string(master_gain_) +
-                      ", State: " + std::to_string(static_cast<int>(state_));
+    std::ostringstream oss;
     
+    oss << "MIDI " << static_cast<int>(midiNote_) 
+        << " | State: " << static_cast<int>(state_)
+        << " | Gains - Envelope: " << envelope_gain_
+        << ", Velocity: " << velocity_gain_
+        << ", Master: " << master_gain_
+        << ", Pan: " << pan_;
+    
+    if (dampingActive_) {
+        oss << " | Damping: Active (" << dampingPosition_ << "/" << dampingLength_ << ")";
+    }
+    
+    std::string info = oss.str();
     logSafe("Voice/getGainDebugInfo", "info", info, logger);
+    
     return info;
 }
 
-// ===== PRIVATE HELPER METHODS =====
+// =====================================================================
+// PRIVATE HELPER METHODS
+// =====================================================================
 
 void Voice::resetVoiceState() noexcept {
+    // ===== RESET MAIN VOICE STATE =====
+    
     state_ = VoiceState::Idle;
     position_ = 0;
     currentVelocityLayer_ = 0;
+    
+    // ===== RESET GAIN VALUES =====
+    
     master_gain_ = 1.0f;
     velocity_gain_ = 0.0f;
     envelope_gain_ = 0.0f;
     pan_ = 0.0f;
+    
+    // ===== RESET ENVELOPE STATE =====
+    
     envelope_attack_position_ = 0;
     envelope_release_position_ = 0;
     release_start_gain_ = 1.0f;
+    
+    // ===== RESET DAMPING STATE =====
+    
+    dampingPosition_ = 0;
+    dampingActive_ = false;
 }
 
 bool Voice::isVoiceReady() const noexcept {
@@ -319,8 +470,27 @@ bool Voice::isVoiceReady() const noexcept {
 }
 
 void Voice::startNote(uint8_t velocity) noexcept {
+    // =====================================================================
+    // RETRIGGER DETECTION AND DAMPING BUFFER CAPTURE
+    // =====================================================================
+    
+    // If voice is already playing (not idle), this is a retrigger
+    // Capture current audio state into damping buffer for click-free transition
+    if (state_ != VoiceState::Idle) {
+        captureDampingBuffer();
+    }
+    
+    // =====================================================================
+    // START NEW NOTE
+    // =====================================================================
+    
+    // Select velocity layer based on MIDI velocity (0-127 mapped to 0-7)
     currentVelocityLayer_ = std::min(static_cast<uint8_t>(velocity / 16), static_cast<uint8_t>(7));
+    
+    // Update velocity gain with logarithmic scaling
     updateVelocityGain(velocity);
+    
+    // Initialize attack phase
     state_ = VoiceState::Attacking;
     position_ = 0;
     envelope_gain_ = 0.0f;
@@ -328,61 +498,163 @@ void Voice::startNote(uint8_t velocity) noexcept {
 }
 
 void Voice::stopNote() noexcept {
+    // ===== INITIATE RELEASE PHASE =====
+    
+    // Only transition to release if currently attacking or sustaining
     if (state_ == VoiceState::Attacking || state_ == VoiceState::Sustaining) {
         DEBUG_PRINT("Voice state set to: Releasing");
+        
         state_ = VoiceState::Releasing;
         envelope_release_position_ = 0;
-        release_start_gain_ = envelope_gain_;
+        release_start_gain_ = envelope_gain_; // Capture current gain for scaled release
+        
         DEBUG_PRINT("Release start gain set to: " << release_start_gain_);
     }
 }
 
 void Voice::updateVelocityGain(uint8_t velocity) noexcept {
+    // ===== HANDLE ZERO VELOCITY =====
+    
     if (velocity == 0) {
         velocity_gain_ = 0.0f;
         return;
     }
     
-    // Logarithmic curve for more natural velocity response
-    float normalized = static_cast<float>(velocity) / 127.0f;
+    // ===== CALCULATE LOGARITHMIC VELOCITY CURVE =====
+    
+    // Logarithmic curve provides more natural velocity response
+    // than linear mapping, matching human perception
+    const float normalized = static_cast<float>(velocity) / 127.0f;
     velocity_gain_ = std::sqrt(normalized);
+    
+    // Clamp to valid range (should always be in range, but safety first)
     velocity_gain_ = std::max(0.0f, std::min(1.0f, velocity_gain_));
+}
+
+void Voice::captureDampingBuffer() noexcept {
+    // =====================================================================
+    // RETRIGGER DAMPING BUFFER CAPTURE
+    // =====================================================================
+    // This function captures the current playback state into a pre-computed
+    // buffer that will be mixed with the new note to eliminate clicks.
+    // The buffer contains final audio samples with linear fade-out applied.
+    // =====================================================================
+    
+    // ===== SAFETY CHECKS =====
+    
+    if (!instrument_ || dampingLength_ <= 0) {
+        dampingActive_ = false;
+        return;
+    }
+    
+    // ===== GET SOURCE BUFFER =====
+    
+    const float* stereoBuffer = instrument_->get_sample_begin_pointer(currentVelocityLayer_);
+    const int maxFrames = instrument_->get_frame_count(currentVelocityLayer_);
+    
+    if (!stereoBuffer || position_ >= maxFrames) {
+        dampingActive_ = false;
+        return;
+    }
+    
+    // ===== CALCULATE AVAILABLE SAMPLES =====
+    
+    const int samplesAvailable = maxFrames - position_;
+    const int samplesToCapture = std::min(dampingLength_, samplesAvailable);
+    
+    // ===== CALCULATE CURRENT GAIN PARAMETERS =====
+    
+    // Get pan gains using constant power panning
+    float pan_left_gain, pan_right_gain;
+    calculatePanGains(pan_, pan_left_gain, pan_right_gain);
+    
+    // Calculate base gain from all current voice parameters
+    const float baseGain = envelope_gain_ * velocity_gain_ * master_gain_;
+    
+    // ===== FILL DAMPING BUFFER WITH PRE-COMPUTED AUDIO =====
+    
+    const int startIndex = position_ * 2;  // Convert to stereo frame index
+    
+    for (int i = 0; i < samplesToCapture; ++i) {
+        // Linear damping gain: 1.0 at start -> 0.0 at end
+        const float dampingGain = 1.0f - (static_cast<float>(i) / static_cast<float>(dampingLength_));
+        
+        // Combine all gains: base * damping * pan
+        const float totalGain = baseGain * dampingGain;
+        
+        // Pre-compute final samples with all gain processing applied
+        // This eliminates the need for any gain calculations during playback
+        const int srcIndex = startIndex + (i * 2);
+        dampingBufferLeft_[i] = stereoBuffer[srcIndex] * totalGain * pan_left_gain;
+        dampingBufferRight_[i] = stereoBuffer[srcIndex + 1] * totalGain * pan_right_gain;
+    }
+    
+    // ===== FILL REMAINING BUFFER WITH SILENCE =====
+    
+    // If we hit end of sample before filling entire damping buffer, pad with silence
+    for (int i = samplesToCapture; i < dampingLength_; ++i) {
+        dampingBufferLeft_[i] = 0.0f;
+        dampingBufferRight_[i] = 0.0f;
+    }
+    
+    // ===== ACTIVATE DAMPING PLAYBACK =====
+    
+    dampingPosition_ = 0;
+    dampingActive_ = true;
 }
 
 bool Voice::processAttackPhase(float* gainBuffer, int numSamples) noexcept {
     DEBUG_PRINT("VoiceState::Attacking");
+    
+    // ===== GET ATTACK GAINS FROM ENVELOPE =====
+    
     bool attackContinues = envelope_->getAttackGains(gainBuffer, numSamples, 
                                                    envelope_attack_position_, sampleRate_);
     
     envelope_attack_position_ += numSamples;
     
-    // Check if attack phase is complete
+    // ===== CHECK IF ATTACK PHASE IS COMPLETE =====
+    
     if (!attackContinues || gainBuffer[numSamples - 1] >= ENVELOPE_TRIGGERS_END_ATTACK) {
+        // Transition to sustain phase
         state_ = VoiceState::Sustaining;
-        // Fill block with sustain values
-        const float sustainLevel = envelope_gain_;
+        
+        // Get sustain level for transition
+        const float sustainLevel = envelope_->getSustainLevel();
+        
+        // Fill remainder of block with sustain values
         for (int i = 0; i < numSamples; ++i) {
             if (gainBuffer[i] >= ENVELOPE_TRIGGERS_END_ATTACK) {
                 gainBuffer[i] = sustainLevel;
             }
         }
+        
+        envelope_gain_ = sustainLevel;
         release_start_gain_ = sustainLevel;
     } else {
+        // Attack continues - update current envelope gain
         envelope_gain_ = gainBuffer[numSamples - 1];
         release_start_gain_ = envelope_gain_;
     }
+    
     DEBUG_PRINT("Release start gain set to: " << release_start_gain_);
     return true;
 }
 
 bool Voice::processSustainPhase(float* gainBuffer, int numSamples) noexcept {
     DEBUG_PRINT("VoiceState::Sustaining");
+    
+    // ===== FILL BUFFER WITH CONSTANT SUSTAIN LEVEL =====
+    
     const float sustainLevel = envelope_->getSustainLevel();
+    
     for (int i = 0; i < numSamples; ++i) {
         gainBuffer[i] = sustainLevel;
     }
+    
     envelope_gain_ = sustainLevel;
-    release_start_gain_ = envelope_gain_;
+    release_start_gain_ = sustainLevel;
+    
     DEBUG_PRINT("Release start gain set to: " << release_start_gain_);
     return true;
 }
@@ -391,10 +663,15 @@ bool Voice::processReleasePhase(float* gainBuffer, int numSamples) noexcept {
     DEBUG_PRINT("VoiceState::Releasing");
     DEBUG_PRINT("Release start gain: " << release_start_gain_);
     
+    // ===== GET RELEASE GAINS FROM ENVELOPE =====
+    
     bool releaseContinues = envelope_->getReleaseGains(gainBuffer, numSamples, 
                                                      envelope_release_position_, sampleRate_);
 
-    // Scale release gain according to last value
+    // ===== SCALE RELEASE GAINS TO MATCH START LEVEL =====
+    
+    // Release curve is 1.0 -> 0.0, but we need to scale it to
+    // match the level at which release started (could be mid-attack)
     for (int i = 0; i < numSamples; ++i) {
         gainBuffer[i] *= release_start_gain_;
     }
@@ -402,59 +679,85 @@ bool Voice::processReleasePhase(float* gainBuffer, int numSamples) noexcept {
     envelope_release_position_ += numSamples;
     envelope_gain_ = gainBuffer[numSamples - 1];
     
-    // Transition to idle when release ends
+    // ===== CHECK IF RELEASE PHASE IS COMPLETE =====
+    
     if (!releaseContinues || envelope_gain_ <= ENVELOPE_TRIGGERS_END_RELEASE) {
+        // Transition to idle - voice is finished
         state_ = VoiceState::Idle;
         envelope_gain_ = 0.0f;
         return false;
     }
+    
     return true;
 }
 
 void Voice::processAudioWithGains(float* outputLeft, float* outputRight, 
                                  const float* stereoBuffer, int samplesToProcess) noexcept {
+    // ===== CALCULATE SOURCE POINTER =====
+    
     const int startIndex = position_ * 2; // Convert position to stereo frame index
     const float* srcPtr = stereoBuffer + startIndex;
     
-    // Calculate pan gains using constant power panning
+    // ===== CALCULATE PAN GAINS =====
+    
     float pan_left_gain, pan_right_gain;
     calculatePanGains(pan_, pan_left_gain, pan_right_gain);
 
-    // Apply gain chain: sample * envelope * velocity * pan * master
+    // ===== APPLY COMPLETE GAIN CHAIN AND MIX TO OUTPUT =====
+    
+    // Gain chain: sample * envelope * velocity * pan * master
+    // Output is additive mixing (+=) to allow multiple voices
     for (int i = 0; i < samplesToProcess; ++i) {
         const int srcIndex = i * 2;
         
-        outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i] * pan_left_gain * master_gain_;
+        // Left channel: apply full gain chain
+        outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i] * velocity_gain_ * pan_left_gain * master_gain_;
         
 #if DEBUG_ENVELOPE_TO_RIGHT_CHANNEL
-        outputRight[i] += gainBuffer_[i]; // Debug: envelope to right channel
+        // Debug mode: output envelope shape to right channel
+        outputRight[i] += gainBuffer_[i];
 #else
-        outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i] * pan_right_gain * master_gain_;
+        // Normal mode: right channel with full gain chain
+        outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i] * velocity_gain_ * pan_right_gain * master_gain_;
 #endif
     }
 }
 
 void Voice::calculatePanGains(float pan, float& leftGain, float& rightGain) noexcept {
-    // Constant power panning implementation
+    // =====================================================================
+    // CONSTANT POWER PANNING
+    // =====================================================================
+    // Uses sinusoidal curves to maintain constant perceived loudness
+    // across the stereo field. Total power (L² + R²) remains constant.
     // Temporary implementation - will be moved to pan_utils.h
-    float clamped_pan = std::max(-1.0f, std::min(1.0f, pan));
+    // =====================================================================
     
-    // Convert to angle (0 to π/2)
-    float normalized = (clamped_pan + 1.0f) * 0.5f;  // -1..1 → 0..1
-    float angle = normalized * (M_PI / 2.0f);        // 0..1 → 0..π/2
+    // ===== CLAMP PAN VALUE =====
     
-    // Constant power panning
+    const float clamped_pan = std::max(-1.0f, std::min(1.0f, pan));
+    
+    // ===== CONVERT TO ANGLE =====
+    
+    // Map pan range -1..1 to angle 0..π/2
+    const float normalized = (clamped_pan + 1.0f) * 0.5f;  // -1..1 → 0..1
+    const float angle = normalized * (M_PI / 2.0f);         // 0..1 → 0..π/2
+    
+    // ===== CALCULATE CONSTANT POWER GAINS =====
+    
     leftGain = std::cos(angle);   // 1.0 at left, 0.707 at center, 0.0 at right
     rightGain = std::sin(angle);  // 0.0 at left, 0.707 at center, 1.0 at right
 }
 
 void Voice::logSafe(const std::string& component, const std::string& severity, 
                    const std::string& message, Logger& logger) const {
+    // ===== CHOOSE LOGGING METHOD BASED ON RT MODE =====
+    
     if (!rtMode_.load()) {
-        // Non-RT context: use proper logger
+        // Non-RT context: use proper logger with full functionality
         logger.log(component, severity, message);
     } else {
-        // RT context or development: always log to stdout for visibility
+        // RT context: use lightweight stdout logging for visibility
+        // Avoids potential allocations and locks in logger
         std::cout << "[" << component << "] " << severity << ": " << message << std::endl;
     }
 }

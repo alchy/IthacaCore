@@ -10,6 +10,11 @@
 #include "core_logger.h"
 #include "envelopes/envelope.h"
 
+// ===== DAMPING RELEASE CONFIGURATION =====
+// Duration of damping release envelope for retrigger click elimination
+#ifndef DAMPING_RELEASE_MS
+#define DAMPING_RELEASE_MS 3.0f  // Milliseconds
+#endif
 
 // Simulation of JUCE AudioBuffer for stereo output (without JUCE dependency)
 struct AudioData {
@@ -39,7 +44,20 @@ enum class VoiceState {
  * - ADSR envelope with separate attack/sustain/release phases
  * - Velocity layers and gain control
  * - Constant power panning
+ * - Retrigger damping for click-free note retriggering
  * - Comprehensive error handling and logging
+ * 
+ * Retrigger Damping:
+ * When a note is retriggered while already playing, a damping buffer captures
+ * the current audio state and plays it out with a short linear fade to prevent
+ * clicks. The new note starts immediately while the damping buffer finishes.
+ * 
+ * Implementation Details:
+ * - Damping buffer is pre-computed during retrigger detection in startNote()
+ * - Contains final audio samples with all gain parameters already applied
+ * - Linear fade-out from 1.0 to 0.0 over DAMPING_RELEASE_MS duration
+ * - Requires no runtime gain calculations, only direct mixing
+ * - Duration configurable via DAMPING_RELEASE_MS macro
  * 
  * Thread Safety:
  * - processBlock() and related RT methods are fully RT-safe
@@ -51,7 +69,11 @@ public:
     // ===== CONSTRUCTORS =====
     
     /**
-     * @brief Default constructor with pre-allocated 64KB gain buffer
+     * @brief Default constructor with pre-allocated buffers
+     * 
+     * Pre-allocates:
+     * - 64KB gain buffer for envelope processing
+     * - ~1024 samples for damping buffers (sized properly in initialize())
      */
     Voice();
 
@@ -65,6 +87,12 @@ public:
 
     /**
      * @brief Initialize voice with instrument and envelope configuration
+     * 
+     * Calculates damping buffer length based on sample rate and allocates
+     * all necessary buffers for RT-safe operation.
+     * 
+     * Damping buffer size = (DAMPING_RELEASE_MS / 1000.0f) * sampleRate
+     * 
      * @param instrument Reference to Instrument data
      * @param sampleRate Sample rate in Hz (44100 or 48000)
      * @param envelope Reference to Envelope processor
@@ -87,12 +115,19 @@ public:
 
     /**
      * @brief Clean up and reset voice to idle state
+     * 
+     * Resets all state including damping buffer to inactive.
+     * 
      * @param logger Reference to Logger
      */
     void cleanup(Logger& logger);
 
     /**
      * @brief Reinitialize voice with new configuration
+     * 
+     * Recalculates damping buffer length if sample rate changed.
+     * Reallocates buffers as necessary.
+     * 
      * @param instrument New Instrument data
      * @param sampleRate New sample rate
      * @param envelope New Envelope processor
@@ -108,6 +143,18 @@ public:
 
     /**
      * @brief Set note state with velocity control
+     * 
+     * Automatically detects and handles retriggers:
+     * - If voice is idle: starts note normally
+     * - If voice is active (attacking/sustaining/releasing): captures damping
+     *   buffer from current position, then starts new note
+     * 
+     * Retrigger Process:
+     * 1. Detect state != Idle in startNote()
+     * 2. Capture current audio + apply linear fade-out to damping buffer
+     * 3. Reset voice state and start new note from beginning
+     * 4. During processBlock(), mix damping buffer with new note
+     * 
      * @param isOn true for note-on, false for note-off
      * @param velocity MIDI velocity (0-127) affecting volume
      * @note RT-safe: no allocations, only state changes
@@ -160,14 +207,24 @@ public:
     bool calculateBlockGains(float* gainBuffer, int numSamples) noexcept;
 
     /**
-     * @brief Process audio block with complete gain chain
+     * @brief Process audio block with complete gain chain and damping
      * 
-     * Main RT processing method applying:
-     * - Envelope gains (calculated via calculateBlockGains)
-     * - Velocity scaling
-     * - Constant power panning
-     * - Master gain
-     * - Mixdown to shared output buffers (additive)
+     * Main RT processing method with two-phase processing:
+     * 
+     * PHASE 1 - Damping Buffer (if retrigger active):
+     * - Mix pre-computed damping samples directly to output
+     * - No gain calculations needed (already in buffer)
+     * - Runs concurrently with Phase 2
+     * 
+     * PHASE 2 - Main Voice:
+     * - Calculate envelope gains via calculateBlockGains()
+     * - Apply velocity scaling
+     * - Apply constant power panning
+     * - Apply master gain
+     * - Mix to output buffers (additive)
+     * 
+     * This two-phase approach ensures smooth, click-free retriggering while
+     * maintaining full control over both the damping tail and new note.
      * 
      * @param outputLeft Left channel output buffer (additive mixing)
      * @param outputRight Right channel output buffer (additive mixing)
@@ -212,6 +269,11 @@ public:
     float getCurrentEnvelopeGain() const noexcept { return envelope_gain_; }
     float getVelocityGain() const noexcept { return velocity_gain_; }
     float getMasterGain() const noexcept { return master_gain_; }
+    
+    // Damping state getters
+    bool isDampingActive() const noexcept { return dampingActive_; }
+    int getDampingPosition() const noexcept { return dampingPosition_; }
+    int getDampingLength() const noexcept { return dampingLength_; }
 
     // ===== RT MODE CONTROL =====
 
@@ -231,6 +293,9 @@ public:
 
     /**
      * @brief Get detailed gain information for debugging
+     * 
+     * Includes damping buffer status if active.
+     * 
      * @param logger Reference to Logger
      * @return Formatted string with gain details
      */
@@ -239,38 +304,47 @@ public:
 private:
     // ===== MEMBER VARIABLES =====
     
-    // Core identification and configuration
+    // --- Core identification and configuration ---
     uint8_t             midiNote_;                  // MIDI note number (0-127)
     const Instrument*   instrument_;                // Pointer to instrument data (non-owning)
     int                 sampleRate_;                // Sample rate for envelope calculations
     Envelope*           envelope_;                  // Pointer to envelope processor (non-owning)
     
-    // Voice state and position
+    // --- Voice state and position ---
     VoiceState          state_;                     // Current voice state
     int                 position_;                  // Current position in sample frames
     uint8_t             currentVelocityLayer_;      // Current velocity layer (0-7)
     
-    // Gain controls
+    // --- Gain controls ---
     float               master_gain_;               // Master volume control
     float               velocity_gain_;             // MIDI velocity gain (0.0-1.0)
     float               envelope_gain_;             // Current envelope gain (0.0-1.0)
     float               pan_;                       // Pan position (-1.0 to +1.0)
     
-    // Envelope state tracking
+    // --- Envelope state tracking ---
     int                 envelope_attack_position_;  // Current position in attack phase
     int                 envelope_release_position_; // Current position in release phase
     float               release_start_gain_;        // Gain value when release started
     
-    // Pre-allocated RT buffer (64KB reserve)
-    mutable std::vector<float> gainBuffer_;
+    // --- Pre-allocated RT buffers ---
+    mutable std::vector<float> gainBuffer_;         // Envelope gain buffer (64KB reserve)
     
-    // Shared RT mode flag
+    // --- Damping release buffers (retrigger click elimination) ---
+    std::vector<float>  dampingBufferLeft_;         // Pre-computed damping samples (left channel)
+    std::vector<float>  dampingBufferRight_;        // Pre-computed damping samples (right channel)
+    int                 dampingLength_;             // Total damping buffer length in samples
+    int                 dampingPosition_;           // Current playback position in damping buffer
+    bool                dampingActive_;             // Flag indicating damping playback is active
+    
+    // --- Shared RT mode flag ---
     static std::atomic<bool> rtMode_;
 
     // ===== PRIVATE HELPER METHODS =====
     
     /**
      * @brief Reset all voice state variables to defaults
+     * 
+     * Includes resetting damping state to inactive.
      */
     void resetVoiceState() noexcept;
     
@@ -282,6 +356,14 @@ private:
     
     /**
      * @brief Start note with specified velocity
+     * 
+     * Automatically detects retrigger (state != Idle) and captures damping
+     * buffer before starting new note. This provides click-free retriggering.
+     * 
+     * Retrigger Detection:
+     * - If state == Idle: normal note start
+     * - If state != Idle: call captureDampingBuffer() then start note
+     * 
      * @param velocity MIDI velocity (0-127)
      */
     void startNote(uint8_t velocity) noexcept;
@@ -297,6 +379,32 @@ private:
      * @note Uses logarithmic scaling for natural response
      */
     void updateVelocityGain(uint8_t velocity) noexcept;
+    
+    /**
+     * @brief Capture current audio into damping buffer for retrigger
+     * 
+     * Called automatically when retrigger is detected in startNote().
+     * 
+     * Process:
+     * 1. Get current playback position and sample data
+     * 2. Calculate current gain state (envelope * velocity * master * pan)
+     * 3. For each sample in damping buffer:
+     *    - Apply linear fade: gain = baseGain * (1.0 - i/length)
+     *    - Pre-compute final audio: sample * totalGain
+     * 4. Store in dampingBufferLeft/Right
+     * 5. Set dampingActive = true, dampingPosition = 0
+     * 
+     * The resulting buffer contains final audio ready for direct mixing,
+     * requiring no further gain calculations during playback.
+     * 
+     * Buffer contents:
+     * - Sample 0: Full gain (baseGain * 1.0)
+     * - Sample N/2: Half gain (baseGain * 0.5)
+     * - Sample N: Zero gain (baseGain * 0.0)
+     * 
+     * @note RT-safe: only reads from pre-allocated buffers
+     */
+    void captureDampingBuffer() noexcept;
     
     /**
      * @brief Process attack phase of envelope
@@ -334,6 +442,10 @@ private:
     
     /**
      * @brief Calculate constant power panning gains
+     * 
+     * Uses sinusoidal curves to maintain constant perceived loudness.
+     * Total power (L² + R²) remains constant across the stereo field.
+     * 
      * @param pan Pan position (-1.0 to +1.0)
      * @param leftGain Output left channel gain
      * @param rightGain Output right channel gain
