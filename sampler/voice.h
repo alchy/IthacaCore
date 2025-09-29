@@ -270,7 +270,7 @@ public:
     float getVelocityGain() const noexcept { return velocity_gain_; }
     float getMasterGain() const noexcept { return master_gain_; }
     
-    // Damping state getters
+    // Damping state getters (for diagnostics)
     bool isDampingActive() const noexcept { return dampingActive_; }
     int getDampingPosition() const noexcept { return dampingPosition_; }
     int getDampingLength() const noexcept { return dampingLength_; }

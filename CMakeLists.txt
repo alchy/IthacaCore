@@ -46,6 +46,7 @@ add_executable(IthacaCore
 
     # Voice module
     sampler/voice.cpp
+    sampler/voice_processing.cpp
     sampler/voice.h
     
     # VoiceManager module
