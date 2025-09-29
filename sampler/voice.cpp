@@ -45,7 +45,10 @@ Voice::Voice()
       release_start_gain_(1.0f),
       dampingLength_(0),
       dampingPosition_(0),
-      dampingActive_(false) {
+      dampingActive_(false),
+      stereoFieldGainLeft_(1.0f),
+      stereoFieldGainRight_(1.0f),
+      stereoFieldAmount_(0) {
     
     // Pre-allocate gain buffer with large reserve (64KB for maximum buffer size)
     gainBuffer_.reserve(16384);
@@ -73,7 +76,10 @@ Voice::Voice(uint8_t midiNote)
       release_start_gain_(1.0f),
       dampingLength_(0),
       dampingPosition_(0),
-      dampingActive_(false) {
+      dampingActive_(false),
+      stereoFieldGainLeft_(1.0f),
+      stereoFieldGainRight_(1.0f),
+      stereoFieldAmount_(0) {
     
     // Pre-allocate gain buffer with large reserve (64KB for maximum buffer size)
     gainBuffer_.reserve(16384);
@@ -293,6 +299,14 @@ void Voice::setPan(float pan) noexcept {
     pan_ = pan;
 }
 
+void Voice::setStereoFieldAmountMIDI(uint8_t midiValue) noexcept {
+    stereoFieldAmount_ = midiValue;
+    
+    // Immediately calculate and cache stereo field gains
+    // This is done here (not in startNote) for RT efficiency
+    calculateStereoFieldGains();
+}
+
 void Voice::setMasterGain(float gain, Logger& logger) {
     // ===== VALIDATE GAIN RANGE =====
     
@@ -418,6 +432,77 @@ void Voice::updateVelocityGain(uint8_t velocity) noexcept {
     
     // Clamp to valid range (should always be in range, but safety first)
     velocity_gain_ = std::max(0.0f, std::min(1.0f, velocity_gain_));
+}
+
+void Voice::calculateStereoFieldGains() noexcept {
+    // =====================================================================
+    // STEREO FIELD GAIN CALCULATION
+    // =====================================================================
+    // Simulates physical piano string position in stereo image
+    // Lower notes (bass) are positioned more to the left
+    // Higher notes (treble) are positioned more to the right
+    // Middle C remains centered
+    // =====================================================================
+    
+    // ===== HANDLE DISABLED STATE =====
+    
+    if (stereoFieldAmount_ == 0) {
+        // Stereo field disabled - neutral position
+        stereoFieldGainLeft_ = 1.0f;
+        stereoFieldGainRight_ = 1.0f;
+        return;
+    }
+    
+    // ===== HANDLE MIDDLE C (NO OFFSET) =====
+    
+    if (midiNote_ == MIDI_MIDDLE_C) {
+        // Middle C stays centered regardless of stereo field amount
+        stereoFieldGainLeft_ = 1.0f;
+        stereoFieldGainRight_ = 1.0f;
+        return;
+    }
+    
+    // ===== CALCULATE DISTANCE FROM MIDDLE C =====
+    
+    const int distanceFromCenter = static_cast<int>(midiNote_) - MIDI_MIDDLE_C;
+    
+    // Normalize distance to -1.0 (lowest note) to +1.0 (highest note)
+    float normalizedDistance;
+    if (distanceFromCenter < 0) {
+        // Lower notes: MIDI 21-59 (39 semitones below Middle C)
+        normalizedDistance = static_cast<float>(distanceFromCenter) / 39.0f;
+    } else {
+        // Higher notes: MIDI 61-108 (48 semitones above Middle C)
+        normalizedDistance = static_cast<float>(distanceFromCenter) / 48.0f;
+    }
+    
+    // ===== APPLY STEREO FIELD INTENSITY =====
+    
+    // Scale by MIDI amount (0-127)
+    const float fieldIntensity = stereoFieldAmount_ / 127.0f;
+    
+    // Calculate final stereo offset: -0.2 to +0.2 (±20% at maximum intensity)
+    const float stereoOffset = normalizedDistance * fieldIntensity * STEREO_FIELD_MAX_OFFSET;
+    
+    // ===== CALCULATE CHANNEL GAINS (BALANCE MODE) =====
+    
+    // Balance mode: one channel boosted, other reduced
+    // Maintains total perceived loudness while creating stereo width
+    if (stereoOffset < 0.0f) {
+        // Lower notes: boost left, reduce right
+        stereoFieldGainLeft_ = 1.0f + std::abs(stereoOffset);  // up to 1.2
+        stereoFieldGainRight_ = 1.0f - std::abs(stereoOffset); // down to 0.8
+    } else {
+        // Higher notes: boost right, reduce left
+        stereoFieldGainLeft_ = 1.0f - stereoOffset;  // down to 0.8
+        stereoFieldGainRight_ = 1.0f + stereoOffset; // up to 1.2
+    }
+    
+    // ===== SAFETY CLAMP =====
+    
+    // Ensure gains stay within expected range
+    stereoFieldGainLeft_ = std::max(0.8f, std::min(1.2f, stereoFieldGainLeft_));
+    stereoFieldGainRight_ = std::max(0.8f, std::min(1.2f, stereoFieldGainRight_));
 }
 
 void Voice::logSafe(const std::string& component, const std::string& severity, 

@@ -268,20 +268,23 @@ void Voice::processAudioWithGains(float* outputLeft, float* outputRight,
 
     // ===== APPLY COMPLETE GAIN CHAIN AND MIX TO OUTPUT =====
     
-    // Gain chain: sample * envelope * velocity * pan * master
+    // Full gain chain: sample * envelope * velocity * pan * master * stereoField
+    // Stereo field gains are pre-calculated and cached for RT efficiency
     // Output is additive mixing (+=) to allow multiple voices
     for (int i = 0; i < samplesToProcess; ++i) {
         const int srcIndex = i * 2;
         
-        // Left channel: apply full gain chain
-        outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i] * velocity_gain_ * pan_left_gain * master_gain_;
+        // Left channel: apply full gain chain including stereo field
+        outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i] * velocity_gain_ * 
+                         pan_left_gain * master_gain_ * stereoFieldGainLeft_;
         
 #if DEBUG_ENVELOPE_TO_RIGHT_CHANNEL
         // Debug mode: output envelope shape to right channel
         outputRight[i] += gainBuffer_[i];
 #else
-        // Normal mode: right channel with full gain chain
-        outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i] * velocity_gain_ * pan_right_gain * master_gain_;
+        // Normal mode: right channel with full gain chain including stereo field
+        outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i] * velocity_gain_ * 
+                          pan_right_gain * master_gain_ * stereoFieldGainRight_;
 #endif
     }
 }

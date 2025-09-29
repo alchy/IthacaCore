@@ -34,6 +34,24 @@
 #define VELOCITY_LAYER_CENTER_OFFSET 7.5f  // Exact center offset within 16-value layer
 #endif
 
+// ===== STEREO FIELD CONFIGURATION =====
+// Simulates physical string position on piano in stereo image
+#ifndef STEREO_FIELD_MAX_OFFSET
+#define STEREO_FIELD_MAX_OFFSET 0.20f  // ±20% gain offset for extreme notes
+#endif
+
+#ifndef MIDI_MIDDLE_C
+#define MIDI_MIDDLE_C 60
+#endif
+
+#ifndef MIDI_LOWEST_NOTE
+#define MIDI_LOWEST_NOTE 21  // A0
+#endif
+
+#ifndef MIDI_HIGHEST_NOTE
+#define MIDI_HIGHEST_NOTE 108  // C8
+#endif
+
 // Simulation of JUCE AudioBuffer for stereo output (without JUCE dependency)
 struct AudioData {
     float left;
@@ -260,6 +278,18 @@ public:
      * @note RT-safe
      */
     void setPan(float pan) noexcept;
+    
+    /**
+     * @brief Set stereo field amount for spatial positioning
+     * 
+     * Simulates physical piano string position in stereo image.
+     * Higher notes pan more right, lower notes pan more left, relative to Middle C (MIDI 60).
+     * Stereo field gains are calculated immediately and cached for RT performance.
+     * 
+     * @param midiValue MIDI value 0-127 (0 = disabled/mono, 127 = maximum stereo width ±20%)
+     * @note RT-safe, pre-calculates gains
+     */
+    void setStereoFieldAmountMIDI(uint8_t midiValue) noexcept;
 
     /**
      * @brief Set master gain with validation and logging
@@ -287,6 +317,11 @@ public:
     float getCurrentEnvelopeGain() const noexcept { return envelope_gain_; }
     float getVelocityGain() const noexcept { return velocity_gain_; }
     float getMasterGain() const noexcept { return master_gain_; }
+    
+    // Stereo field getters
+    uint8_t getStereoFieldAmountMIDI() const noexcept { return stereoFieldAmount_; }
+    float getStereoFieldGainLeft() const noexcept { return stereoFieldGainLeft_; }
+    float getStereoFieldGainRight() const noexcept { return stereoFieldGainRight_; }
     
     // Damping state getters (for diagnostics)
     bool isDampingActive() const noexcept { return dampingActive_; }
@@ -338,6 +373,11 @@ private:
     float               velocity_gain_;             // MIDI velocity gain (0.0-1.0)
     float               envelope_gain_;             // Current envelope gain (0.0-1.0)
     float               pan_;                       // Pan position (-1.0 to +1.0)
+    
+    // --- Stereo field simulation ---
+    float               stereoFieldGainLeft_;       // Left channel stereo field modifier (0.8-1.2)
+    float               stereoFieldGainRight_;      // Right channel stereo field modifier (0.8-1.2)
+    uint8_t             stereoFieldAmount_;         // MIDI 0-127, intensity of stereo effect
     
     // --- Envelope state tracking ---
     int                 envelope_attack_position_;  // Current position in attack phase
@@ -397,6 +437,22 @@ private:
      * @note Uses logarithmic scaling for natural response
      */
     void updateVelocityGain(uint8_t velocity) noexcept;
+    
+    /**
+     * @brief Calculate stereo field gain modifiers based on note position
+     * 
+     * Called when stereo field amount changes via setStereoFieldAmountMIDI().
+     * Calculates and caches stereo field gains based on MIDI note distance from Middle C.
+     * Updates stereoFieldGainLeft_ and stereoFieldGainRight_.
+     * 
+     * Distance calculation:
+     * - Notes below Middle C (21-59): progressively boost left, reduce right
+     * - Middle C (60): no stereo offset (1.0, 1.0)
+     * - Notes above Middle C (61-108): progressively boost right, reduce left
+     * 
+     * @note Private method, called automatically by setStereoFieldAmountMIDI()
+     */
+    void calculateStereoFieldGains() noexcept;
     
     /**
      * @brief Capture current audio into damping buffer for retrigger
