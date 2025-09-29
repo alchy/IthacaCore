@@ -368,6 +368,14 @@ void VoiceManager::setAllVoicesSustainLevelMIDI(uint8_t midi_sustain) noexcept {
     }
 }
 
+void VoiceManager::setAllVoicesStereoFieldAmountMIDI(uint8_t midi_stereo_field) noexcept {
+    if (midi_stereo_field > 127) return;
+    
+    for (int i = 0; i < 128; ++i) {
+        voices_[i].setStereoFieldAmountMIDI(midi_stereo_field);
+    }
+}
+
 // ===== LFO PANNING CONTROL =====
 
 void VoiceManager::setAllVoicesPanSpeedMIDI(uint8_t midi_speed) noexcept {
@@ -483,8 +491,12 @@ void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
 
     // Set default pan parameters for all voices
     setAllVoicesPanMIDI(64);                // Center pan (MIDI 64 = center)
-    setAllVoicesPanSpeedMIDI(32);            // LFO panning disabled initially
-    setAllVoicesPanDepthMIDI(127);            // No LFO depth initially
+    setAllVoicesPanSpeedMIDI(32);           // LFO panning disabled initially
+    setAllVoicesPanDepthMIDI(127);          // No LFO depth initially
+
+    // Set default stereo field
+    setAllVoicesStereoFieldAmountMIDI(0);   // Disabled initially (mono/natural stereo)
+    
     
     logSafe("VoiceManager/initializeVoicesWithInstruments", "info", 
             "All voices initialized with instruments and shared envelope system successfully", logger);

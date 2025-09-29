@@ -254,6 +254,15 @@ public:
      */
     bool isLfoPanningActive() const noexcept { return panSpeed_ > 0.0f && panDepth_ > 0.0f; }
 
+    /**
+     * @brief Set stereo field amount for all voices via MIDI value
+     * @param midi_stereo_field Stereo field as MIDI value (0-127)
+     *                          0 = disabled/mono (no stereo widening)
+     *                          127 = maximum stereo width (±20% for extreme notes)
+     * @note RT-safe: pre-calculates gains for each voice based on MIDI note position
+     */
+    void setAllVoicesStereoFieldAmountMIDI(uint8_t midi_stereo_field) noexcept;
+
     // ===== VOICE ACCESS AND STATISTICS =====
 
     /**
