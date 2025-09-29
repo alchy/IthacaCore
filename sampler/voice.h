@@ -292,18 +292,12 @@ public:
     void setStereoFieldAmountMIDI(uint8_t midiValue) noexcept;
 
     /**
-     * @brief Set master gain with validation and logging
+     * @brief Set master gain with validation
      * @param gain Master gain (0.0-1.0)
      * @param logger Reference to Logger
      */
-    void setMasterGain(float gain, Logger& logger);
+    void setMasterGain(float gain) noexcept;;
 
-    /**
-     * @brief Set master gain without logging (RT-safe version)
-     * @param gain Master gain (0.0-1.0)
-     * @note RT-safe: no logging, silent validation
-     */
-    void setMasterGainRTSafe(float gain) noexcept;
 
     // ===== GETTERS =====
 

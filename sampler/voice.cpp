@@ -307,25 +307,7 @@ void Voice::setStereoFieldAmountMIDI(uint8_t midiValue) noexcept {
     calculateStereoFieldGains();
 }
 
-void Voice::setMasterGain(float gain, Logger& logger) {
-    // ===== VALIDATE GAIN RANGE =====
-    
-    if (gain < 0.0f || gain > 1.0f) {
-        const std::string errorMsg = "[Voice/setMasterGain] error: Invalid master gain " + 
-                                   std::to_string(gain) + " (must be 0.0-1.0) for MIDI " + 
-                                   std::to_string(midiNote_);
-        logSafe("Voice/setMasterGain", "error", errorMsg, logger);
-        return;
-    }
-    
-    master_gain_ = gain;
-    
-    logSafe("Voice/setMasterGain", "info", 
-           "Master gain set to " + std::to_string(master_gain_) + 
-           " for MIDI " + std::to_string(midiNote_), logger);
-}
-
-void Voice::setMasterGainRTSafe(float gain) noexcept {
+void Voice::setMasterGain(float gain) noexcept {
     // RT-safe version: silent validation without logging
     if (gain >= 0.0f && gain <= 1.0f) {
         master_gain_ = gain;

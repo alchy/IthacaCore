@@ -324,7 +324,7 @@ void VoiceManager::setAllVoicesMasterGainMIDI(uint8_t midi_gain, Logger& logger)
     float gain = midi_gain / 127.0f;
 
     for (int i = 0; i < 128; ++i) {
-        voices_[i].setMasterGain(gain, logger);
+        voices_[i].setMasterGain(gain);
     }
     
     logSafe("VoiceManager/setAllVoicesMasterGain", "info", 
