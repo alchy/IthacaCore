@@ -1,7 +1,7 @@
 # IthacaCore: C++ Audio Sampler Engine
 
 ## Popis projektu
-IthacaCore je profesionální audio sampler engine napsaný v C++17, navržený pro efektivní zpracování WAV souborů a polyfonní přehrávání s ADSR obálkou. Projekt je modulární, podporuje thread-safe logování, načítání WAV souborů do paměti jako stereo float buffery a koordinaci polyfonního přehrávání. Klíčové moduly zahrnují `Logger`, `SamplerIO`, `InstrumentLoader`, `Voice`, `VoiceManager`, `Envelope` a `WavExporter`. Systém je optimalizován pro integraci do audio pluginů nebo standalone aplikací, s důrazem na RT-safe operace a JUCE-ready formát.
+IthacaCore je audio sampler engine napsaný v C++17, navržený pro přehrávání WAV souborů - polyfonní - s ADSR obálkou. Projekt je modulární, podporuje thread-safe logování, načítání WAV souborů do paměti jako stereo float buffery a koordinaci polyfonního přehrávání. Klíčové moduly zahrnují `Logger`, `SamplerIO`, `InstrumentLoader`, `Voice`, `VoiceManager`, `Envelope` a `WavExporter`. Systém je optimalizován pro integraci do audio pluginů nebo standalone aplikací, s důrazem na RT-safe operace a JUCE-ready formát.
 
 **Klíčové vlastnosti:**
 - Thread-safe logování do souboru (`core_logger/core_logger.log`).
@@ -40,6 +40,49 @@ IthacaCore je profesionální audio sampler engine napsaný v C++17, navržený 
 - **Čištění**: Smažte složky `build` a `core_logger` pro reset, nebo použijte `cmake --build . --target clean-all`.
 
 **Poznámka**: Upravte cestu k `vcvars64.bat` v `tasks.json`, pokud používáte Visual Studio Community: `C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat`. Pro PowerShell povolte skripty: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`.
+
+---
+### Inicializace IthacaCore
+
+Diagram ukazuje postupnou inicializaci IthacaCore od spuštění programu (main) přes načtení samplů až po testování hlasů. 
+
+```mermaid
+sequenceDiagram
+    participant Main as main.cpp
+    participant Sampler as sampler.h/cpp (runSampler)
+    participant Logger as core_logger.h/cpp
+    participant SamplerIO as sampler_io.h/cpp
+    participant Loader as instrument_loader.h/cpp
+    participant EnvelopeData as envelope_static_data.h/cpp
+    participant VoiceMgr as voice_manager.h/cpp
+    participant Voice as voice.h/cpp
+    participant Exporter as wav_exporter.h/cpp
+
+    Main->>Sampler: Spuštění runSampler(logger)
+    Sampler->>Logger: Inicializace Logger (./core_logger/)
+    Sampler->>SamplerIO: Inicializace SamplerIO
+    SamplerIO->>SamplerIO: scanSampleDirectory(directoryPath, logger) [prohledání WAV souborů]
+    Sampler->>Loader: Inicializace InstrumentLoader(samplerIO, sampleRate, logger)
+    Loader->>Loader: loadInstrument() [načtení samplů do stereo bufferů, validace]
+    Sampler->>EnvelopeData: EnvelopeStaticData::initialize(logger) [předpočítané attack/release křivky pro 44100/48000 Hz]
+    Sampler->>VoiceMgr: Inicializace VoiceManager(maxVoices=128, logger)
+    VoiceMgr->>VoiceMgr: initializeAll(loader, sampleRate) [inicializace hlasů s instrumenty]
+    VoiceMgr->>Voice: Per-voice: Voice::initialize(instrument, sampleRate, envelope) [nastavení stavů Idle]
+    Sampler->>Voice: Test: Voice::setNoteState(true, velocity) [note-on, přechod na Attacking]
+    Sampler->>Voice: Test: Voice::processBlock(buffer, numSamples) [aplikace envelope gains]
+    Sampler->>Voice: Test: Voice::setNoteState(false, 0) [note-off, přechod na Releasing]
+    Sampler->>Exporter: Inicializace WavExporter(outputDir, logger)
+    Exporter->>Exporter: wavFileCreate(filename, frequency, bufferSize) [vytvoření test WAV]
+    Exporter->>Exporter: wavFileWriteBuffer(buffer, size) [export dat pro validaci]
+
+    Note over Main,Exporter: Inicializace dokončena – připraveno na RT-safe zpracování a testy
+```
+
+#### Krátké vysvětlení diagramu
+- **Sekvence**: Začíná v main, pokračuje inicializací komponent (Logger, SamplerIO, Loader), předpočítáním dat (EnvelopeStaticData) a končí testy hlasů a exporty.
+- **Klíčové body**: Inicializace je non-RT (předpočítané buffery pro envelope), příprava pro RT-safe operace (voice processing). 
+
+---
 
 ## Použití v projektu
 Pro integraci do vlastního projektu zahrňte hlavičky a linkujte `libsndfile`. Minimální příklad:
