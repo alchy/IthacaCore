@@ -43,7 +43,6 @@ IthacaCore je audio sampler engine napsaný v C++17, navržený pro přehráván
 
 ---
 ### Inicializace IthacaCore
-
 Diagram ukazuje postupnou inicializaci IthacaCore od spuštění programu (main) přes načtení samplů až po testování hlasů. 
 
 ```mermaid
@@ -121,6 +120,19 @@ if (idx != -1) {
 }
 ```
 
+#### Diagram třídy SamplerIO
+```mermaid
+classDiagram
+    class SamplerIO {
+        -std::vector~SampleInfo~ sampleList
+        +SamplerIO()
+        +~SamplerIO()
+        +scanSampleDirectory(const std::string& directoryPath, Logger& logger) void
+        +findSampleInSampleList(uint8_t midi_note, uint8_t velocity, int sampleRate) const int
+        +getLoadedSampleList() const const std::vector~SampleInfo~&
+    }
+```
+
 ### Třída `InstrumentLoader`
 Načítá WAV soubory do paměti jako stereo float buffery, zajišťuje mono→stereo konverzi a validaci.
 
@@ -165,20 +177,39 @@ if (inst.velocityExists[7]) {
 }
 ```
 
+#### Diagram třídy InstrumentLoader
+```mermaid
+classDiagram
+    class InstrumentLoader {
+        -SamplerIO& samplerIO
+        -Instrument instrument_notes[128]
+        -int target_sample_rate
+        +InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger)
+        +loadInstrument() void
+        +getInstrumentNote(uint8_t midi_note) Instrument&
+        +getTotalLoadedSamples() int
+        +getMonoSamplesCount() int
+        +getStereoSamplesCount() int
+        +getTargetSampleRate() int
+    }
+    InstrumentLoader --> SamplerIO
+    InstrumentLoader --> Instrument
+```
+
 ### Třída `Envelope`
 Spravuje per-voice ADSR obálku, deleguje těžká data na `EnvelopeStaticData`.
 
 | Metoda | Parametry | Popis | Návratový typ |
 |--------|-----------|-------|---------------|
-| `Envelope()` | - | Inicializuje výchozí hodnoty (attack=0, release=16, sustain=1.0). | `void` |
+| `Envelope()` | - | Inicializuje výchozí hodnoty (attack=8, release=16, sustain=1.0). | `void` |
 | `setAttackMIDI(uint8_t midi_value)` | `midi_value` (0-127) | Nastaví MIDI hodnotu pro attack (RT-safe). | `void` |
 | `setReleaseMIDI(uint8_t midi_value)` | `midi_value` (0-127) | Nastaví MIDI hodnotu pro release (RT-safe). | `void` |
 | `setSustainLevelMIDI(uint8_t midi_value)` | `midi_value` (0-127) | Nastaví sustain úroveň (0.0-1.0, RT-safe). | `void` |
 | `getSustainLevel() const` | - | Vrátí sustain úroveň (RT-safe). | `float` |
-| `getAttackGains(float* gain_buffer, int num_samples, int envelope_attack_position, int sample_rate) const` | `gain_buffer`, `num_samples`, `envelope_attack_position`, `sample_rate` | Získá hodnoty attack obálky (RT-safe). | `bool` |
-| `getReleaseGains(float* gain_buffer, int num_samples, int envelope_release_position, int sample_rate) const` | `gain_buffer`, `num_samples`, `envelope_release_position`, `sample_rate` | Získá hodnoty release obálky (RT-safe). | `bool` |
-| `getAttackLength(int sample_rate) const` | `sample_rate` | Vrátí délku attack v ms (RT-safe). | `float` |
-| `getReleaseLength(int sample_rate) const` | `sample_rate` | Vrátí délku release v ms (RT-safe). | `float` |
+| `getAttackGains(float* gain_buffer, int num_samples, int envelope_attack_position, int sample_rate) const` | `gain_buffer`, `num_samples`, `envelope_attack_position`, `sample_rate` | Získá hodnoty attack obálky (deleguje na `EnvelopeStaticData`, RT-safe). | `bool` |
+| `getReleaseGains(float* gain_buffer, int num_samples, int envelope_release_position, int sample_rate) const` | `gain_buffer`, `num_samples`, `envelope_release_position`, `sample_rate` | Získá hodnoty release obálky (deleguje na `EnvelopeStaticData`, RT-safe). | `bool` |
+| `getAttackLength(int sample_rate) const` | `sample_rate` | Vrátí délku attack v ms (deleguje na `EnvelopeStaticData`, RT-safe). | `float` |
+| `getReleaseLength(int sample_rate) const` | `sample_rate` | Vrátí délku release v ms (deleguje na `EnvelopeStaticData`, RT-safe). | `float` |
 
 **Příklad**:
 ```cpp
@@ -190,6 +221,26 @@ envelope.setSustainLevelMIDI(90);
 float gains[256];
 bool continues = envelope.getAttackGains(gains, 256, 0, 44100);
 logger.log("demo", "info", "Attack length: " + std::to_string(envelope.getAttackLength(44100)) + " ms");
+```
+
+#### Diagram třídy Envelope
+```mermaid
+classDiagram
+    class Envelope {
+        -uint8_t attack_midi_index_
+        -uint8_t release_midi_index_
+        -float sustain_level_
+        +Envelope()
+        +setAttackMIDI(uint8_t midi_value) void
+        +setReleaseMIDI(uint8_t midi_value) void
+        +setSustainLevelMIDI(uint8_t midi_value) void
+        +getSustainLevel() const float
+        +getAttackGains(float* gain_buffer, int num_samples, int envelope_attack_position, int sample_rate) const bool
+        +getReleaseGains(float* gain_buffer, int num_samples, int envelope_release_position, int sample_rate) const bool
+        +getAttackLength(int sample_rate) const float
+        +getReleaseLength(int sample_rate) const float
+    }
+    Envelope --> EnvelopeStaticData : deleguje
 ```
 
 ### Třída `EnvelopeStaticData`
@@ -213,6 +264,20 @@ float gains[256];
 EnvelopeStaticData::getAttackGains(gains, 256, 0, 64, 44100);
 logger.log("demo", "info", "Attack length: " + std::to_string(EnvelopeStaticData::getAttackLength(64, 44100)) + " ms");
 EnvelopeStaticData::cleanup();
+```
+
+#### Diagram třídy EnvelopeStaticData
+```mermaid
+classDiagram
+    class EnvelopeStaticData {
+        +initialize(Logger& logger) bool
+        +cleanup() void
+        +getAttackGains(float* gainBuffer, int numSamples, int position, uint8_t midiValue, int sampleRate) bool
+        +getReleaseGains(float* gainBuffer, int numSamples, int position, uint8_t midiValue, int sampleRate) bool
+        +getAttackLength(uint8_t midiValue, int sampleRate) float
+        +getReleaseLength(uint8_t midiValue, int sampleRate) float
+        +isInitialized() bool
+    }
 ```
 
 ### Třída `Voice`
@@ -246,6 +311,32 @@ voice.setReleaseMIDI(50);        // Nastavení release
 voice.setSustainLevelMIDI(100);  // Nastavení sustain level
 ```
 
+#### Diagram třídy Voice
+```mermaid
+classDiagram
+    class Voice {
+        -uint8_t midi_note
+        -VoiceState state
+        -Envelope envelope
+        +Voice()
+        +Voice(uint8_t midiNote)
+        +initialize(const Instrument& instrument, int sampleRate, Envelope& envelope, Logger& logger, uint8_t attackMIDI, uint8_t releaseMIDI, uint8_t sustainMIDI) void
+        +setNoteState(bool isOn, uint8_t velocity) void
+        +setNoteState(bool isOn) void
+        +setAttackMIDI(uint8_t midi_value) void
+        +setReleaseMIDI(uint8_t midi_value) void
+        +setSustainLevelMIDI(uint8_t midi_value) void
+        +processBlock(float* outputLeft, float* outputRight, int samplesPerBlock) bool
+        +isActive() const bool
+        +getState() const VoiceState
+        +getCurrentEnvelopeGain() const float
+        +getVelocityGain() const float
+        +getMasterGain() const float
+    }
+    Voice --> Envelope
+    Voice --> Instrument
+```
+
 ### Třída `VoiceManager`
 Spravuje pool hlasů pro polyfonní přehrávání s globálními envelope kontrolami.
 
@@ -276,8 +367,8 @@ manager.initializeSystem(logger);
 manager.loadForSampleRate(44100, logger);
 
 // Globální nastavení envelope pro všechny voices
-manager.setAllVoicesAttackMIDI(32);    // Rychlý attack pro všechny
-manager.setAllVoicesReleaseMIDI(64);   // Střední release pro všechny
+manager.setAllVoicesAttackMIDI(32);      // Rychlý attack pro všechny
+manager.setAllVoicesReleaseMIDI(64);     // Střední release pro všechny
 manager.setAllVoicesSustainLevelMIDI(100); // Sustain pro všechny
 
 // Nebo individuální nastavení konkrétní voice
@@ -288,6 +379,36 @@ voice.setAttackMIDI(0);      // Okamžitý attack jen pro tuto voice
 manager.setNoteStateMIDI(60, true, 100);  // Note on
 // ... zpracování audio bloků
 manager.setNoteStateMIDI(60, false);      // Note off
+```
+
+#### Diagram třídy VoiceManager
+```mermaid
+classDiagram
+    class VoiceManager {
+        -std::vector~Voice~ voices
+        -std::string sample_dir
+        -SamplerIO sampler_io
+        -InstrumentLoader instrument_loader
+        +VoiceManager(const std::string& sampleDir, Logger& logger)
+        +initializeSystem(Logger& logger) void
+        +loadForSampleRate(int sampleRate, Logger& logger) void
+        +setNoteStateMIDI(uint8_t midiNote, bool isOn, uint8_t velocity) void
+        +setNoteStateMIDI(uint8_t midiNote, bool isOn) void
+        +processBlockUninterleaved(float* outputLeft, float* outputRight, int samplesPerBlock) bool
+        +processBlockInterleaved(AudioData* outputBuffer, int samplesPerBlock) bool
+        +setAllVoicesMasterGainMIDI(uint8_t midi_gain, Logger& logger) void
+        +setAllVoicesPanMIDI(uint8_t midi_pan) void
+        +setAllVoicesAttackMIDI(uint8_t midi_attack) void
+        +setAllVoicesReleaseMIDI(uint8_t midi_release) void
+        +setAllVoicesSustainLevelMIDI(uint8_t midi_sustain) void
+        +getActiveVoicesCount() const int
+        +getSustainingVoicesCount() const int
+        +getReleasingVoicesCount() const int
+        +getVoiceMIDI(uint8_t midiNote) Voice&
+    }
+    VoiceManager --> Voice
+    VoiceManager --> SamplerIO
+    VoiceManager --> InstrumentLoader
 ```
 
 ### Třída `WavExporter`
@@ -309,6 +430,20 @@ std::fill(buffer, buffer + 512 * 2, 0.5f); // Naplní stereo buffer
 exporter.wavFileWriteBuffer(buffer, 512);
 ```
 
+#### Diagram třídy WavExporter
+```mermaid
+classDiagram
+    class WavExporter {
+        -std::string output_dir
+        -Logger& logger
+        -ExportFormat export_format
+        +WavExporter(const std::string& outputDir, Logger& logger, ExportFormat exportFormat)
+        +~WavExporter()
+        +wavFileCreate(const std::string& filename, int frequency, int bufferSize, bool stereo, bool dummy_write) float*
+        +wavFileWriteBuffer(float* buffer_ptr, int buffer_size) bool
+    }
+```
+
 ### Funkce `runSampler`
 - **Signatura**: `int runSampler(Logger& logger)`
 - **Popis**: Spustí workflow: inicializuje `SamplerIO`, `InstrumentLoader`, `Envelope`, `VoiceManager`, načte samples, nastaví testovací notu (např. MIDI 108, vel 7), procesuje blok s ADSR obálkou a exportuje WAV. Loguje všechny kroky. Vrátí 0 při úspěchu, jinak `std::exit(1)`.
@@ -328,7 +463,6 @@ exporter.wavFileWriteBuffer(buffer, 512);
 - **README.md**: Tento soubor.
 
 ## Envelope Control System
-
 IthacaCore nyní nabízí flexibilní systém pro ovládání ADSR envelope parametrů na dvou úrovních:
 
 ### 1. Individuální voice control
