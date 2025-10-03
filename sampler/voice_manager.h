@@ -12,6 +12,7 @@
 #include <string>
 #include <atomic>
 #include <memory>
+#include <array>
 
 /**
  * @class VoiceManager
@@ -25,6 +26,7 @@
  * - LFO automatic panning for electric piano effects
  * - RT-safe audio processing with pre-allocated buffers
  * - Swap-and-pop vector optimizations for O(1) performance
+ * - Sustain pedal support (MIDI CC64) with delayed note-off handling
  * 
  * LFO Panning Features:
  * - Automatic sinusoidal panning motion (0-2 Hz frequency range)
@@ -32,6 +34,13 @@
  * - RT-safe operation with pre-calculated sine tables
  * - Global synchronization across all voices
  * - Independent from static pan control
+ * 
+ * Sustain Pedal Features:
+ * - MIDI CC64 standard implementation (0-63 = OFF, 64-127 = ON)
+ * - Delayed note-off processing when pedal is pressed
+ * - Automatic release phase triggering when pedal is released
+ * - RT-safe operation with minimal overhead (129 bytes total)
+ * - Per-note tracking of delayed note-off events
  * 
  * Architecture:
  * - Stack-allocated components (SamplerIO, InstrumentLoader)
@@ -49,6 +58,7 @@
  * - Shared envelope lookup tables: ~2MB total (global)
  * - Pan lookup tables: <1KB per instance
  * - LFO lookup tables: ~16KB (global, shared)
+ * - Sustain pedal state: 129 bytes (1 atomic bool + 128 bool flags)
  */
 class VoiceManager {
 public:
@@ -67,6 +77,7 @@ public:
      * - 128-voice pool with pre-allocated buffers
      * - Constant power panning lookup tables
      * - LFO panning lookup tables
+     * - Sustain pedal state arrays
      * - Error callbacks for envelope system
      */
     VoiceManager(const std::string& sampleDir, Logger& logger);
@@ -131,6 +142,7 @@ public:
      * @param isOn true for note-on, false for note-off
      * @param velocity MIDI velocity (0-127) affecting volume
      * @note RT-safe: no allocations, automatic voice pool management
+     * @note Sustain pedal: if pedal is pressed, note-off events are delayed
      */
     void setNoteStateMIDI(uint8_t midiNote, bool isOn, uint8_t velocity) noexcept;
 
@@ -139,8 +151,36 @@ public:
      * @param midiNote MIDI note number (0-127)
      * @param isOn true for note-on, false for note-off
      * @note RT-safe: uses DEFAULT_VELOCITY for note-on
+     * @note Sustain pedal: if pedal is pressed, note-off events are delayed
      */
     void setNoteStateMIDI(uint8_t midiNote, bool isOn) noexcept;
+
+    // ===== SUSTAIN PEDAL API =====
+    
+    /**
+     * @brief Set sustain pedal state (MIDI CC64)
+     * @param pedalDown true = pedal pressed (MIDI value 64-127), 
+     *                  false = pedal released (MIDI value 0-63)
+     * 
+     * Behavior:
+     * - Pedal DOWN: All subsequent note-off events are delayed (stored but not executed)
+     * - Pedal UP: All delayed note-off events are immediately sent to their respective voices
+     * 
+     * Memory footprint: 129 bytes (1 atomic bool + 128 bool array)
+     * Complexity: O(1) for pedal down, O(n) for pedal up where n = number of delayed notes
+     * 
+     * @note RT-safe: no allocations, only flag operations and voice method calls
+     */
+    void setSustainPedalMIDI(bool pedalDown) noexcept;
+    
+    /**
+     * @brief Get current sustain pedal state
+     * @return true if pedal is currently pressed
+     * @note RT-safe: atomic read operation
+     */
+    bool getSustainPedalActive() const noexcept { 
+        return sustainPedalActive_.load(); 
+    }
 
     // ===== AUDIO PROCESSING =====
     
@@ -190,130 +230,98 @@ public:
 
     /**
      * @brief Set static pan for all voices via MIDI value
-     * @param midi_pan Pan as MIDI value (0-127, where 64 = center)
-     * @note RT-safe: direct parameter update, overridden by LFO panning if active
+     * @param midi_pan Pan as MIDI value (0-127, 64=center)
+     * @note RT-safe: converts MIDI to -1.0/+1.0 range
      */
     void setAllVoicesPanMIDI(uint8_t midi_pan) noexcept;
 
     /**
      * @brief Set attack time for all voices via MIDI value
-     * @param midi_attack Attack time as MIDI value (0-127)
-     * @note RT-safe: direct parameter update
+     * @param midi_attack Attack as MIDI value (0-127)
+     * @note RT-safe: delegates to envelope system
      */
     void setAllVoicesAttackMIDI(uint8_t midi_attack) noexcept;
 
     /**
      * @brief Set release time for all voices via MIDI value
-     * @param midi_release Release time as MIDI value (0-127)
-     * @note RT-safe: direct parameter update
+     * @param midi_release Release as MIDI value (0-127)
+     * @note RT-safe: delegates to envelope system
      */
     void setAllVoicesReleaseMIDI(uint8_t midi_release) noexcept;
 
     /**
      * @brief Set sustain level for all voices via MIDI value
      * @param midi_sustain Sustain level as MIDI value (0-127)
-     * @note RT-safe: direct parameter update
+     * @note RT-safe: delegates to envelope system
      */
     void setAllVoicesSustainLevelMIDI(uint8_t midi_sustain) noexcept;
+
+    /**
+     * @brief Set stereo field amount for all voices via MIDI value
+     * @param midi_stereo Stereo field as MIDI value (0-127)
+     * @note RT-safe: calculates physical piano string position simulation
+     */
+    void setAllVoicesStereoFieldAmountMIDI(uint8_t midi_stereo) noexcept;
 
     // ===== LFO PANNING CONTROL =====
 
     /**
-     * @brief Set LFO panning speed for all voices via MIDI value
-     * @param midi_speed LFO speed as MIDI value (0-127)
-     *                   0 = panning disabled (0 Hz)
-     *                   127 = fastest panning (2 Hz, 500ms cycle)
-     * @note RT-safe: updates LFO frequency and phase increment
+     * @brief Set LFO panning speed for all voices
+     * @param midi_speed Speed as MIDI value (0-127, maps to 0-2 Hz)
+     * @note RT-safe: updates LFO phase increment
      */
     void setAllVoicesPanSpeedMIDI(uint8_t midi_speed) noexcept;
 
     /**
-     * @brief Set LFO panning depth for all voices via MIDI value
-     * @param midi_depth LFO depth as MIDI value (0-127)
-     *                   0 = no panning effect (static position)
-     *                   127 = full range panning (-1.0 to +1.0)
-     * @note RT-safe: updates LFO amplitude scaling
+     * @brief Set LFO panning depth for all voices
+     * @param midi_depth Depth as MIDI value (0-127, maps to 0-1.0)
+     * @note RT-safe: updates LFO amplitude modulation
      */
     void setAllVoicesPanDepthMIDI(uint8_t midi_depth) noexcept;
 
     /**
-     * @brief Get current LFO panning speed
-     * @return Current LFO frequency in Hz (0.0-2.0)
+     * @brief Check if LFO panning is currently active
+     * @return true if LFO is modulating pan position
+     * @note RT-safe: checks if speed and depth are non-zero
      */
-    float getLfoPanSpeed() const noexcept { return panSpeed_; }
+    bool isLfoPanningActive() const noexcept;
 
-    /**
-     * @brief Get current LFO panning depth
-     * @return Current LFO depth (0.0-1.0)
-     */
-    float getLfoPanDepth() const noexcept { return panDepth_; }
-
-    /**
-     * @brief Check if LFO panning is active
-     * @return true if both speed and depth are > 0
-     */
-    bool isLfoPanningActive() const noexcept { return panSpeed_ > 0.0f && panDepth_ > 0.0f; }
-
-    /**
-     * @brief Set stereo field amount for all voices via MIDI value
-     * @param midi_stereo_field Stereo field as MIDI value (0-127)
-     *                          0 = disabled/mono (no stereo widening)
-     *                          127 = maximum stereo width (±20% for extreme notes)
-     * @note RT-safe: pre-calculates gains for each voice based on MIDI note position
-     */
-    void setAllVoicesStereoFieldAmountMIDI(uint8_t midi_stereo_field) noexcept;
-
-    // ===== VOICE ACCESS AND STATISTICS =====
-
-    /**
-     * @brief Get maximum number of voices
-     * @return Always 128 (fixed pool size)
-     */
-    int getMaxVoices() const noexcept { return 128; }
+    // ===== VOICE ACCESS =====
     
     /**
-     * @brief Get number of active voices
-     * @return Number of voices in attacking, sustaining, or releasing state
-     * @note Thread-safe: atomic counter
+     * @brief Get reference to specific voice by MIDI note
+     * @param midiNote MIDI note number (0-127)
+     * @return Reference to voice
+     * @note Non-RT: for parameter setup and inspection
+     */
+    Voice& getVoiceMIDI(uint8_t midiNote) noexcept;
+
+    // ===== STATISTICS =====
+    
+    /**
+     * @brief Get count of active voices (any non-idle state)
+     * @return Number of voices in Attacking, Sustaining, or Releasing state
      */
     int getActiveVoicesCount() const noexcept { return activeVoicesCount_.load(); }
     
     /**
-     * @brief Get number of voices in sustaining state
-     * @return Count of sustaining voices
-     * @note May iterate through active voice list
+     * @brief Get count of sustaining voices
+     * @return Number of voices in Sustaining state
      */
     int getSustainingVoicesCount() const noexcept;
     
     /**
-     * @brief Get number of voices in releasing state
-     * @return Count of releasing voices
-     * @note May iterate through active voice list
+     * @brief Get count of releasing voices
+     * @return Number of voices in Releasing state
      */
     int getReleasingVoicesCount() const noexcept;
 
-    /**
-     * @brief Get voice by MIDI note number
-     * @param midiNote MIDI note number (0-127)
-     * @return Reference to Voice object
-     * @note Direct array access - validate midiNote in debug builds
-     */
-    Voice& getVoiceMIDI(uint8_t midiNote) noexcept;
+    // ===== REAL-TIME MODE =====
     
     /**
-     * @brief Get const voice by MIDI note number
-     * @param midiNote MIDI note number (0-127)
-     * @return Const reference to Voice object
-     * @note Direct array access - validate midiNote in debug builds
-     */
-    const Voice& getVoiceMIDI(uint8_t midiNote) const noexcept;
-
-    // ===== RT MODE CONTROL =====
-    
-    /**
-     * @brief Set real-time mode for debugging/profiling
-     * @param enabled true = RT mode (minimal logging), false = normal mode
-     * @note Affects both VoiceManager and all Voice instances
+     * @brief Set real-time processing mode
+     * @param enabled true to enable RT mode (disables logging)
+     * @note Affects logging behavior in RT-critical paths
      */
     void setRealTimeMode(bool enabled) noexcept;
     
@@ -326,7 +334,7 @@ public:
     // ===== SYSTEM DIAGNOSTICS =====
     
     /**
-     * @brief Log comprehensive system statistics including LFO panning
+     * @brief Log comprehensive system statistics including LFO panning and sustain pedal
      * @param logger Reference to Logger
      * @note Non-RT: comprehensive system analysis and logging
      */
@@ -353,6 +361,27 @@ private:
     
     mutable std::atomic<int> activeVoicesCount_{0}; // Thread-safe active voice counter
     std::atomic<bool> rtMode_{false};               // RT mode flag
+
+    // ===== SUSTAIN PEDAL STATE =====
+    
+    /**
+     * @brief Global sustain pedal state
+     * 
+     * When true: all note-off events are delayed (stored in delayedNoteOffs_)
+     * When false: note-off events are processed immediately
+     */
+    std::atomic<bool> sustainPedalActive_{false};
+    
+    /**
+     * @brief Per-note delayed note-off flags
+     * 
+     * Array indexed by MIDI note number (0-127)
+     * true = this note received note-off while pedal was down
+     * false = no delayed note-off pending
+     * 
+     * Memory: 128 bytes (std::array uses stack allocation)
+     */
+    std::array<bool, 128> delayedNoteOffs_{};
 
     // ===== LFO PANNING STATE =====
     
@@ -382,6 +411,40 @@ private:
      * @param logger Reference to Logger
      */
     void reinitializeIfNeeded(int targetSampleRate, Logger& logger);
+
+    // ===== SUSTAIN PEDAL HELPERS =====
+    
+    /**
+     * @brief Process all delayed note-offs when pedal is released
+     * 
+     * Called internally by setSustainPedalMIDI when pedal transitions from ON to OFF.
+     * Iterates through all 128 MIDI notes and sends note-off to voices with delayed flags.
+     * 
+     * Complexity: O(128) but only executed on pedal release events
+     * @note RT-safe: only flag checks and voice method calls
+     */
+    void processDelayedNoteOffs() noexcept;
+    
+    /**
+     * @brief Clear delayed note-off flag for specific MIDI note
+     * @param midiNote MIDI note number (0-127)
+     * @note RT-safe: simple array write operation
+     */
+    void clearDelayedNoteOff(uint8_t midiNote) noexcept {
+        if (midiNote <= 127) {
+            delayedNoteOffs_[midiNote] = false;
+        }
+    }
+    
+    /**
+     * @brief Check if note has pending delayed note-off
+     * @param midiNote MIDI note number (0-127)
+     * @return true if note-off is delayed for this note
+     * @note RT-safe: simple array read operation
+     */
+    bool hasDelayedNoteOff(uint8_t midiNote) const noexcept {
+        return (midiNote <= 127) && delayedNoteOffs_[midiNote];
+    }
 
     // ===== LFO PANNING HELPERS =====
     
