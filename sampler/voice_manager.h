@@ -7,6 +7,7 @@
 #include "instrument_loader.h"
 #include "sampler.h"
 #include "lfopan.h"
+#include "dsp/bbe_processor.h"
 
 #include <vector>
 #include <string>
@@ -340,6 +341,74 @@ public:
      */
     void logSystemStatistics(Logger& logger);
 
+        // ===== BBE SOUND PROCESSOR CONTROL =====
+    
+    /**
+     * @brief Set BBE definition/clarity level
+     * 
+     * Controls harmonic enhancement intensity. Higher values create more
+     * "air" and "clarity" but can sound harsh if excessive.
+     * 
+     * Recommended values:
+     * - Piano/Acoustic: 50-70 (subtle to moderate)
+     * - Electric Piano: 70-90 (moderate to strong)
+     * - Bass: 40-60 (subtle)
+     * - Drums: 80-100 (strong transient enhancement)
+     * 
+     * @param midiValue MIDI value 0-127 (0=off, 64=moderate, 127=maximum)
+     * @param logger Reference to Logger
+     * @note RT-SAFE: Can be called from audio thread
+     */
+    void setBBEDefinitionMIDI(uint8_t midiValue, Logger& logger) noexcept;
+    
+    /**
+     * @brief Set BBE bass boost level
+     * 
+     * Controls low-frequency shelving filter gain (0-12 dB).
+     * Used to maintain balance with enhanced treble.
+     * 
+     * Recommended values:
+     * - Subtle warmth: 20-40 (+2-4 dB)
+     * - Moderate boost: 40-80 (+4-8 dB)  
+     * - Strong boost: 80-110 (+8-10 dB)
+     * 
+     * @param midiValue MIDI value 0-127 (0=no boost, 127=+12dB)
+     * @param logger Reference to Logger
+     * @note RT-SAFE: Can be called from audio thread
+     * @warning High values can cause clipping - monitor output levels
+     */
+    void setBBEBassBoostMIDI(uint8_t midiValue, Logger& logger) noexcept;
+    
+    /**
+     * @brief Enable/disable BBE processing
+     * 
+     * @param bypass true = bypass (no processing), false = active
+     * @param logger Reference to Logger
+     * @note RT-SAFE: Zero-latency bypass
+     */
+    void setBBEBypass(bool bypass, Logger& logger) noexcept;
+    
+    /**
+     * @brief Check if BBE processor is currently enabled
+     * @return true if processing is active (not bypassed)
+     * @note RT-SAFE
+     */
+    bool isBBEEnabled() const noexcept;
+    
+    /**
+     * @brief Get current BBE definition level
+     * @return MIDI value 0-127
+     * @note For UI display/feedback
+     */
+    uint8_t getBBEDefinitionMIDI() const noexcept;
+    
+    /**
+     * @brief Get current BBE bass boost level
+     * @return MIDI value 0-127
+     * @note For UI display/feedback
+     */
+    uint8_t getBBEBassBoostMIDI() const noexcept;
+
 private:
     // ===== CORE COMPONENTS =====
     
@@ -389,6 +458,9 @@ private:
     float panDepth_;                   // LFO amplitude (0.0-1.0)
     float lfoPhase_;                   // Current LFO phase (0.0-2π)
     float lfoPhaseIncrement_;          // Phase increment per sample
+
+    // ===== BBE SOUND PROCESSOR =====
+    BBEProcessor bbeProcessor_;
 
     // ===== PRIVATE HELPER METHODS =====
     

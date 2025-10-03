@@ -65,6 +65,14 @@ add_executable(IthacaCore
     sampler/lfopan.cpp
     sampler/lfopan.h
 
+    # ===== DSP / BBE SOUND PROCESSOR =====
+    sampler/dsp/biquad_filter.cpp
+    sampler/dsp/biquad_filter.h
+    sampler/dsp/harmonic_enhancer.cpp
+    sampler/dsp/harmonic_enhancer.h
+    sampler/dsp/bbe_processor.cpp
+    sampler/dsp/bbe_processor.h
+
     # tests
     sampler/tests/test_helpers.cpp
     sampler/tests/test_helpers.h
