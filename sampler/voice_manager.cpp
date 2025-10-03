@@ -135,9 +135,9 @@ void VoiceManager::loadForSampleRate(int sampleRate, Logger& logger) {
         bbeProcessor_.prepare(sampleRate);
         
         // Set default soft parameters (subtle, natural enhancement)
-        bbeProcessor_.setDefinitionMIDI(50);   // 40% enhancement (~0.39 internal)
-        bbeProcessor_.setBassBoostMIDI(25);    // 20% boost (~2.4 dB)
-        bbeProcessor_.setBypass(false);         // Enabled by default
+        bbeProcessor_.setDefinitionMIDI(16);   // enhancement
+        bbeProcessor_.setBassBoostMIDI(8);    // boost
+        bbeProcessor_.setBypass(false);        // Enabled by default
         
         logSafe("VoiceManager/loadForSampleRate", "info", 
                 "BBE processor initialized for " + std::to_string(sampleRate) + 
