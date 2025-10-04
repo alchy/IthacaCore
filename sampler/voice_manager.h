@@ -530,20 +530,15 @@ private:
     }
 
     // ===== LFO PANNING HELPERS =====
-    
+
     /**
-     * @brief Update LFO phase for current audio block
+     * @brief Apply LFO panning per-sample to eliminate zipper noise
      * @param samplesPerBlock Number of samples in current block
-     * @note RT-safe: advances LFO phase and wraps to valid range
+     * @note RT-safe: updates LFO phase and pan for each sample independently
+     * @note Per-sample processing ensures smooth panning at high depth/speed values
      */
-    void updateLfoPhase(int samplesPerBlock) noexcept;
-    
-    /**
-     * @brief Apply LFO panning to all active voices
-     * @note RT-safe: calculates current pan position and applies to voices
-     */
-    void applyLfoPanning() noexcept;
-    
+    void applyLfoPanningPerSample(int samplesPerBlock) noexcept;
+
     /**
      * @brief Reset LFO parameters to default values
      * @note Resets speed, depth, and phase to initial state
