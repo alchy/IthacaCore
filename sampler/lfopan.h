@@ -60,11 +60,13 @@ public:
      */
     static float wrapPhase(float phase) noexcept;
 
+    // Public constant for external phase calculations
+    static constexpr float TWO_PI = 6.2831f;
+
 private:
     // Lookup table sizes
     static constexpr int MIDI_TABLE_SIZE = 128;
     static constexpr int SINE_TABLE_SIZE = 1024;
-    static constexpr float TWO_PI = 6.2831f;
     
     // Pre-calculated lookup tables
     static float frequency_table[MIDI_TABLE_SIZE];
