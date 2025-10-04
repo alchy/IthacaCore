@@ -106,19 +106,19 @@ void Voice::initialize(const Instrument& instrument, int sampleRate,
     if (sampleRate_ <= 0) {
         const std::string errorMsg = "[Voice/initialize] error: Invalid sampleRate " + 
                                    std::to_string(sampleRate_) + " - must be > 0";
-        logSafe("Voice/initialize", "error", errorMsg, logger);
+        logger.log("Voice/initialize", LogSeverity::Error, errorMsg);
         throw std::invalid_argument("Invalid sample rate: " + std::to_string(sampleRate_));
     }
     
     if (!envelope_) {
         const std::string errorMsg = "[Voice/initialize] error: Envelope reference is null";
-        logSafe("Voice/initialize", "error", errorMsg, logger);
+        logger.log("Voice/initialize", LogSeverity::Error, errorMsg);
         throw std::invalid_argument("Envelope reference is null");
     }
     
     if (!EnvelopeStaticData::isInitialized()) {
         const std::string errorMsg = "[Voice/initialize] error: EnvelopeStaticData not initialized";
-        logSafe("Voice/initialize", "error", errorMsg, logger);
+        logger.log("Voice/initialize", LogSeverity::Error, errorMsg);
         throw std::runtime_error("EnvelopeStaticData not initialized. Call EnvelopeStaticData::initialize() first");
     }
     
@@ -152,18 +152,18 @@ void Voice::initialize(const Instrument& instrument, int sampleRate,
     
     if (gainBuffer_.capacity() < 16384) {
         const std::string errorMsg = "[Voice/initialize] warning: gainBuffer capacity insufficient, attempting reserve";
-        logSafe("Voice/initialize", "warning", errorMsg, logger);
+        logger.log("Voice/initialize", LogSeverity::Warning, errorMsg);
         gainBuffer_.reserve(16384);
     }
     
     // ===== LOG INITIALIZATION SUCCESS =====
     
-    logSafe("Voice/initialize", "info", 
-           "Voice initialized for MIDI " + std::to_string(midiNote_) + 
-           " with static envelope system (A:" + std::to_string(envelope_->getAttackLength(sampleRate_)) + 
+    logger.log("Voice/initialize", LogSeverity::Info,
+           "Voice initialized for MIDI " + std::to_string(midiNote_) +
+           " with static envelope system (A:" + std::to_string(envelope_->getAttackLength(sampleRate_)) +
            ", R:" + std::to_string(envelope_->getReleaseLength(sampleRate_)) + " ms)" +
-           " and damping buffer (" + std::to_string(dampingLength_) + " samples = " + 
-           std::to_string(DAMPING_RELEASE_MS) + "ms)", logger);
+           " and damping buffer (" + std::to_string(dampingLength_) + " samples = " +
+           std::to_string(DAMPING_RELEASE_MS) + "ms)");
 }
 
 void Voice::prepareToPlay(int maxBlockSize) noexcept {
@@ -187,8 +187,8 @@ void Voice::prepareToPlay(int maxBlockSize) noexcept {
 void Voice::cleanup(Logger& logger) {
     resetVoiceState();
     
-    logSafe("Voice/cleanup", "info", 
-           "Voice cleaned up and reset to idle for MIDI " + std::to_string(midiNote_), logger);
+    logger.log("Voice/cleanup", LogSeverity::Info,
+           "Voice cleaned up and reset to idle for MIDI " + std::to_string(midiNote_));
 }
 
 void Voice::reinitialize(const Instrument& instrument, int sampleRate,
@@ -197,9 +197,9 @@ void Voice::reinitialize(const Instrument& instrument, int sampleRate,
     // Full re-initialization including damping buffer recalculation
     initialize(instrument, sampleRate, envelope, logger, attackMIDI, releaseMIDI, sustainMIDI);
 
-    logSafe("Voice/reinitialize", "info", 
-           "Voice reinitialized with new instrument, sampleRate and ADSR envelope for MIDI " + 
-           std::to_string(midiNote_), logger);
+    logger.log("Voice/reinitialize", LogSeverity::Info,
+           "Voice reinitialized with new instrument, sampleRate and ADSR envelope for MIDI " +
+           std::to_string(midiNote_));
 }
 
 // =====================================================================
@@ -333,7 +333,7 @@ std::string Voice::getGainDebugInfo(Logger& logger) const {
     }
     
     std::string info = oss.str();
-    logSafe("Voice/getGainDebugInfo", "info", info, logger);
+    logger.log("Voice/getGainDebugInfo", LogSeverity::Info, info);
     
     return info;
 }
@@ -487,16 +487,3 @@ void Voice::calculateStereoFieldGains() noexcept {
     stereoFieldGainRight_ = std::max(0.8f, std::min(1.2f, stereoFieldGainRight_));
 }
 
-void Voice::logSafe(const std::string& component, const std::string& severity, 
-                   const std::string& message, Logger& logger) const {
-    // ===== CHOOSE LOGGING METHOD BASED ON RT MODE =====
-    
-    if (!rtMode_.load()) {
-        // Non-RT context: use proper logger with full functionality
-        logger.log(component, severity, message);
-    } else {
-        // RT context: use lightweight stdout logging for visibility
-        // Avoids potential allocations and locks in logger
-        std::cout << "[" << component << "] " << severity << ": " << message << std::endl;
-    }
-}

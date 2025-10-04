@@ -16,13 +16,13 @@ WavExporter::WavExporter(const std::string& outputDir, Logger& logger, ExportFor
     if (!std::filesystem::exists(dirPath)) {
         std::filesystem::create_directory(dirPath);
         #if LOG_ENABLED
-        logger_.log("WavExporter/constructor", "info", "Created output directory: " + outputDir_);
+        logger_.log("WavExporter/constructor", LogSeverity::Info, "Created output directory: " + outputDir_);
         #endif
     }
     startTime_ = std::chrono::steady_clock::now();
     #if LOG_ENABLED
     std::string formatStr = (exportFormat_ == ExportFormat::Pcm16) ? "Pcm16 (default)" : "Float";
-    logger_.log("WavExporter/constructor", "info", "WavExporter initialized for directory: " + outputDir_ + ", format: " + formatStr);
+    logger_.log("WavExporter/constructor", LogSeverity::Info, "WavExporter initialized for directory: " + outputDir_ + ", format: " + formatStr);
     #endif
 }
 
@@ -30,7 +30,7 @@ WavExporter::WavExporter(const std::string& outputDir, Logger& logger, ExportFor
 float* WavExporter::wavFileCreate(const std::string& filename, int frequency, int bufferSize, bool stereo, bool dummy_write) {
     if (frequency <= 0 || bufferSize <= 0) {
         #if LOG_ENABLED
-        logger_.log("WavExporter/wavFileCreate", "error", "Invalid params: frequency=" + std::to_string(frequency) + ", bufferSize=" + std::to_string(bufferSize));
+        logger_.log("WavExporter/wavFileCreate", LogSeverity::Error, "Invalid params: frequency=" + std::to_string(frequency) + ", bufferSize=" + std::to_string(bufferSize));
         #endif
         std::exit(1);
     }
@@ -55,18 +55,18 @@ float* WavExporter::wavFileCreate(const std::string& filename, int frequency, in
         sndfile_ = sf_open(fullPath.string().c_str(), SFM_WRITE, &sfinfo_);
         if (!sndfile_) {
             #if LOG_ENABLED
-            logger_.log("WavExporter/wavFileCreate", "error", "Cannot create WAV file: " + fullPath.string() + " - " + sf_strerror(nullptr));
+            logger_.log("WavExporter/wavFileCreate", LogSeverity::Error, "Cannot create WAV file: " + fullPath.string() + " - " + sf_strerror(nullptr));
             #endif
             std::exit(1);
         }
         #if LOG_ENABLED
         std::string formatStr = (exportFormat_ == ExportFormat::Float) ? "32-bit float" : "16-bit PCM";
-        logger_.log("WavExporter/wavFileCreate", "info", "WAV file created: " + fullPath.string() + " (freq=" + std::to_string(frequency) + " Hz, channels=" + std::to_string(channels_) + ", format=" + formatStr + ")");
+        logger_.log("WavExporter/wavFileCreate", LogSeverity::Info, "WAV file created: " + fullPath.string() + " (freq=" + std::to_string(frequency) + " Hz, channels=" + std::to_string(channels_) + ", format=" + formatStr + ")");
         #endif
     } else {
         #if LOG_ENABLED
         std::string formatStr = (exportFormat_ == ExportFormat::Float) ? "Float" : "Pcm16";
-        logger_.log("WavExporter/wavFileCreate", "info", "Dummy mode (" + formatStr + "): No file created, measuring copy time only");
+        logger_.log("WavExporter/wavFileCreate", LogSeverity::Info, "Dummy mode (" + formatStr + "): No file created, measuring copy time only");
         #endif
     }
 
@@ -75,7 +75,7 @@ float* WavExporter::wavFileCreate(const std::string& filename, int frequency, in
     buffer_ = static_cast<float*>(malloc(bufferBytes));
     if (!buffer_) {
         #if LOG_ENABLED
-        logger_.log("WavExporter/wavFileCreate", "error", "Memory allocation failed for float buffer: " + std::to_string(bufferBytes) + " bytes");
+        logger_.log("WavExporter/wavFileCreate", LogSeverity::Error, "Memory allocation failed for float buffer: " + std::to_string(bufferBytes) + " bytes");
         #endif
         if (sndfile_) sf_close(sndfile_);
         std::exit(1);
@@ -87,7 +87,7 @@ float* WavExporter::wavFileCreate(const std::string& filename, int frequency, in
         tempPcmBuffer_ = static_cast<int16_t*>(malloc(pcmBytes));
         if (!tempPcmBuffer_) {
             #if LOG_ENABLED
-            logger_.log("WavExporter/wavFileCreate", "error", "Memory allocation failed for Pcm16 temp buffer: " + std::to_string(pcmBytes) + " bytes");
+            logger_.log("WavExporter/wavFileCreate", LogSeverity::Error, "Memory allocation failed for Pcm16 temp buffer: " + std::to_string(pcmBytes) + " bytes");
             #endif
             free(buffer_);
             if (sndfile_) sf_close(sndfile_);
@@ -98,7 +98,7 @@ float* WavExporter::wavFileCreate(const std::string& filename, int frequency, in
     memset(buffer_, 0, bufferBytes);
 
     #if LOG_ENABLED
-    logger_.log("WavExporter/wavFileCreate", "info", "Float buffer allocated: " + std::to_string(bufferSize_) + " samples, " + std::to_string(channels_) + " channels");
+    logger_.log("WavExporter/wavFileCreate", LogSeverity::Info, "Float buffer allocated: " + std::to_string(bufferSize_) + " samples, " + std::to_string(channels_) + " channels");
     #endif
     return buffer_;
 }
@@ -107,7 +107,7 @@ float* WavExporter::wavFileCreate(const std::string& filename, int frequency, in
 bool WavExporter::wavFileWriteBuffer(float* buffer_ptr, int buffer_size) {
     if (!buffer_ptr || buffer_size <= 0 || buffer_size > bufferSize_) {
         #if LOG_ENABLED
-        logger_.log("WavExporter/wavFileWriteBuffer", "error", "Invalid buffer or size: " + std::to_string(buffer_size));
+        logger_.log("WavExporter/wavFileWriteBuffer", LogSeverity::Error, "Invalid buffer or size: " + std::to_string(buffer_size));
         #endif
         return false;
     }
@@ -120,7 +120,7 @@ bool WavExporter::wavFileWriteBuffer(float* buffer_ptr, int buffer_size) {
             int framesWritten = sf_writef_float(sndfile_, buffer_ptr, framesToWrite);
             if (framesWritten != framesToWrite) {
                 #if LOG_ENABLED
-                logger_.log("WavExporter/wavFileWriteBuffer", "error", "Float write error: expected " + std::to_string(framesToWrite) + " frames, wrote " + std::to_string(framesWritten));
+                logger_.log("WavExporter/wavFileWriteBuffer", LogSeverity::Error, "Float write error: expected " + std::to_string(framesToWrite) + " frames, wrote " + std::to_string(framesWritten));
                 #endif
                 return false;
             }
@@ -129,7 +129,7 @@ bool WavExporter::wavFileWriteBuffer(float* buffer_ptr, int buffer_size) {
             int framesWritten = sf_writef_short(sndfile_, tempPcmBuffer_, framesToWrite);
             if (framesWritten != framesToWrite) {
                 #if LOG_ENABLED
-                logger_.log("WavExporter/wavFileWriteBuffer", "error", "Pcm16 write error: expected " + std::to_string(framesToWrite) + " frames, wrote " + std::to_string(framesWritten));
+                logger_.log("WavExporter/wavFileWriteBuffer", LogSeverity::Error, "Pcm16 write error: expected " + std::to_string(framesToWrite) + " frames, wrote " + std::to_string(framesWritten));
                 #endif
                 return false;
             }
@@ -175,14 +175,14 @@ WavExporter::~WavExporter() {
     auto totalMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime_).count();
     #if LOG_ENABLED
     std::string formatStr = (exportFormat_ == ExportFormat::Pcm16) ? "Pcm16" : "Float";
-    logger_.log("WavExporter/destructor", "info", "Export completed (" + formatStr + "). Total time: " + std::to_string(totalMs) + " ms");
+    logger_.log("WavExporter/destructor", LogSeverity::Info, "Export completed (" + formatStr + "). Total time: " + std::to_string(totalMs) + " ms");
     #endif
 }
 
 void WavExporter::logTime(const std::string& operation, std::chrono::steady_clock::time_point start) {
     auto end = std::chrono::steady_clock::now();
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    logger_.log("WavExporter/" + operation, "info", "Time: " + std::to_string(ms) + " ms");
+    logger_.log("WavExporter/" + operation, LogSeverity::Info, "Time: " + std::to_string(ms) + " ms");
 }
 
 // convertFloatToInt16: Škáluje a clipuje (bez ditheringu)

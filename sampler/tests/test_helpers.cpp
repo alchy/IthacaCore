@@ -11,27 +11,27 @@ void exportTestAudio(const std::string& filename, const float* data, int numFram
         // Získání export cesty pomocí helper funkce
         std::string exportPath = createTestExportDirectory(logger);
         if (exportPath.empty()) {
-            logger.log("exportTestAudio", "error", "Failed to create or access export directory");
+            logger.log("exportTestAudio", LogSeverity::Error, "Failed to create or access export directory");
             return;
         }
         
         // Kontrola platnosti dat
         if (!data || numFrames <= 0 || channels <= 0) {
-            logger.log("exportTestAudio", "error", "Invalid audio data parameters for file: " + filename);
+            logger.log("exportTestAudio", LogSeverity::Error, "Invalid audio data parameters for file: " + filename);
             return;
         }
         
-        logger.log("exportTestAudio", "info", "Attempting to export WAV: " + filename + 
+        logger.log("exportTestAudio", LogSeverity::Info, "Attempting to export WAV: " + filename + 
                    " (frames: " + std::to_string(numFrames) + ", channels: " + std::to_string(channels) + 
                    ", sampleRate: " + std::to_string(sampleRate) + ")");
-        logger.log("exportTestAudio", "info", "Export path: " + exportPath);
+        logger.log("exportTestAudio", LogSeverity::Info, "Export path: " + exportPath);
         
         // Inicializace WavExporter s dynamickou cestou a formátem Float
         WavExporter exporter(exportPath, logger, ExportFormat::Float);
         float* buffer = exporter.wavFileCreate(filename, sampleRate, numFrames, channels == 2, true);  // Reálný zápis
         
         if (!buffer) {
-            logger.log("exportTestAudio", "error", "Failed to create WAV buffer for: " + filename);
+            logger.log("exportTestAudio", LogSeverity::Error, "Failed to create WAV buffer for: " + filename);
             return;
         }
         
@@ -40,16 +40,16 @@ void exportTestAudio(const std::string& filename, const float* data, int numFram
         
         bool success = exporter.wavFileWriteBuffer(buffer, numFrames);
         if (!success) {
-            logger.log("exportTestAudio", "error", "Failed to write WAV buffer: " + filename);
+            logger.log("exportTestAudio", LogSeverity::Error, "Failed to write WAV buffer: " + filename);
         } else {
-            logger.log("exportTestAudio", "info", "Successfully exported WAV: " + exportPath + filename);
+            logger.log("exportTestAudio", LogSeverity::Info, "Successfully exported WAV: " + exportPath + filename);
         }
         // Destruktor exporteru se postará o close a free
         
     } catch (const std::exception& e) {
-        logger.log("exportTestAudio", "error", "Exception during WAV export: " + filename + " - " + std::string(e.what()));
+        logger.log("exportTestAudio", LogSeverity::Error, "Exception during WAV export: " + filename + " - " + std::string(e.what()));
     } catch (...) {
-        logger.log("exportTestAudio", "error", "Unknown exception during WAV export: " + filename);
+        logger.log("exportTestAudio", LogSeverity::Error, "Unknown exception during WAV export: " + filename);
     }
 }
 
@@ -72,7 +72,7 @@ bool analyzeAttackPhase(const std::vector<float>& envelopeGains, int attackBlock
     float ratio = static_cast<float>(increasingCount) / (attackBlocks - 1);
     bool ok = ratio >= 0.7f;
     
-    logger.log("analyzeAttackPhase", "info", 
+    logger.log("analyzeAttackPhase", LogSeverity::Info, 
                "Attack: " + std::to_string(increasingCount) + "/" + std::to_string(attackBlocks - 1) + 
                " increasing (ratio: " + std::to_string(ratio) + ")");
     
@@ -96,7 +96,7 @@ bool analyzeSustainPhase(const std::vector<float>& envelopeGains, int attackBloc
     
     bool ok = maxVariation <= 0.2f;
     
-    logger.log("analyzeSustainPhase", "info", 
+    logger.log("analyzeSustainPhase", LogSeverity::Info, 
                "Sustain: level=" + std::to_string(sustainLevel) + 
                ", max variation=" + std::to_string(maxVariation));
     
@@ -118,7 +118,7 @@ bool analyzeReleasePhase(const std::vector<float>& envelopeGains, int releaseSta
     float ratio = static_cast<float>(decreasingCount) / (releaseBlocks - 1);
     bool ok = ratio >= 0.7f;
     
-    logger.log("analyzeReleasePhase", "info", 
+    logger.log("analyzeReleasePhase", LogSeverity::Info, 
                "Release: " + std::to_string(decreasingCount) + "/" + std::to_string(releaseBlocks - 1) + 
                " decreasing (ratio: " + std::to_string(ratio) + ")");
     
@@ -134,20 +134,20 @@ std::string createTestExportDirectory(Logger& logger) {
         if (!std::filesystem::exists(exportDir)) {
             // Vytvoření adresáře, pokud neexistuje
             std::filesystem::create_directory(exportDir);
-            logger.log("createTestExportDirectory", "info", "Vytvořen exportní adresář: " + exportDir.string());
+            logger.log("createTestExportDirectory", LogSeverity::Info, "Vytvořen exportní adresář: " + exportDir.string());
         } else {
-            logger.log("createTestExportDirectory", "info", "Exportní adresář již existuje: " + exportDir.string());
+            logger.log("createTestExportDirectory", LogSeverity::Info, "Exportní adresář již existuje: " + exportDir.string());
         }
 
         // Vrácení plné cesty s trailing lomítkem pro snadné přidávání souborů
         return exportDir.string() + "/";
     } catch (const std::exception& e) {
         // Logování chyby při selhání
-        logger.log("createTestExportDirectory", "error", "Selhalo vytvoření exportního adresáře: " + std::string(e.what()));
+        logger.log("createTestExportDirectory", LogSeverity::Error, "Selhalo vytvoření exportního adresáře: " + std::string(e.what()));
         return "";
     } catch (...) {
         // Logování neznámé chyby
-        logger.log("createTestExportDirectory", "error", "Selhalo vytvoření exportního adresáře: neznámá chyba");
+        logger.log("createTestExportDirectory", LogSeverity::Error, "Selhalo vytvoření exportního adresáře: neznámá chyba");
         return "";
     }
 }

@@ -32,14 +32,14 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
     // Validate sample directory
     if (sampleDir_.empty()) {
         const std::string errorMsg = "[VoiceManager/constructor] error: Invalid sampleDir - cannot be empty";
-        logSafe("VoiceManager/constructor", "error", errorMsg, logger);
+        logger.log("VoiceManager/constructor", LogSeverity::Error, errorMsg);
         std::exit(1);
     }
     
     // Validate EnvelopeStaticData initialization
     if (!EnvelopeStaticData::isInitialized()) {
         const std::string errorMsg = "[VoiceManager/constructor] error: EnvelopeStaticData not initialized. Call EnvelopeStaticData::initialize() first";
-        logSafe("VoiceManager/constructor", "error", errorMsg, logger);
+        logger.log("VoiceManager/constructor", LogSeverity::Error, errorMsg);
         std::exit(1);
     }
     
@@ -62,15 +62,15 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
     delayedNoteOffs_.fill(false);
 
     // Setup error callback for envelope static data
-    EnvelopeStaticData::setErrorCallback([&logger](const std::string& component, 
-                                                   const std::string& severity, 
+    EnvelopeStaticData::setErrorCallback([&logger](const std::string& component,
+                                                   LogSeverity severity,
                                                    const std::string& message) {
         logger.log(component, severity, message);
     });
     
-    logSafe("VoiceManager/constructor", "info", 
-           "VoiceManager created with sampleDir '" + sampleDir_ + 
-           "' using shared envelope data, constant power panning, LFO panning, and sustain pedal support. Ready for initialization pipeline.", logger);
+    logger.log("VoiceManager/constructor", LogSeverity::Info,
+           "VoiceManager created with sampleDir '" + sampleDir_ +
+           "' using shared envelope data, constant power panning, LFO panning, and sustain pedal support. Ready for initialization pipeline.");
 }
 
 // ===== CONSTANT POWER PANNING =====
@@ -82,8 +82,8 @@ void VoiceManager::getPanGains(float pan, float& leftGain, float& rightGain) noe
 // ===== INITIALIZATION PIPELINE =====
 
 void VoiceManager::initializeSystem(Logger& logger) {
-    logSafe("VoiceManager/initializeSystem", "info", 
-            "=== INIT PHASE 1: System initialization and directory scanning ===", logger);
+    logger.log("VoiceManager/initializeSystem", LogSeverity::Info,
+            "=== INIT PHASE 1: System initialization and directory scanning ===");
     
     try {
         samplerIO_.scanSampleDirectory(sampleDir_, logger);
@@ -92,18 +92,18 @@ void VoiceManager::initializeSystem(Logger& logger) {
         const auto& sampleList = samplerIO_.getLoadedSampleList();
         if (sampleList.empty()) {
             const std::string errorMsg = "[VoiceManager/initializeSystem] error: No valid samples found in directory '" + sampleDir_ + "'";
-            logSafe("VoiceManager/initializeSystem", "error", errorMsg, logger);
+            logger.log("VoiceManager/initializeSystem", LogSeverity::Error, errorMsg);
             std::exit(1);
         }
         
         systemInitialized_ = true;
         
-        logSafe("VoiceManager/initializeSystem", "info", 
-                "=== INIT PHASE 1 COMPLETED: Sample directory scanned successfully ===", logger);
+        logger.log("VoiceManager/initializeSystem", LogSeverity::Info,
+                "=== INIT PHASE 1 COMPLETED: Sample directory scanned successfully ===");
         
     } catch (...) {
         const std::string errorMsg = "[VoiceManager/initializeSystem] error: INIT PHASE 1: System initialization failed";
-        logSafe("VoiceManager/initializeSystem", "error", errorMsg, logger);
+        logger.log("VoiceManager/initializeSystem", LogSeverity::Error, errorMsg);
         std::exit(1);
     }
 }
@@ -111,12 +111,12 @@ void VoiceManager::initializeSystem(Logger& logger) {
 void VoiceManager::loadForSampleRate(int sampleRate, Logger& logger) {
     if (!systemInitialized_) {
         const std::string errorMsg = "[VoiceManager/loadForSampleRate] error: Cannot load samples - system not initialized. Call initializeSystem() first";
-        logSafe("VoiceManager/loadForSampleRate", "error", errorMsg, logger);
+        logger.log("VoiceManager/loadForSampleRate", LogSeverity::Error, errorMsg);
         std::exit(1);
     }
     
-    logSafe("VoiceManager/loadForSampleRate", "info", 
-            "=== INIT PHASE 2: Loading sample data for " + std::to_string(sampleRate) + " Hz ===", logger);
+    logger.log("VoiceManager/loadForSampleRate", LogSeverity::Info, 
+            "=== INIT PHASE 2: Loading sample data for " + std::to_string(sampleRate) + " Hz ===");
     
     try {
         instrumentLoader_.loadInstrumentData(samplerIO_, sampleRate, logger);
@@ -124,19 +124,19 @@ void VoiceManager::loadForSampleRate(int sampleRate, Logger& logger) {
         // Check if any samples were actually loaded
         if (instrumentLoader_.getTotalLoadedSamples() == 0) {
             const std::string errorMsg = "[VoiceManager/loadForSampleRate] error: Failed to load any instrument data";
-            logSafe("VoiceManager/loadForSampleRate", "error", errorMsg, logger);
+            logger.log("VoiceManager/loadForSampleRate", LogSeverity::Error, errorMsg);
             std::exit(1);
         }
         
         currentSampleRate_ = sampleRate;
         initializeVoicesWithInstruments(logger);
         
-        logSafe("VoiceManager/loadForSampleRate", "info", 
-                "=== INIT PHASE 2 COMPLETED: All 128 voices initialized with sample data (with shared envelope data and LFO panning) ===", logger);
+        logger.log("VoiceManager/loadForSampleRate", LogSeverity::Info, 
+                "=== INIT PHASE 2 COMPLETED: All 128 voices initialized with sample data (with shared envelope data and LFO panning) ===");
         
     } catch (...) {
         const std::string errorMsg = "[VoiceManager/loadForSampleRate] error: INIT PHASE 2: Loading failed";
-        logSafe("VoiceManager/loadForSampleRate", "error", errorMsg, logger);
+        logger.log("VoiceManager/loadForSampleRate", LogSeverity::Error, errorMsg);
         std::exit(1);
     }
 }
@@ -144,20 +144,20 @@ void VoiceManager::loadForSampleRate(int sampleRate, Logger& logger) {
 // ===== SAMPLE RATE MANAGEMENT =====
 
 void VoiceManager::changeSampleRate(int newSampleRate, Logger& logger) {
-    logSafe("VoiceManager/changeSampleRate", "info", 
-            "Requested sample rate change to " + std::to_string(newSampleRate) + " Hz", logger);
+    logger.log("VoiceManager/changeSampleRate", LogSeverity::Info, 
+            "Requested sample rate change to " + std::to_string(newSampleRate) + " Hz");
     
     if (currentSampleRate_ == newSampleRate) {
-        logSafe("VoiceManager/changeSampleRate", "info", 
-                "Sample rate unchanged: " + std::to_string(newSampleRate) + " Hz", logger);
+        logger.log("VoiceManager/changeSampleRate", LogSeverity::Info, 
+                "Sample rate unchanged: " + std::to_string(newSampleRate) + " Hz");
         return;
     }
     
     stopAllVoices();
     loadForSampleRate(newSampleRate, logger);
     
-    logSafe("VoiceManager/changeSampleRate", "info", 
-            "Sample rate successfully changed to " + std::to_string(newSampleRate) + " Hz", logger);
+    logger.log("VoiceManager/changeSampleRate", LogSeverity::Info, 
+            "Sample rate successfully changed to " + std::to_string(newSampleRate) + " Hz");
 }
 
 void VoiceManager::prepareToPlay(int maxBlockSize) noexcept {
@@ -397,8 +397,8 @@ void VoiceManager::resetAllVoices(Logger& logger) {
     // Reset LFO parameters
     resetLfoParameters();
     
-    logSafe("VoiceManager/resetAllVoices", "info", 
-           "Reset all 128 voices to idle state, cleared sustain pedal state, and reset LFO parameters", logger);
+    logger.log("VoiceManager/resetAllVoices", LogSeverity::Info,
+           "Reset all 128 voices to idle state, cleared sustain pedal state, and reset LFO parameters");
 }
 
 // ===== GLOBAL VOICE PARAMETERS =====
@@ -407,7 +407,7 @@ void VoiceManager::setAllVoicesMasterGainMIDI(uint8_t midi_gain, Logger& logger)
     if (midi_gain > 127) {
         const std::string errorMsg = "[VoiceManager/setAllVoicesMasterGain] error: Invalid master MIDI gain " + 
                                    std::to_string(midi_gain) + " (must be 0-127)";
-        logSafe("VoiceManager/setAllVoicesMasterGain", "error", errorMsg, logger);
+        logger.log("VoiceManager/setAllVoicesMasterGain", LogSeverity::Error, errorMsg);
         return;
     }
     
@@ -417,8 +417,8 @@ void VoiceManager::setAllVoicesMasterGainMIDI(uint8_t midi_gain, Logger& logger)
         voices_[i].setMasterGain(gain);
     }
     
-    logSafe("VoiceManager/setAllVoicesMasterGain", "info", 
-           "Master gain set to " + std::to_string(gain) + " for all voices", logger);
+    logger.log("VoiceManager/setAllVoicesMasterGain", LogSeverity::Info, 
+           "Master gain set to " + std::to_string(gain) + " for all voices");
 }
 
 void VoiceManager::setAllVoicesPanMIDI(uint8_t midi_pan) noexcept {
@@ -529,38 +529,38 @@ void VoiceManager::setRealTimeMode(bool enabled) noexcept {
 // ===== SYSTEM DIAGNOSTICS =====
 
 void VoiceManager::logSystemStatistics(Logger& logger) {
-    logSafe("VoiceManager/statistics", "info", "========================", logger);
-    logSafe("VoiceManager/statistics", "info", "VoiceManager Statistics:", logger);
-    logSafe("VoiceManager/statistics", "info", "========================", logger);
+    logger.log("VoiceManager/statistics", LogSeverity::Info, "========================");
+    logger.log("VoiceManager/statistics", LogSeverity::Info, "VoiceManager Statistics:");
+    logger.log("VoiceManager/statistics", LogSeverity::Info, "========================");
     
-    logSafe("VoiceManager/statistics", "info", 
-           "Sample Directory: " + sampleDir_, logger);
-    logSafe("VoiceManager/statistics", "info", 
-           "Current Sample Rate: " + std::to_string(currentSampleRate_) + " Hz", logger);
-    logSafe("VoiceManager/statistics", "info", 
-           "System Initialized: " + std::string(systemInitialized_ ? "Yes" : "No"), logger);
-    logSafe("VoiceManager/statistics", "info", 
-           "Real-Time Mode: " + std::string(rtMode_.load() ? "Enabled" : "Disabled"), logger);
+    logger.log("VoiceManager/statistics", LogSeverity::Info, 
+           "Sample Directory: " + sampleDir_);
+    logger.log("VoiceManager/statistics", LogSeverity::Info, 
+           "Current Sample Rate: " + std::to_string(currentSampleRate_) + " Hz");
+    logger.log("VoiceManager/statistics", LogSeverity::Info, 
+           "System Initialized: " + std::string(systemInitialized_ ? "Yes" : "No"));
+    logger.log("VoiceManager/statistics", LogSeverity::Info, 
+           "Real-Time Mode: " + std::string(rtMode_.load() ? "Enabled" : "Disabled"));
     
-    logSafe("VoiceManager/statistics", "info", "------------------------", logger);
-    logSafe("VoiceManager/statistics", "info", "Voice Pool Status:", logger);
-    logSafe("VoiceManager/statistics", "info", "------------------------", logger);
+    logger.log("VoiceManager/statistics", LogSeverity::Info, "------------------------");
+    logger.log("VoiceManager/statistics", LogSeverity::Info, "Voice Pool Status:");
+    logger.log("VoiceManager/statistics", LogSeverity::Info, "------------------------");
     
-    logSafe("VoiceManager/statistics", "info", 
-           "Total Voices: 128", logger);
-    logSafe("VoiceManager/statistics", "info", 
-           "Active Voices: " + std::to_string(getActiveVoicesCount()), logger);
-    logSafe("VoiceManager/statistics", "info", 
-           "Sustaining Voices: " + std::to_string(getSustainingVoicesCount()), logger);
-    logSafe("VoiceManager/statistics", "info", 
-           "Releasing Voices: " + std::to_string(getReleasingVoicesCount()), logger);
+    logger.log("VoiceManager/statistics", LogSeverity::Info, 
+           "Total Voices: 128");
+    logger.log("VoiceManager/statistics", LogSeverity::Info, 
+           "Active Voices: " + std::to_string(getActiveVoicesCount()));
+    logger.log("VoiceManager/statistics", LogSeverity::Info, 
+           "Sustaining Voices: " + std::to_string(getSustainingVoicesCount()));
+    logger.log("VoiceManager/statistics", LogSeverity::Info, 
+           "Releasing Voices: " + std::to_string(getReleasingVoicesCount()));
     
-    logSafe("VoiceManager/statistics", "info", "------------------------", logger);
-    logSafe("VoiceManager/statistics", "info", "Sustain Pedal Status:", logger);
-    logSafe("VoiceManager/statistics", "info", "------------------------", logger);
+    logger.log("VoiceManager/statistics", LogSeverity::Info, "------------------------");
+    logger.log("VoiceManager/statistics", LogSeverity::Info, "Sustain Pedal Status:");
+    logger.log("VoiceManager/statistics", LogSeverity::Info, "------------------------");
     
-    logSafe("VoiceManager/statistics", "info", 
-           "Pedal Active: " + std::string(sustainPedalActive_.load() ? "Yes" : "No"), logger);
+    logger.log("VoiceManager/statistics", LogSeverity::Info, 
+           "Pedal Active: " + std::string(sustainPedalActive_.load() ? "Yes" : "No"));
     
     // Count delayed note-offs
     int delayedCount = 0;
@@ -569,30 +569,30 @@ void VoiceManager::logSystemStatistics(Logger& logger) {
             ++delayedCount;
         }
     }
-    logSafe("VoiceManager/statistics", "info", 
-           "Delayed Note-Offs: " + std::to_string(delayedCount), logger);
+    logger.log("VoiceManager/statistics", LogSeverity::Info, 
+           "Delayed Note-Offs: " + std::to_string(delayedCount));
     
-    logSafe("VoiceManager/statistics", "info", "------------------------", logger);
-    logSafe("VoiceManager/statistics", "info", "LFO Panning Status:", logger);
-    logSafe("VoiceManager/statistics", "info", "------------------------", logger);
+    logger.log("VoiceManager/statistics", LogSeverity::Info, "------------------------");
+    logger.log("VoiceManager/statistics", LogSeverity::Info, "LFO Panning Status:");
+    logger.log("VoiceManager/statistics", LogSeverity::Info, "------------------------");
     
-    logSafe("VoiceManager/statistics", "info", 
-           "LFO Speed: " + std::to_string(panSpeed_) + " Hz", logger);
-    logSafe("VoiceManager/statistics", "info", 
-           "LFO Depth: " + std::to_string(panDepth_), logger);
-    logSafe("VoiceManager/statistics", "info", 
-           "LFO Phase: " + std::to_string(lfoPhase_) + " radians", logger);
-    logSafe("VoiceManager/statistics", "info", 
-           "LFO Active: " + std::string(isLfoPanningActive() ? "Yes" : "No"), logger);
+    logger.log("VoiceManager/statistics", LogSeverity::Info, 
+           "LFO Speed: " + std::to_string(panSpeed_) + " Hz");
+    logger.log("VoiceManager/statistics", LogSeverity::Info, 
+           "LFO Depth: " + std::to_string(panDepth_));
+    logger.log("VoiceManager/statistics", LogSeverity::Info, 
+           "LFO Phase: " + std::to_string(lfoPhase_) + " radians");
+    logger.log("VoiceManager/statistics", LogSeverity::Info, 
+           "LFO Active: " + std::string(isLfoPanningActive() ? "Yes" : "No"));
     
-    logSafe("VoiceManager/statistics", "info", "========================", logger);
+    logger.log("VoiceManager/statistics", LogSeverity::Info, "========================");
 }
 
 // ===== PRIVATE HELPER METHODS =====
 
 void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
-    logSafe("VoiceManager/initializeVoicesWithInstruments", "info", 
-            "Initializing all 128 voices with loaded instruments and shared envelope system...", logger);
+    logger.log("VoiceManager/initializeVoicesWithInstruments", LogSeverity::Info, 
+            "Initializing all 128 voices with loaded instruments and shared envelope system...");
     
     for (int i = 0; i < 128; ++i) {
         uint8_t midiNote = static_cast<uint8_t>(i);
@@ -617,8 +617,8 @@ void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
     // Set default stereo field
     setAllVoicesStereoFieldAmountMIDI(0);   // Disabled initially (mono/natural stereo)
     
-    logSafe("VoiceManager/initializeVoicesWithInstruments", "info", 
-            "All 128 voices initialized successfully with default parameters", logger);
+    logger.log("VoiceManager/initializeVoicesWithInstruments", LogSeverity::Info, 
+            "All 128 voices initialized successfully with default parameters");
 }
 
 bool VoiceManager::needsReinitialization(int targetSampleRate) const noexcept {
@@ -697,13 +697,3 @@ void VoiceManager::cleanupInactiveVoices() noexcept {
     voicesToRemove_.clear();
 }
 
-void VoiceManager::logSafe(const std::string& component, const std::string& severity, 
-                          const std::string& message, Logger& logger) const {
-    if (!rtMode_.load()) {
-        // Non-RT context: use proper logger
-        logger.log(component, severity, message);
-    } else {
-        // RT context or development: always log to stdout for visibility
-        std::cout << "[" << component << "] " << severity << ": " << message << std::endl;
-    }
-}

@@ -40,13 +40,13 @@ void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRa
     sampler_ = &sampler;
     logger_ = &logger;
     
-    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
               "Starting loadInstrumentData with targetSampleRate " + 
               std::to_string(targetSampleRate) + " Hz");
     
     // Automatické vyčištění předchozích dat (pokud existují)
     if (actual_samplerate_ != 0) {
-        logger.log("InstrumentLoader/loadInstrumentData", "info", 
+        logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
                   "Clearing previous data (previous sampleRate: " + 
                   std::to_string(actual_samplerate_) + " Hz)");
         clear(logger);
@@ -55,19 +55,19 @@ void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRa
     // Nastavení nové target sample rate
     actual_samplerate_ = targetSampleRate;
     
-    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
               "InstrumentLoader initialized with targetSampleRate " + 
               std::to_string(actual_samplerate_) + " Hz");
     
-    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
               "Prepared array for " + std::to_string(MIDI_NOTE_MAX + 1) + 
               " MIDI notes with " + std::to_string(VELOCITY_LAYERS) + " velocity layers");
               
-    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
               "All samples will be converted to stereo interleaved format [L,R,L,R...]");
     
     // Hlavní loading loop - stejný algoritmus jako původní loadInstrument()
-    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
               "Starting loading of all instruments for targetSampleRate " + 
               std::to_string(actual_samplerate_) + " Hz");
     
@@ -90,7 +90,7 @@ void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRa
             
             if (index != -1) {
                 // Sample nalezen - načtení do bufferu
-                logger.log("InstrumentLoader/loadInstrumentData", "info", 
+                logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
                           "Sample found for MIDI " + std::to_string(midi) + 
                           " velocity " + std::to_string(vel) + " at index " + std::to_string(index));
                 
@@ -109,7 +109,7 @@ void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRa
                 instruments_[midi].total_samples_stereo[vel] = 0;
                 instruments_[midi].was_originally_mono[vel] = false;
                 
-                logger.log("InstrumentLoader/loadInstrumentData", "warn", 
+                logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Warning, 
                           "Sample for MIDI " + std::to_string(midi) + 
                           " velocity " + std::to_string(vel) + 
                           " not found at frequency " + std::to_string(actual_samplerate_) + " Hz");
@@ -121,25 +121,25 @@ void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRa
     
     // Summary log s mono/stereo statistikami
     int totalSlots = (MIDI_NOTE_MAX + 1) * VELOCITY_LAYERS;
-    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
               "Loading completed. Found: " + std::to_string(foundSamples) + 
               ", Missing: " + std::to_string(missingSamples) + 
               ", Total slots: " + std::to_string(totalSlots));
     
-    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
               "Successfully loaded " + std::to_string(totalLoadedSamples_) + 
               " samples into memory as 32-bit stereo float buffers");
               
-    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
               "Channel distribution: " + std::to_string(monoSamplesCount_) + 
               " originally mono, " + std::to_string(stereoSamplesCount_) + " originally stereo/multi-channel");
     
     // Validace stereo konzistence po načtení
-    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
               "Starting stereo consistency validation...");
     validateStereoConsistency(logger);
     
-    logger.log("InstrumentLoader/loadInstrumentData", "info", 
+    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
               "InstrumentLoader data loading completed successfully");
 }
 
@@ -182,9 +182,9 @@ void InstrumentLoader::clear(Logger& logger) {
     stereoSamplesCount_ = 0;
     actual_samplerate_ = 0;
     
-    logger.log("InstrumentLoader/clear", "info", 
+    logger.log("InstrumentLoader/clear", LogSeverity::Info, 
               "Memory freed for " + std::to_string(freedCount) + " stereo buffers");
-    logger.log("InstrumentLoader/clear", "info", 
+    logger.log("InstrumentLoader/clear", LogSeverity::Info, 
               "InstrumentLoader data cleared and reset to uninitialized state");
 }
 
@@ -257,7 +257,7 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
     float* tempBuffer = static_cast<float*>(malloc(tempBufferSize));
     
     if (!tempBuffer) {
-        logger.log("InstrumentLoader/loadSampleToBuffer", "error", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Error, 
                    "Memory allocation error for temporary buffer: " + 
                    std::to_string(tempBufferSize) + " bytes");
         sf_close(sndfile);
@@ -269,7 +269,7 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
     sf_close(sndfile);
     
     if (framesRead != frameCount) {
-        logger.log("InstrumentLoader/loadSampleToBuffer", "error", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Error, 
                    "Data reading error from file " + std::string(filename) + 
                    ": expected " + std::to_string(frameCount) + 
                    " frames, read " + std::to_string(framesRead));
@@ -279,10 +279,10 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
     
     // Logování konverze (vždy, i když neproběhla)
     if (needsConversion) {
-        logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Info, 
                    "PCM to 32-bit float conversion performed for file: " + std::string(filename));
     } else {
-        logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Info, 
                    "File already in 32-bit float format, no conversion needed: " + std::string(filename));
     }
     
@@ -291,7 +291,7 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
     float* permanentBuffer = static_cast<float*>(malloc(stereoBufferSize));
     
     if (!permanentBuffer) {
-        logger.log("InstrumentLoader/loadSampleToBuffer", "error", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Error, 
                    "Memory allocation error for permanent stereo buffer: " + 
                    std::to_string(stereoBufferSize) + " bytes");
         free(tempBuffer);
@@ -307,14 +307,14 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
             permanentBuffer[frame * 2] = tempBuffer[frame];     // L kanál
             permanentBuffer[frame * 2 + 1] = tempBuffer[frame]; // R kanál (duplikace)
         }
-        logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Info, 
                    "Mono to stereo conversion performed (L=R duplication): " + std::string(filename));
         
     } else if (channelCount == 2) {
         // STEREO → STEREO: přímé kopírování (již správný formát)
         if (isInterleaved) {
             memcpy(permanentBuffer, tempBuffer, tempBufferSize);
-            logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
+            logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Info, 
                        "Stereo data already in interleaved format, direct copy: " + 
                        std::string(filename));
         } else {
@@ -323,7 +323,7 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
                 permanentBuffer[frame * 2] = tempBuffer[frame];                    // L kanál
                 permanentBuffer[frame * 2 + 1] = tempBuffer[frameCount + frame];   // R kanál
             }
-            logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
+            logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Info, 
                        "Non-interleaved to interleaved stereo conversion performed: " + 
                        std::string(filename));
         }
@@ -343,7 +343,7 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
                 permanentBuffer[frame * 2 + 1] = tempBuffer[frameCount + frame];   // R kanál
             }
         }
-        logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Info, 
                    "Multi-channel to stereo conversion performed (using L+R channels): " + 
                    std::string(filename) + " (" + std::to_string(channelCount) + " → 2 channels)");
     }
@@ -376,14 +376,14 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
         instruments_[midi_note].sample_ptr_sampleInfo[velocity] = 
             const_cast<SampleInfo*>(&sampleList[sampleIndex]);
     } else {
-        logger.log("InstrumentLoader/loadSampleToBuffer", "error", 
+        logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Error, 
                    "Invalid sampleIndex " + std::to_string(sampleIndex) + 
                    " for SampleInfo pointer assignment");
         std::exit(1);
     }
     
     // Úspěšné přiřazení - detailní log s novými stereo metadaty
-    logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
+    logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Info, 
                "Stereo buffer assigned for MIDI " + std::to_string(midi_note) + 
                " velocity " + std::to_string(velocity) + ": " + 
                std::to_string(frameCount) + " frames, " +
@@ -391,7 +391,7 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
                std::to_string(stereoBufferSize) + " bytes, format: stereo interleaved [L,R,L,R...]");
     
     std::string originalFormat = wasOriginallyMono ? "originally mono" : "originally stereo";
-    logger.log("InstrumentLoader/loadSampleToBuffer", "info", 
+    logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Info, 
                "Buffer for MIDI " + std::to_string(midi_note) + 
                "/velocity " + std::to_string(velocity) + 
                " allocated and loaded successfully (" + originalFormat + ")");
@@ -418,13 +418,13 @@ bool InstrumentLoader::openSampleFile(int sampleIndex, SNDFILE*& sndfile, SF_INF
     sndfile = sf_open(filename, SFM_READ, &sfinfo);
     
     if (!sndfile) {
-        logger.log("InstrumentLoader/openSampleFile", "error", 
+        logger.log("InstrumentLoader/openSampleFile", LogSeverity::Error, 
                    "File opening error " + std::string(filename) + 
                    ": " + sf_strerror(nullptr));
         std::exit(1);
     }
     
-    logger.log("InstrumentLoader/openSampleFile", "info", 
+    logger.log("InstrumentLoader/openSampleFile", LogSeverity::Info, 
                "File " + std::string(filename) + " opened successfully");
     
     return true;
@@ -500,7 +500,7 @@ void InstrumentLoader::validateStereoConsistency(Logger& logger) {
                 
                 // Kontrola 1: Buffer pointer nesmí být null
                 if (inst.sample_ptr_velocity[vel] == nullptr) {
-                    logger.log("InstrumentLoader/validateStereoConsistency", "error", 
+                    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error, 
                               "NULL audio buffer for MIDI " + std::to_string(midi) + 
                               " velocity " + std::to_string(vel) + 
                               " despite velocityExists=true");
@@ -510,7 +510,7 @@ void InstrumentLoader::validateStereoConsistency(Logger& logger) {
                 
                 // Kontrola 2: SampleInfo pointer nesmí být null
                 if (inst.sample_ptr_sampleInfo[vel] == nullptr) {
-                    logger.log("InstrumentLoader/validateStereoConsistency", "error", 
+                    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error, 
                               "NULL sampleInfo for MIDI " + std::to_string(midi) + 
                               " velocity " + std::to_string(vel) + 
                               " despite velocityExists=true");
@@ -520,7 +520,7 @@ void InstrumentLoader::validateStereoConsistency(Logger& logger) {
                 
                 // Kontrola 3: Frame count musí být > 0
                 if (inst.frame_count_stereo[vel] <= 0) {
-                    logger.log("InstrumentLoader/validateStereoConsistency", "error", 
+                    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error, 
                               "Invalid frame_count_stereo " + std::to_string(inst.frame_count_stereo[vel]) + 
                               " for MIDI " + std::to_string(midi) + " velocity " + std::to_string(vel));
                     validationErrors++;
@@ -529,7 +529,7 @@ void InstrumentLoader::validateStereoConsistency(Logger& logger) {
                 // Kontrola 4: Total samples musí být frame_count * 2
                 int expectedTotalSamples = inst.frame_count_stereo[vel] * 2;
                 if (inst.total_samples_stereo[vel] != expectedTotalSamples) {
-                    logger.log("InstrumentLoader/validateStereoConsistency", "error", 
+                    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error, 
                               "Inconsistent total_samples_stereo for MIDI " + std::to_string(midi) + 
                               " velocity " + std::to_string(vel) + 
                               ": expected " + std::to_string(expectedTotalSamples) + 
@@ -540,7 +540,7 @@ void InstrumentLoader::validateStereoConsistency(Logger& logger) {
                 // Kontrola 5: Konzistence s původními metadata (SampleInfo.sample_count)
                 SampleInfo* sampleInfo = inst.sample_ptr_sampleInfo[vel];
                 if (inst.frame_count_stereo[vel] != sampleInfo->sample_count) {
-                    logger.log("InstrumentLoader/validateStereoConsistency", "error", 
+                    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error, 
                               "Frame count mismatch for MIDI " + std::to_string(midi) + 
                               " velocity " + std::to_string(vel) + 
                               ": stereo_frame_count=" + std::to_string(inst.frame_count_stereo[vel]) + 
@@ -551,7 +551,7 @@ void InstrumentLoader::validateStereoConsistency(Logger& logger) {
                 // Kontrola 6: Logická konzistence was_originally_mono vs původní channels
                 bool expectedMono = (sampleInfo->channels == 1);
                 if (inst.was_originally_mono[vel] != expectedMono) {
-                    logger.log("InstrumentLoader/validateStereoConsistency", "error", 
+                    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error, 
                               "Mono flag inconsistency for MIDI " + std::to_string(midi) + 
                               " velocity " + std::to_string(vel) + 
                               ": was_originally_mono=" + (inst.was_originally_mono[vel] ? "true" : "false") + 
@@ -563,15 +563,15 @@ void InstrumentLoader::validateStereoConsistency(Logger& logger) {
     }
     
     // Summary validace
-    logger.log("InstrumentLoader/validateStereoConsistency", "info", 
+    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Info, 
               "Stereo consistency validation completed. Validated " + std::to_string(validatedSamples) + 
               " samples, found " + std::to_string(validationErrors) + " errors");
     
     if (validationErrors == 0) {
-        logger.log("InstrumentLoader/validateStereoConsistency", "info", 
+        logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Info, 
                   "✓ All stereo buffers are consistent and valid");
     } else {
-        logger.log("InstrumentLoader/validateStereoConsistency", "error", 
+        logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error, 
                   "✗ Stereo consistency validation FAILED with " + 
                   std::to_string(validationErrors) + " errors - terminating");
         std::exit(1);
@@ -586,7 +586,7 @@ void InstrumentLoader::validateStereoConsistency(Logger& logger) {
  */
 void InstrumentLoader::validateVelocity(uint8_t velocity, const char* functionName, Logger& logger) const {
     if (velocity >= VELOCITY_LAYERS) {
-        logger.log("InstrumentLoader/" + std::string(functionName), "error", 
+        logger.log("InstrumentLoader/" + std::string(functionName), LogSeverity::Error, 
                    "Invalid velocity " + std::to_string(velocity) + 
                    " outside range 0-" + std::to_string(VELOCITY_LAYERS - 1));
         std::exit(1);
@@ -601,7 +601,7 @@ void InstrumentLoader::validateVelocity(uint8_t velocity, const char* functionNa
  */
 void InstrumentLoader::validateMidiNote(uint8_t midi_note, const char* functionName, Logger& logger) const {
     if (midi_note < MIDI_NOTE_MIN || midi_note > MIDI_NOTE_MAX) {
-        logger.log("InstrumentLoader/" + std::string(functionName), "error", 
+        logger.log("InstrumentLoader/" + std::string(functionName), LogSeverity::Error, 
                    "Invalid MIDI note " + std::to_string(midi_note) + 
                    " outside range " + std::to_string(MIDI_NOTE_MIN) + 
                    "-" + std::to_string(MIDI_NOTE_MAX));
@@ -616,7 +616,7 @@ void InstrumentLoader::validateMidiNote(uint8_t midi_note, const char* functionN
 void InstrumentLoader::checkInitialization(const char* functionName) const {
     if (actual_samplerate_ == 0) {
         if (logger_) {
-            logger_->log("InstrumentLoader/" + std::string(functionName), "error", 
+            logger_->log("InstrumentLoader/" + std::string(functionName), LogSeverity::Error, 
                        "InstrumentLoader not initialized - call loadInstrumentData() first");
         }
         std::exit(1);
@@ -633,7 +633,7 @@ void InstrumentLoader::validateSamplerReference(SamplerIO& sampler, Logger& logg
     // ale pro jistotu můžeme zkontrolovat adresu
     SamplerIO* samplerPtr = &sampler;
     if (samplerPtr == nullptr) {
-        logger.log("InstrumentLoader/validateSamplerReference", "error", 
+        logger.log("InstrumentLoader/validateSamplerReference", LogSeverity::Error, 
                   "SamplerIO reference is null - cannot proceed");
         std::exit(1);
     }
@@ -646,7 +646,7 @@ void InstrumentLoader::validateSamplerReference(SamplerIO& sampler, Logger& logg
  */
 void InstrumentLoader::validateTargetSampleRate(int targetSampleRate, Logger& logger) {
     if (targetSampleRate != 44100 && targetSampleRate != 48000) {
-        logger.log("InstrumentLoader/validateTargetSampleRate", "error", 
+        logger.log("InstrumentLoader/validateTargetSampleRate", LogSeverity::Error, 
                   "Invalid targetSampleRate " + std::to_string(targetSampleRate) + 
                   " Hz - only 44100 Hz and 48000 Hz are supported");
         std::exit(1);

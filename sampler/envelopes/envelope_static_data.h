@@ -87,7 +87,7 @@ public:
     static bool isInitialized() noexcept { return initialized_.load(); }
 
     // Error callback type - MUSÍ BÝT PŘED setErrorCallback deklarací
-    using ErrorCallback = std::function<void(const std::string&, const std::string&, const std::string&)>;
+    using ErrorCallback = std::function<void(const std::string&, LogSeverity, const std::string&)>;
 
     /**
      * @brief Nastavení error callback pro RT funkce
@@ -153,9 +153,9 @@ private:
     /**
      * @brief RT-safe error handling
      */
-    static void reportError(const std::string& component, const std::string& severity, 
+    static void reportError(const std::string& component, LogSeverity severity,
                            const std::string& message) noexcept;
-    static void exitOnError(const std::string& component, const std::string& severity, 
+    static void exitOnError(const std::string& component, LogSeverity severity,
                            const std::string& message) noexcept;
 
     /**

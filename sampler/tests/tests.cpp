@@ -11,31 +11,31 @@
 
 bool verifyBasicFunctionality(VoiceManager& voiceManager, Logger& logger) {
     try {
-        logger.log("verifyBasicFunctionality", "info", "Starting basic functionality verification");
+        logger.log("verifyBasicFunctionality", LogSeverity::Info, "Starting basic functionality verification");
         
         // Spuštění jednoduchého testu s exportem
         bool simpleTestPassed = runSimpleNoteTest(voiceManager, logger);
         
         if (simpleTestPassed) {
-            logger.log("verifyBasicFunctionality", "info", "Basic functionality test passed successfully");
+            logger.log("verifyBasicFunctionality", LogSeverity::Info, "Basic functionality test passed successfully");
         } else {
-            logger.log("verifyBasicFunctionality", "warn", "Basic functionality test failed");
+            logger.log("verifyBasicFunctionality", LogSeverity::Warning, "Basic functionality test failed");
         }
         
         return simpleTestPassed;
         
     } catch (const std::exception& e) {
-        logger.log("verifyBasicFunctionality", "error", "Verification failed: " + std::string(e.what()));
+        logger.log("verifyBasicFunctionality", LogSeverity::Error, "Verification failed: " + std::string(e.what()));
         return false;
     } catch (...) {
-        logger.log("verifyBasicFunctionality", "error", "Verification failed: unknown error");
+        logger.log("verifyBasicFunctionality", LogSeverity::Error, "Verification failed: unknown error");
         return false;
     }
 }
 
 bool runSimpleNoteTest(VoiceManager& voiceManager, Logger& logger) {
     try {
-        logger.log("runSimpleNoteTest", "info", "Starting simple note-on/off test with WAV export");
+        logger.log("runSimpleNoteTest", LogSeverity::Info, "Starting simple note-on/off test with WAV export");
         
         // Testovací parametry
         uint8_t testMidi = 70;
@@ -55,7 +55,7 @@ bool runSimpleNoteTest(VoiceManager& voiceManager, Logger& logger) {
         const int releaseBlocks = calculateBlocksForDuration(releaseDurationSec, sampleRate, blockSize);
         const int totalBlocks = noteOnBlocks + releaseBlocks;
         
-        logger.log("runSimpleNoteTest", "info",
+        logger.log("runSimpleNoteTest", LogSeverity::Info,
                    "Test phases: Note-on " + std::to_string(noteOnBlocks) + " blocks, "
                    "Release " + std::to_string(releaseBlocks) + " blocks");
         
@@ -84,7 +84,7 @@ bool runSimpleNoteTest(VoiceManager& voiceManager, Logger& logger) {
         
         // Start note
         voiceManager.setNoteStateMIDI(testMidi, true, testVelocity);
-        logger.log("runSimpleNoteTest", "info", "Note-on sent for MIDI " + std::to_string(testMidi));
+        logger.log("runSimpleNoteTest", LogSeverity::Info, "Note-on sent for MIDI " + std::to_string(testMidi));
         
         bool hasAudio = false;
         
@@ -116,7 +116,7 @@ bool runSimpleNoteTest(VoiceManager& voiceManager, Logger& logger) {
                     for (int j = 0; j < blockSize; ++j) {
                         maxSample = std::max(maxSample, std::max(std::abs(leftBuffer[j]), std::abs(rightBuffer[j])));
                     }
-                    logger.log("runSimpleNoteTest", "info", 
+                    logger.log("runSimpleNoteTest", LogSeverity::Info, 
                               "Block " + std::to_string(block) + " max sample: " + std::to_string(maxSample));
                 }
             }
@@ -124,7 +124,7 @@ bool runSimpleNoteTest(VoiceManager& voiceManager, Logger& logger) {
             // Note-off na konci note-on fáze
             if (block == noteOnBlocks - 1) {
                 voiceManager.setNoteStateMIDI(testMidi, false);
-                logger.log("runSimpleNoteTest", "info", "Note-off sent - starting release phase");
+                logger.log("runSimpleNoteTest", LogSeverity::Info, "Note-off sent - starting release phase");
             }
         }
         
@@ -136,7 +136,7 @@ bool runSimpleNoteTest(VoiceManager& voiceManager, Logger& logger) {
                            static_cast<int>(releaseExportBuffer.size() / 2), 2, sampleRate, logger);
             exportTestAudio("simple_full_test.wav", fullTestExportBuffer.data(), 
                            static_cast<int>(fullTestExportBuffer.size() / 2), 2, sampleRate, logger);
-            logger.log("runSimpleNoteTest", "info", "Exported all simple note test audio files");
+            logger.log("runSimpleNoteTest", LogSeverity::Info, "Exported all simple note test audio files");
         }
         
         // Cleanup
@@ -144,18 +144,18 @@ bool runSimpleNoteTest(VoiceManager& voiceManager, Logger& logger) {
         delete[] rightBuffer;
         
         if (hasAudio) {
-            logger.log("runSimpleNoteTest", "info", "Simple note test passed - audio output detected and exported");
+            logger.log("runSimpleNoteTest", LogSeverity::Info, "Simple note test passed - audio output detected and exported");
             return true;
         } else {
-            logger.log("runSimpleNoteTest", "warn", "Simple note test failed - no audio output detected");
+            logger.log("runSimpleNoteTest", LogSeverity::Warning, "Simple note test failed - no audio output detected");
             return false;
         }
         
     } catch (const std::exception& e) {
-        logger.log("runSimpleNoteTest", "error", "Simple note test failed: " + std::string(e.what()));
+        logger.log("runSimpleNoteTest", LogSeverity::Error, "Simple note test failed: " + std::string(e.what()));
         return false;
     } catch (...) {
-        logger.log("runSimpleNoteTest", "error", "Simple note test failed: unknown error");
+        logger.log("runSimpleNoteTest", LogSeverity::Error, "Simple note test failed: unknown error");
         return false;
     }
 }

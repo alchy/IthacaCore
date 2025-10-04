@@ -18,12 +18,12 @@ EnvelopeStaticData::ErrorCallback EnvelopeStaticData::errorCallback_;
 
 bool EnvelopeStaticData::initialize(Logger& logger) {
     if (initialized_.load()) {
-        logger.log("EnvelopeStaticData/initialize", "warning", 
+        logger.log("EnvelopeStaticData/initialize", LogSeverity::Warning, 
                   "Already initialized, skipping");
         return true;
     }
 
-    logger.log("EnvelopeStaticData/initialize", "info", 
+    logger.log("EnvelopeStaticData/initialize", LogSeverity::Info, 
               "Starting global envelope generation for all sample rates");
 
     try {
@@ -39,7 +39,7 @@ bool EnvelopeStaticData::initialize(Logger& logger) {
                     attack_index_[sr_idx][midi].length == 0 ||
                     release_index_[sr_idx][midi].data == nullptr ||
                     release_index_[sr_idx][midi].length == 0) {
-                    logger.log("EnvelopeStaticData/initialize", "error",
+                    logger.log("EnvelopeStaticData/initialize", LogSeverity::Error,
                               "Failed to initialize envelope for MIDI " + std::to_string(midi) +
                               " at " + std::to_string(SAMPLE_RATES[sr_idx]) + " Hz");
                     success = false;
@@ -48,7 +48,7 @@ bool EnvelopeStaticData::initialize(Logger& logger) {
         }
 
         if (!success) {
-            logger.log("EnvelopeStaticData/initialize", "error",
+            logger.log("EnvelopeStaticData/initialize", LogSeverity::Error,
                       "Envelope initialization incomplete. Terminating.");
             std::exit(1);
         }
@@ -62,17 +62,17 @@ bool EnvelopeStaticData::initialize(Logger& logger) {
             totalMemory += release_buffer_[sr_idx].size() * sizeof(float);
         }
         
-        logger.log("EnvelopeStaticData/initialize", "info",
+        logger.log("EnvelopeStaticData/initialize", LogSeverity::Info,
                   "Global envelope initialization completed successfully. "
                   "Memory usage: " + std::to_string(totalMemory / 1024 / 1024) + " MB");
         return true;
 
     } catch (const std::exception& e) {
-        logger.log("EnvelopeStaticData/initialize", "error",
+        logger.log("EnvelopeStaticData/initialize", LogSeverity::Error,
                   "Failed to initialize static envelopes: " + std::string(e.what()) + ". Terminating.");
         std::exit(1);
     } catch (...) {
-        logger.log("EnvelopeStaticData/initialize", "error",
+        logger.log("EnvelopeStaticData/initialize", LogSeverity::Error,
                   "Failed to initialize static envelopes: unknown error. Terminating.");
         std::exit(1);
     }
@@ -108,27 +108,27 @@ bool EnvelopeStaticData::getAttackGains(float* gainBuffer, int numSamples, int p
     if (!gainBuffer || numSamples <= 0) return false;
     
     if (!initialized_.load()) {
-        exitOnError("EnvelopeStaticData/getAttackGains", "error",
+        exitOnError("EnvelopeStaticData/getAttackGains", LogSeverity::Error,
                    "Static envelope data not initialized");
         return false;
     }
     
     if (!isValidMidiValue(midiValue)) {
-        exitOnError("EnvelopeStaticData/getAttackGains", "error",
+        exitOnError("EnvelopeStaticData/getAttackGains", LogSeverity::Error,
                    "Invalid MIDI value " + std::to_string(midiValue));
         return false;
     }
     
     const int sr_index = getSampleRateIndex(sampleRate);
     if (!isValidSampleRateIndex(sr_index)) {
-        exitOnError("EnvelopeStaticData/getAttackGains", "error",
+        exitOnError("EnvelopeStaticData/getAttackGains", LogSeverity::Error,
                    "Invalid sample rate " + std::to_string(sampleRate));
         return false;
     }
     
     const EnvelopeIndex& envelope_idx = attack_index_[sr_index][midiValue];
     if (!envelope_idx.data || envelope_idx.length == 0) {
-        exitOnError("EnvelopeStaticData/getAttackGains", "error",
+        exitOnError("EnvelopeStaticData/getAttackGains", LogSeverity::Error,
                    "Attack envelope data corrupted");
         return false;
     }
@@ -156,27 +156,27 @@ bool EnvelopeStaticData::getReleaseGains(float* gainBuffer, int numSamples, int 
     if (!gainBuffer || numSamples <= 0) return false;
     
     if (!initialized_.load()) {
-        exitOnError("EnvelopeStaticData/getReleaseGains", "error",
+        exitOnError("EnvelopeStaticData/getReleaseGains", LogSeverity::Error,
                    "Static envelope data not initialized");
         return false;
     }
     
     if (!isValidMidiValue(midiValue)) {
-        exitOnError("EnvelopeStaticData/getReleaseGains", "error",
+        exitOnError("EnvelopeStaticData/getReleaseGains", LogSeverity::Error,
                    "Invalid MIDI value " + std::to_string(midiValue));
         return false;
     }
     
     const int sr_index = getSampleRateIndex(sampleRate);
     if (!isValidSampleRateIndex(sr_index)) {
-        exitOnError("EnvelopeStaticData/getReleaseGains", "error",
+        exitOnError("EnvelopeStaticData/getReleaseGains", LogSeverity::Error,
                    "Invalid sample rate " + std::to_string(sampleRate));
         return false;
     }
     
     const EnvelopeIndex& envelope_idx = release_index_[sr_index][midiValue];
     if (!envelope_idx.data || envelope_idx.length == 0) {
-        exitOnError("EnvelopeStaticData/getReleaseGains", "error",
+        exitOnError("EnvelopeStaticData/getReleaseGains", LogSeverity::Error,
                    "Release envelope data corrupted");
         return false;
     }
@@ -248,12 +248,12 @@ float EnvelopeStaticData::calculateTau(uint8_t midi) noexcept {
 void EnvelopeStaticData::generateEnvelopeForSampleRate(int sampleRate, Logger& logger) {
     const int sr_index = getSampleRateIndex(sampleRate);
     if (!isValidSampleRateIndex(sr_index)) {
-        logger.log("EnvelopeStaticData/generateEnvelopeForSampleRate", "error",
+        logger.log("EnvelopeStaticData/generateEnvelopeForSampleRate", LogSeverity::Error,
                   "Unsupported sample rate: " + std::to_string(sampleRate) + ". Terminating.");
         std::exit(1);
     }
 
-    logger.log("EnvelopeStaticData/generateEnvelopeForSampleRate", "info",
+    logger.log("EnvelopeStaticData/generateEnvelopeForSampleRate", LogSeverity::Info,
               "Generating envelopes for " + std::to_string(sampleRate) + " Hz");
 
     std::vector<float>& attack_buffer = attack_buffer_[sr_index];
@@ -313,16 +313,16 @@ void EnvelopeStaticData::generateEnvelopeForSampleRate(int sampleRate, Logger& l
         }
 
     } catch (const std::exception& e) {
-        logger.log("EnvelopeStaticData/generateEnvelopeForSampleRate", "error",
+        logger.log("EnvelopeStaticData/generateEnvelopeForSampleRate", LogSeverity::Error,
                   "Exception during envelope generation: " + std::string(e.what()) + ". Terminating.");
         std::exit(1);
     } catch (...) {
-        logger.log("EnvelopeStaticData/generateEnvelopeForSampleRate", "error",
+        logger.log("EnvelopeStaticData/generateEnvelopeForSampleRate", LogSeverity::Error,
                   "Unknown error during envelope generation. Terminating.");
         std::exit(1);
     }
 
-    logger.log("EnvelopeStaticData/generateEnvelopeForSampleRate", "info",
+    logger.log("EnvelopeStaticData/generateEnvelopeForSampleRate", LogSeverity::Info,
               "Completed envelope generation for " + std::to_string(sampleRate) +
               " Hz (128 MIDI values, 2 types). Total attack samples: " + std::to_string(attack_buffer.size()) +
               ", total release samples: " + std::to_string(release_buffer.size()));
@@ -403,8 +403,8 @@ bool EnvelopeStaticData::isValidMidiValue(uint8_t midi) noexcept {
     return midi <= MAX_MIDI;
 }
 
-void EnvelopeStaticData::reportError(const std::string& component, 
-                                     const std::string& severity, 
+void EnvelopeStaticData::reportError(const std::string& component,
+                                     LogSeverity severity,
                                      const std::string& message) noexcept {
     if (errorCallback_) {
         try {
@@ -415,8 +415,8 @@ void EnvelopeStaticData::reportError(const std::string& component,
     }
 }
 
-void EnvelopeStaticData::exitOnError(const std::string& component, 
-                                     const std::string& severity, 
+void EnvelopeStaticData::exitOnError(const std::string& component,
+                                     LogSeverity severity,
                                      const std::string& message) noexcept {
     reportError(component, severity, message + ". Terminating.");
     std::exit(1);
@@ -444,7 +444,7 @@ void EnvelopeStaticData::logEnvelopeData(const std::vector<float>& data, const s
         begin_msg << formatFloat(data[i]);
     }
     begin_msg << "]";
-    logger.log(component, "debug", begin_msg.str());
+    logger.log(component, LogSeverity::Debug, begin_msg.str());
 
     // Střední hodnoty
     if (size > 8) {
@@ -457,7 +457,7 @@ void EnvelopeStaticData::logEnvelopeData(const std::vector<float>& data, const s
             half_msg << formatFloat(data[half_start + i]);
         }
         half_msg << "]";
-        logger.log(component, "debug", half_msg.str());
+        logger.log(component, LogSeverity::Debug, half_msg.str());
     }
 
     // Poslední 4 hodnoty
@@ -471,6 +471,6 @@ void EnvelopeStaticData::logEnvelopeData(const std::vector<float>& data, const s
             end_msg << formatFloat(data[end_start + i]);
         }
         end_msg << "]";
-        logger.log(component, "debug", end_msg.str());
+        logger.log(component, LogSeverity::Debug, end_msg.str());
     }
 }

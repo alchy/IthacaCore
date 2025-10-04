@@ -521,15 +521,6 @@ private:
      */
     void calculatePanGains(float pan, float& leftGain, float& rightGain) noexcept;
     
-    /**
-     * @brief Safe logging wrapper for non-RT operations
-     * @param component Component name
-     * @param severity Log severity level
-     * @param message Log message
-     * @param logger Reference to Logger
-     */
-    void logSafe(const std::string& component, const std::string& severity, 
-                const std::string& message, Logger& logger) const;
 };
 
 #endif // VOICE_H

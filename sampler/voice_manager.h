@@ -488,17 +488,7 @@ private:
      * @note RT-safe: processes voicesToRemove_ buffer
      */
     void cleanupInactiveVoices() noexcept;
-    
-    /**
-     * @brief Safe logging wrapper for non-RT operations
-     * @param component Component name
-     * @param severity Log severity level
-     * @param message Log message
-     * @param logger Reference to Logger
-     */
-    void logSafe(const std::string& component, const std::string& severity, 
-                const std::string& message, Logger& logger) const;
-    
+
     /**
      * @brief Validate MIDI note range
      * @param midiNote MIDI note to validate
