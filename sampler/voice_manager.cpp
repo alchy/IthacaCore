@@ -621,18 +621,27 @@ void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
         voice.prepareToPlay(512);
     }
 
-    // Set default envelope parameters for all voices
-    setAllVoicesAttackMIDI(0);              // Fast attack
-    setAllVoicesReleaseMIDI(4);             // Short release
-    setAllVoicesSustainLevelMIDI(127);      // Full sustain
+    // ===== DEFAULT PARAMETER INITIALIZATION (MIDI values 0-127) =====
 
-    // Set default pan parameters for all voices
-    setAllVoicesPanMIDI(64);                // Center pan (MIDI 64 = center)
-    setAllVoicesPanSpeedMIDI(0);            // LFO panning disabled initially
-    setAllVoicesPanDepthMIDI(0);            // No LFO depth initially
+    // Envelope defaults
+    setAllVoicesAttackMIDI(0);              // MIDI 0   = Fast attack
+    setAllVoicesReleaseMIDI(4);             // MIDI 4   = Short release
+    setAllVoicesSustainLevelMIDI(127);      // MIDI 127 = Full sustain
 
-    // Set default stereo field
-    setAllVoicesStereoFieldAmountMIDI(0);   // Disabled initially (mono/natural stereo)
+    // Static pan defaults
+    setAllVoicesPanMIDI(64);                // MIDI 64  = Center pan
+
+    // LFO pan defaults (disabled)
+    setAllVoicesPanSpeedMIDI(0);            // MIDI 0   = No LFO speed
+    setAllVoicesPanDepthMIDI(0);            // MIDI 0   = No LFO depth
+
+    // Stereo field defaults
+    setAllVoicesStereoFieldAmountMIDI(0);   // MIDI 0   = Disabled (mono/natural stereo)
+
+    // DSP defaults
+    setLimiterThresholdMIDI(127);           // MIDI 127 = 0 dB (transparent/off)
+    setLimiterReleaseMIDI(64);              // MIDI 64  = ~50 ms (medium release)
+    setLimiterEnabledMIDI(0);               // MIDI 0   = Disabled
     
     logger.log("VoiceManager/initializeVoicesWithInstruments", LogSeverity::Info, 
             "All 128 voices initialized successfully with default parameters");
