@@ -1,14 +1,16 @@
 /**
  * @file harmonic_enhancer.h
  * @brief Dynamic harmonic enhancement processor (BBE-style treble VCA)
- * 
+ *
  * Simulates the BA3884F IC's treble VCA behavior for dynamic harmonic enhancement.
- * Optimalizace:
- * - Omezení maximálního zesílení na 2.5x pro prevenci clippingu
- * - Vyhlazení změn definitionLevel pro eliminaci kliků
- * 
+ * Uses envelope follower to adaptively control gain based on signal level.
+ *
+ * Optimizations:
+ * - Branch-less soft clipping (better CPU pipeline utilization)
+ * - Exponential smoothing for gain changes (prevents zipper noise)
+ *
  * @author IthacaCore Audio Team
- * @version 1.1.0
+ * @version 1.0.0
  * @date 2025
  */
 
@@ -42,14 +44,12 @@ public:
     }
 
     /**
-     * @brief Set enhancement intensity with smoothing
+     * @brief Set enhancement intensity level
      * @param level Enhancement level (0.0 to 1.0)
-     * @note RT-SAFE: Smooths changes to prevent clicks
+     * @note RT-SAFE: Simple clamped assignment
      */
     void setDefinitionLevel(float level) noexcept {
-        // Vyhlazení změn pro eliminaci kliků
-        const float targetLevel = std::max(0.0f, std::min(1.0f, level));
-        definitionLevel_ += (targetLevel - definitionLevel_) * 0.1f; // 10% za blok
+        definitionLevel_ = std::max(0.0f, std::min(1.0f, level));
     }
 
     /**
@@ -70,13 +70,17 @@ public:
                 envelope_ += (inputAbs - envelope_) * (1.0f - releaseCoeff_);
             }
 
-            // Dynamické zesílení (omezeno na 2.5x)
+            // Dynamic gain calculation: inversely related to envelope
+            // Quiet signals get more enhancement, loud signals get less
             const float dynamicFactor = 1.0f - std::min(1.0f, envelope_ * 2.0f);
-            const float targetGain = 1.0f + (definitionLevel_ * 1.5f * dynamicFactor); // Omezeno z 2.0 na 1.5
+            const float targetGain = 1.0f + (definitionLevel_ * 2.0f * dynamicFactor);
             currentGain_ += (targetGain - currentGain_) * (1.0f - gainSmoothCoeff_);
 
-            // Aplikace zesílení a soft clipping
-            buffer[i] = softClip(input * currentGain_);
+            // Apply enhancement
+            buffer[i] = input * currentGain_;
+
+            // Soft clipping to prevent harsh distortion
+            buffer[i] = softClip(buffer[i]);
         }
     }
 

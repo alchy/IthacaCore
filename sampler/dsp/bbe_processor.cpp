@@ -1,22 +1,23 @@
 /**
  * @file bbe_processor.cpp
  * @brief Implementation of BBE Sound Processor
- * 
+ *
  * This file implements the core BBE audio enhancement algorithm including:
  * - Filter initialization and coefficient updates
- * - 3-band crossover processing
- * - Phase compensation
- * - Dynamic harmonic enhancement
- * - Bass boost (limited to 9 dB)
- * - Signal recombination with soft clipping
- * 
- * Optimalizace:
- * - Omezení basového boostu na 9 dB pro prevenci clippingu
- * - Vyhlazení změn bassBoostLevel pro eliminaci kliků
- * - Soft clipping při rekombinaci pásem pro hladší výstup
- * 
+ * - 3-band crossover processing (Linkwitz-Riley 4th order)
+ * - Phase compensation (all-pass filters)
+ * - Dynamic harmonic enhancement (envelope-following VCA)
+ * - Bass boost (low-shelf filter, 0-12 dB)
+ * - Signal recombination
+ *
+ * Optimizations:
+ * - Block processing for filters (better cache locality)
+ * - Merged phase processing loops (reduced memory access)
+ * - Auto-bypass when definition = 0 (CPU savings)
+ * - Cached enable flags (avoid atomic loads per sample)
+ *
  * @author IthacaCore Audio Team
- * @version 1.2.0
+ * @version 1.0.0
  * @date 2025
  */
 
@@ -59,26 +60,22 @@ void BBEProcessor::prepare(int sampleRate) noexcept {
 }
 
 void BBEProcessor::processBlock(float* left, float* right, int samples) noexcept {
+    // STEP 1: Manual bypass check
     if (bypassed_.load(std::memory_order_relaxed)) {
-        return;
+        return;  // Early exit - manual bypass
     }
 
-    static thread_local std::vector<float> leftBuffer(16384);
-    static thread_local std::vector<float> rightBuffer(16384);
-    if (leftBuffer.size() < static_cast<size_t>(samples)) {
-        return;
-    }
-
+    // STEP 2: Update coefficients if parameters changed
     updateCoefficients();
 
+    // STEP 3: Auto-bypass if definition = 0 (no enhancement)
     if (!definitionEnabled_) {
-        std::memcpy(left, leftBuffer.data(), samples * sizeof(float));
-        std::memcpy(right, rightBuffer.data(), samples * sizeof(float));
-        return;
+        return;  // Early exit - auto-bypass (definition = 0)
     }
 
-    processChannel(left, samples, 0);
-    processChannel(right, samples, 1);
+    // STEP 4: Process each channel independently
+    processChannel(left, samples, 0);   // Channel 0 = left
+    processChannel(right, samples, 1);  // Channel 1 = right
 }
 
 void BBEProcessor::processChannel(float* buffer, int samples, int channelIndex) noexcept {
@@ -113,10 +110,9 @@ void BBEProcessor::processChannel(float* buffer, int samples, int channelIndex) 
         bassBoost_[channelIndex].processBlock(bassBand.data(), bassBand.data(), samples);
     }
 
-    // Rekombinace pásem s soft clippingem
+    // Recombine bands (Linkwitz-Riley property ensures flat magnitude response)
     for (int i = 0; i < samples; ++i) {
-        float sum = bassBand[i] + midBand[i] + trebleBand[i];
-        buffer[i] = softClip(sum); // Přidán soft clipping
+        buffer[i] = bassBand[i] + midBand[i] + trebleBand[i];
     }
 }
 
@@ -134,9 +130,11 @@ void BBEProcessor::updateCoefficients() noexcept {
     }
 
     // UPDATE BASS BOOST LEVEL
-    if (std::abs(currentBassBoost - lastBassBoost_) > 0.001f) {
-        float smoothedBassBoost = lastBassBoost_ + (currentBassBoost - lastBassBoost_) * 0.1f;
-        const float gainDB = smoothedBassBoost * 9.0f; // Omezeno na 9 dB
+    if (currentBassBoost != lastBassBoost_) {
+        // Convert 0.0-1.0 range to 0-12 dB gain
+        const float gainDB = currentBassBoost * 12.0f;
+
+        // Update both channel bass boost filters
         for (int ch = 0; ch < 2; ++ch) {
             bassBoost_[ch].setCoefficients(
                 BiquadFilter::Type::LOW_SHELF,
@@ -146,8 +144,10 @@ void BBEProcessor::updateCoefficients() noexcept {
                 gainDB
             );
         }
-        bassBoostEnabled_ = (smoothedBassBoost > 0.01f);
-        lastBassBoost_ = smoothedBassBoost;
+
+        // Cache enabled flag to avoid atomic loads in processChannel()
+        bassBoostEnabled_ = (currentBassBoost > 0.01f);
+        lastBassBoost_ = currentBassBoost;
     }
 }
 

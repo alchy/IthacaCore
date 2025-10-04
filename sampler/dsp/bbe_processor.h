@@ -1,19 +1,20 @@
 /**
  * @file bbe_processor.h
  * @brief BBE Sound Processor - Professional audio enhancement
- * 
+ *
  * Implementation of BBE Sound Inc. high-definition audio processing
  * technology based on BA3884F/BA3884S IC specifications. Provides
  * phase compensation, harmonic enhancement, and bass boost for
  * natural, clear sound reproduction.
- * 
- * Optimalizace:
- * - Omezení basového boostu na 9 dB pro prevenci clippingu
- * - Vyhlazení změn bassBoostLevel pro eliminaci kliků
- * - Soft clipping při rekombinaci pásem pro hladší výstup
- * 
+ *
+ * Optimizations:
+ * - Block processing for better cache performance
+ * - Auto-bypass when definition = 0 (saves ~80% CPU)
+ * - Cached flags to avoid atomic loads in audio thread
+ * - Branch-less soft clipping in harmonic enhancer
+ *
  * @author IthacaCore Audio Team
- * @version 1.2.0
+ * @version 1.0.0
  * @date 2025
  * @license Educational/Non-Commercial Use
  */
@@ -59,18 +60,6 @@ public:
 private:
     void processChannel(float* buffer, int samples, int channelIndex) noexcept;
     void updateCoefficients() noexcept;
-
-    /**
-     * @brief Soft clipping function to prevent hard clipping
-     * @param x Input sample
-     * @return Clipped output
-     * @note RT-SAFE, inline, SIMD-friendly
-     */
-    inline float softClip(float x) const noexcept {
-        x = std::max(-1.5f, std::min(1.5f, x));
-        const float x2 = x * x;
-        return x * (27.0f + x2) / (27.0f + 9.0f * x2);
-    }
 
     struct CrossoverFilters {
         BiquadFilter lpBass1, lpBass2;
