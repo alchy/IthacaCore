@@ -17,23 +17,23 @@ int main(int argc, char* argv[]) {
         // Inicializace logger systému
         Logger logger(".");
         
-        logger.log("main", "info", "=== IthacaCore Sampler Starting ===");
-        
+        logger.log("main", LogSeverity::Info, "=== IthacaCore Sampler Starting ===");
+
         // Spuštění core sampler systému
         int result = runSampler(logger);
-        
+
         if (result == 0) {
-            logger.log("main", "info", "Sampler system initialized successfully");
+            logger.log("main", LogSeverity::Info, "Sampler system initialized successfully");
             std::cout << "Sampler system ready for use" << std::endl;
         } else {
-            logger.log("main", "error", "Sampler system initialization failed");
+            logger.log("main", LogSeverity::Error, "Sampler system initialization failed");
             std::cout << "Sampler system initialization or tests failed" << std::endl;
         }
-        
+
         // Cleanup envelope dat
         EnvelopeStaticData::cleanup();
-        
-        logger.log("main", "info", "=== IthacaCore Sampler Finished ===");
+
+        logger.log("main", LogSeverity::Info, "=== IthacaCore Sampler Finished ===");
         return result;
         
     } catch (const std::exception& e) {
