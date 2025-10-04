@@ -66,7 +66,6 @@ add_executable(IthacaCore
     sampler/lfopan.h
 
     # ===== DSP / BBE SOUND PROCESSOR =====
-    sampler/dsp/biquad_filter.cpp
     sampler/dsp/biquad_filter.h
     sampler/dsp/harmonic_enhancer.cpp
     sampler/dsp/harmonic_enhancer.h
@@ -96,25 +95,26 @@ target_link_libraries(IthacaCore PRIVATE
 if(MSVC)
     # MSVC specifické flagy
     target_compile_definitions(IthacaCore PRIVATE 
-        _CRT_SECURE_NO_WARNINGS  # Odstranění MSVC warnings pro bezpečné funkce
-        WIN32_LEAN_AND_MEAN      # Rychlejší kompilace na Windows
-        ENABLE_TESTS             # Povolení hybridního test systému
+        _CRT_SECURE_NO_WARNINGS                             # Odstranění MSVC warnings pro bezpečné funkce
+        WIN32_LEAN_AND_MEAN                                 # Rychlejší kompilace na Windows
+        ENABLE_TESTS                                        # Povolení hybridního test systému
     )
     
     # Optimalizace pro Debug/Release
     target_compile_options(IthacaCore PRIVATE
-        $<$<CONFIG:Debug>:/Od /Zi /RTC1>      # Debug: žádná optimalizace, debug info
-        $<$<CONFIG:Release>:/O2 /DNDEBUG>     # Release: optimalizace, bez debug
+        $<$<CONFIG:Debug>:/Od /Zi /RTC1>                    # Debug: žádná optimalizace, debug info
+        $<$<CONFIG:Release>:/O2 /DNDEBUG /arch:SSE2>        # Release: optimalizace, bez debug
     )
 else()
     # GCC/Clang flagy
     target_compile_definitions(IthacaCore PRIVATE 
-        ENABLE_TESTS             # Povolení hybridního test systému
+        ENABLE_TESTS                                        # Povolení hybridního test systému
     )
     target_compile_options(IthacaCore PRIVATE
-        -Wall -Wextra -pedantic              # Všechna varování
-        $<$<CONFIG:Debug>:-g -O0>            # Debug: debug info, žádná optimalizace  
-        $<$<CONFIG:Release>:-O3 -DNDEBUG>    # Release: maximální optimalizace
+        -Wall -Wextra -pedantic                             # Všechna varování
+        $<$<CONFIG:Debug>:-g -O0>                           # Debug: debug info, žádná optimalizace  
+        $<$<CONFIG:Release>:-O3 -DNDEBUG>                   # Release: maximální optimalizace
+        $<$<CONFIG:Release>:-O3 -DNDEBUG -msse2>            # Podpora SSE2
     )
 endif()
 

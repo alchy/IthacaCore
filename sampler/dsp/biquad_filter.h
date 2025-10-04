@@ -6,27 +6,13 @@
  * using Direct Form I topology. Supports multiple filter types commonly
  * used in audio processing and BBE sound enhancement.
  * 
- * Key Features:
- * - Multiple filter types (LP, HP, BP, peaking, shelving, all-pass)
- * - Bilinear transform for accurate frequency response
- * - Denormal protection for numerical stability
- * - RT-safe processing with no allocations
- * - Pre-warped coefficients for minimal phase distortion
- * 
- * Mathematical Foundation:
- * Transfer function: H(z) = (b0 + b1*z^-1 + b2*z^-2) / (1 + a1*z^-1 + a2*z^-2)
- * 
- * Direct Form I difference equation:
- *   y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] - a1*y[n-1] - a2*y[n-2]
- * 
- * Where:
- *   x[n] = current input sample
- *   y[n] = current output sample
- *   x[n-1], x[n-2] = previous input samples (state)
- *   y[n-1], y[n-2] = previous output samples (state)
+ * Optimalizace:
+ * - SIMD (SSE) podpora pro processBlock pro vyšší výkon
+ * - Denormal protection pro numerickou stabilitu
+ * - RT-safe processing bez alokací
  * 
  * @author IthacaCore Audio Team
- * @version 1.0.0
+ * @version 1.2.0
  * @date 2025
  */
 
@@ -35,190 +21,204 @@
 
 #include <cmath>
 #include <algorithm>
+#ifdef __SSE__
+#include <immintrin.h> // Pro SSE instrukce
+#endif
+
+// Definice M_PI pro kompatibilitu s MSVC
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 /**
  * @class BiquadFilter
  * @brief Biquad IIR filter with multiple filter types
- * 
- * This class implements a versatile biquad filter suitable for:
- * - Crossover networks (Linkwitz-Riley alignment)
- * - Parametric EQ (peaking and shelving)
- * - Phase compensation (all-pass filters)
- * - General audio filtering
- * 
- * Usage Example:
- * @code
- * BiquadFilter lpf;
- * lpf.setCoefficients(BiquadFilter::Type::LOWPASS, 44100, 1000.0, 0.707);
- * 
- * for (int i = 0; i < numSamples; ++i) {
- *     output[i] = lpf.processSample(input[i]);
- * }
- * @endcode
- * 
- * Thread Safety:
- * - setCoefficients() is NOT thread-safe
- * - processSample() is thread-safe if coefficients are not changed
- * - reset() is thread-safe
  */
 class BiquadFilter {
 public:
-    /**
-     * @enum Type
-     * @brief Available filter types
-     */
     enum class Type {
-        LOWPASS,        ///< 2nd order Butterworth lowpass (-12dB/octave)
-        HIGHPASS,       ///< 2nd order Butterworth highpass (-12dB/octave)
-        BANDPASS,       ///< 2nd order bandpass (constant skirt gain, peak gain = Q)
-        PEAKING,        ///< Parametric EQ bell filter (boost/cut at center frequency)
-        LOW_SHELF,      ///< Low frequency shelving filter (boost/cut below frequency)
-        HIGH_SHELF,     ///< High frequency shelving filter (boost/cut above frequency)
-        ALLPASS_180,    ///< 1st order all-pass for -180° phase shift (used in BBE mid band)
-        ALLPASS_360     ///< 2nd order all-pass for -360° phase shift (used in BBE treble band)
+        LOWPASS, HIGHPASS, BANDPASS, PEAKING, LOW_SHELF, HIGH_SHELF,
+        ALLPASS_180, ALLPASS_360
     };
 
-    /**
-     * @brief Default constructor - creates identity filter (output = input)
-     */
     BiquadFilter() = default;
 
     /**
      * @brief Configure filter coefficients based on design parameters
-     * 
-     * This method calculates biquad coefficients using the bilinear transform
-     * with pre-warping for accurate frequency response. Coefficients are
-     * automatically normalized by a0.
-     * 
-     * For Linkwitz-Riley 4th order crossovers:
-     * - Use Q = 0.707 (1/sqrt(2)) for Butterworth alignment
-     * - Cascade two 2nd order sections
-     * 
-     * For BBE phase compensation:
-     * - Use ALLPASS_180 centered at mid band (1200 Hz)
-     * - Use ALLPASS_360 centered at treble band (7200 Hz)
-     * 
-     * @param type Filter type from Type enum
-     * @param sampleRate Sample rate in Hz (typically 44100 or 48000)
-     * @param frequency Center or cutoff frequency in Hz
-     *                  - Clamped to [10 Hz, sampleRate*0.49]
-     *                  - For shelving: transition frequency
-     *                  - For peaking: center frequency
-     *                  - For all-pass: phase shift center frequency
-     * @param Q Quality factor (bandwidth control)
-     *          - Typical values: 0.5 to 10.0
-     *          - Clamped to [0.1, 20.0]
-     *          - For Butterworth: Q = 0.707
-     *          - Higher Q = narrower bandwidth
-     *          - Lower Q = wider bandwidth
-     * @param gainDB Gain in decibels (for peaking and shelving only)
-     *               - Positive = boost
-     *               - Negative = cut
-     *               - Ignored for LP/HP/BP/all-pass
-     * 
-     * @note NOT RT-SAFE: May perform floating point division and log/exp
-     * @note Call this during initialization or when parameters change, not in audio callback
      */
-    void setCoefficients(Type type, double sampleRate, double frequency, 
-                        double Q = 0.707, double gainDB = 0.0) noexcept;
+    inline void setCoefficients(Type type, double sampleRate, double frequency,
+                                double Q = 0.707, double gainDB = 0.0) noexcept {
+        // Parameter validation
+        frequency = std::max(10.0, std::min(frequency, sampleRate * 0.49));
+        Q = std::max(0.1, std::min(Q, 20.0));
 
-    /**
-     * @brief Process single audio sample through filter
-     *
-     * Implements Direct Form I biquad difference equation:
-     *   y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] - a1*y[n-1] - a2*y[n-2]
-     *
-     * Includes denormal protection to prevent CPU spikes when values
-     * approach zero (< 1e-20).
-     *
-     * Performance: ~8-10 CPU cycles per sample (optimized compiler)
-     *
-     * @param input Input sample
-     * @return Filtered output sample
-     *
-     * @note RT-SAFE: No allocations, no branches (except denormal check)
-     * @note Inline for maximum performance
-     */
+        // Pre-calculate common terms
+        const double omega = 2.0 * M_PI * frequency / sampleRate;
+        const double sinOmega = std::sin(omega);
+        const double cosOmega = std::cos(omega);
+        const double alpha = sinOmega / (2.0 * Q);
+        const double A = std::pow(10.0, gainDB / 40.0);
+
+        double b0, b1, b2, a0, a1, a2;
+        switch (type) {
+            case Type::LOWPASS:
+                b0 = (1.0 - cosOmega) / 2.0;
+                b1 = 1.0 - cosOmega;
+                b2 = (1.0 - cosOmega) / 2.0;
+                a0 = 1.0 + alpha;
+                a1 = -2.0 * cosOmega;
+                a2 = 1.0 - alpha;
+                break;
+            case Type::HIGHPASS:
+                b0 = (1.0 + cosOmega) / 2.0;
+                b1 = -(1.0 + cosOmega);
+                b2 = (1.0 + cosOmega) / 2.0;
+                a0 = 1.0 + alpha;
+                a1 = -2.0 * cosOmega;
+                a2 = 1.0 - alpha;
+                break;
+            case Type::BANDPASS:
+                b0 = alpha;
+                b1 = 0.0;
+                b2 = -alpha;
+                a0 = 1.0 + alpha;
+                a1 = -2.0 * cosOmega;
+                a2 = 1.0 - alpha;
+                break;
+            case Type::PEAKING:
+                b0 = 1.0 + alpha * A;
+                b1 = -2.0 * cosOmega;
+                b2 = 1.0 - alpha * A;
+                a0 = 1.0 + alpha / A;
+                a1 = -2.0 * cosOmega;
+                a2 = 1.0 - alpha / A;
+                break;
+            case Type::LOW_SHELF:
+                {
+                    const double beta = std::sqrt(A) / Q;
+                    b0 = A * ((A + 1.0) - (A - 1.0) * cosOmega + beta * sinOmega);
+                    b1 = 2.0 * A * ((A - 1.0) - (A + 1.0) * cosOmega);
+                    b2 = A * ((A + 1.0) - (A - 1.0) * cosOmega - beta * sinOmega);
+                    a0 = (A + 1.0) + (A - 1.0) * cosOmega + beta * sinOmega;
+                    a1 = -2.0 * ((A - 1.0) + (A + 1.0) * cosOmega);
+                    a2 = (A + 1.0) + (A - 1.0) * cosOmega - beta * sinOmega;
+                }
+                break;
+            case Type::HIGH_SHELF:
+                {
+                    const double beta = std::sqrt(A) / Q;
+                    b0 = A * ((A + 1.0) + (A - 1.0) * cosOmega + beta * sinOmega);
+                    b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cosOmega);
+                    b2 = A * ((A + 1.0) + (A - 1.0) * cosOmega - beta * sinOmega);
+                    a0 = (A + 1.0) - (A - 1.0) * cosOmega + beta * sinOmega;
+                    a1 = 2.0 * ((A - 1.0) - (A + 1.0) * cosOmega);
+                    a2 = (A + 1.0) - (A - 1.0) * cosOmega - beta * sinOmega;
+                }
+                break;
+            case Type::ALLPASS_180:
+                {
+                    const double tan_omega = std::tan(omega / 2.0);
+                    b0 = (tan_omega - 1.0) / (tan_omega + 1.0);
+                    b1 = 1.0;
+                    b2 = 0.0;
+                    a0 = 1.0;
+                    a1 = b0;
+                    a2 = 0.0;
+                }
+                break;
+            case Type::ALLPASS_360:
+                b0 = 1.0 - alpha;
+                b1 = -2.0 * cosOmega;
+                b2 = 1.0 + alpha;
+                a0 = 1.0 + alpha;
+                a1 = -2.0 * cosOmega;
+                a2 = 1.0 - alpha;
+                break;
+            default:
+                b0 = 1.0; b1 = 0.0; b2 = 0.0;
+                a0 = 1.0; a1 = 0.0; a2 = 0.0;
+                break;
+        }
+
+        if (std::abs(a0) < 1e-10) {
+            b0_ = 1.0f; b1_ = 0.0f; b2_ = 0.0f;
+            a1_ = 0.0f; a2_ = 0.0f;
+            return;
+        }
+
+        b0_ = static_cast<float>(b0 / a0);
+        b1_ = static_cast<float>(b1 / a0);
+        b2_ = static_cast<float>(b2 / a0);
+        a1_ = static_cast<float>(a1 / a0);
+        a2_ = static_cast<float>(a2 / a0);
+    }
+
     inline float processSample(float input) noexcept {
-        // Direct Form I biquad equation
-        // Compute output using current input and stored state
         const float output = b0_ * input + b1_ * x1_ + b2_ * x2_ - a1_ * y1_ - a2_ * y2_;
-
-        // Shift state variables (history buffer)
-        x2_ = x1_;              // x[n-2] = x[n-1]
-        x1_ = input;            // x[n-1] = x[n]
-        y2_ = y1_;              // y[n-2] = y[n-1]
-        y1_ = output;           // y[n-1] = y[n]
-
-        // Denormal protection: flush very small values to zero
-        // Prevents CPU performance degradation on some processors
-        // Threshold: 1e-20 ≈ -400dB (inaudible)
+        x2_ = x1_; x1_ = input;
+        y2_ = y1_; y1_ = output;
         if (std::abs(y1_) < 1e-20f) y1_ = 0.0f;
         if (std::abs(y2_) < 1e-20f) y2_ = 0.0f;
-
         return output;
     }
 
-    /**
-     * @brief Process block of audio samples through filter (optimized)
-     *
-     * Processes multiple samples in sequence for better cache performance
-     * and potential SIMD optimizations in future. More efficient than
-     * calling processSample() in a loop when processing entire buffers.
-     *
-     * Can process in-place (input == output).
-     *
-     * Performance: ~30-50% faster than sample-by-sample loop due to:
-     * - Better instruction cache utilization
-     * - Reduced function call overhead
-     * - Sequential memory access pattern
-     * - Better compiler optimization opportunities
-     *
-     * @param input Pointer to input samples
-     * @param output Pointer to output samples (can be same as input for in-place)
-     * @param samples Number of samples to process
-     *
-     * @note RT-SAFE: No allocations, no branches (except denormal checks)
-     * @note Supports in-place processing: processBlock(buffer, buffer, count)
-     * @note Input/output buffers must not overlap unless identical
-     */
-    inline void processBlock(const float* input, float* output, int samples) noexcept {
+    void processBlock(const float* input, float* output, int samples) noexcept {
+#ifdef __SSE__
+        // SIMD zpracování pro 4 vzorky najednou
+        int i = 0;
+        __m128 x1 = _mm_set1_ps(x1_);
+        __m128 x2 = _mm_set1_ps(x2_);
+        __m128 y1 = _mm_set1_ps(y1_);
+        __m128 y2 = _mm_set1_ps(y2_);
+        __m128 b0 = _mm_set1_ps(b0_);
+        __m128 b1 = _mm_set1_ps(b1_);
+        __m128 b2 = _mm_set1_ps(b2_);
+        __m128 a1 = _mm_set1_ps(a1_);
+        __m128 a2 = _mm_set1_ps(a2_);
+        __m128 denormThreshold = _mm_set1_ps(1e-20f);
+        __m128 zero = _mm_setzero_ps();
+
+        for (; i <= samples - 4; i += 4) {
+            __m128 x = _mm_loadu_ps(&input[i]);
+            __m128 y = _mm_add_ps(_mm_mul_ps(b0, x),
+                                 _mm_add_ps(_mm_mul_ps(b1, x1),
+                                           _mm_add_ps(_mm_mul_ps(b2, x2),
+                                                     _mm_sub_ps(_mm_mul_ps(a1, y1),
+                                                               _mm_mul_ps(a2, y2))));
+            _mm_storeu_ps(&output[i], y);
+            x2 = x1; x1 = x;
+            y2 = y1; y1 = y;
+
+            __m128 absY1 = _mm_andnot_ps(_mm_set1_ps(-0.0f), y1);
+            __m128 absY2 = _mm_andnot_ps(_mm_set1_ps(-0.0f), y2);
+            y1 = _mm_blendv_ps(y1, zero, _mm_cmplt_ps(absY1, denormThreshold));
+            y2 = _mm_blendv_ps(y2, zero, _mm_cmplt_ps(absY2, denormThreshold));
+        }
+
+        float temp[4];
+        _mm_storeu_ps(temp, x1); x1_ = temp[3];
+        _mm_storeu_ps(temp, x2); x2_ = temp[3];
+        _mm_storeu_ps(temp, y1); y1_ = temp[3];
+        _mm_storeu_ps(temp, y2); y2_ = temp[3];
+
+        for (; i < samples; ++i) {
+            output[i] = processSample(input[i]);
+        }
+#else
         for (int i = 0; i < samples; ++i) {
             output[i] = processSample(input[i]);
         }
+#endif
     }
 
-    /**
-     * @brief Reset filter state to zero
-     * 
-     * Clears all internal state variables (input and output history).
-     * Use this when:
-     * - Starting/stopping playback to avoid clicks
-     * - Switching between bypass and processing
-     * - Changing sample rate or reloading audio
-     * 
-     * @note RT-SAFE: Simple assignment operations
-     */
     void reset() noexcept {
         x1_ = x2_ = y1_ = y2_ = 0.0f;
     }
 
 private:
-    // ===== FILTER COEFFICIENTS =====
-    // Feedforward (numerator) coefficients
-    float b0_{1.0f};    ///< Current input gain
-    float b1_{0.0f};    ///< One-sample-delayed input gain
-    float b2_{0.0f};    ///< Two-sample-delayed input gain
-    
-    // Feedback (denominator) coefficients (negated in equation)
-    float a1_{0.0f};    ///< One-sample-delayed output coefficient
-    float a2_{0.0f};    ///< Two-sample-delayed output coefficient
-    
-    // ===== STATE VARIABLES (Direct Form I) =====
-    float x1_{0.0f};    ///< Input history: x[n-1]
-    float x2_{0.0f};    ///< Input history: x[n-2]
-    float y1_{0.0f};    ///< Output history: y[n-1]
-    float y2_{0.0f};    ///< Output history: y[n-2]
+    float b0_{1.0f}, b1_{0.0f}, b2_{0.0f};
+    float a1_{0.0f}, a2_{0.0f};
+    float x1_{0.0f}, x2_{0.0f}, y1_{0.0f}, y2_{0.0f};
 };
 
 #endif // BIQUAD_FILTER_H
