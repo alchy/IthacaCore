@@ -27,7 +27,9 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
       panSpeed_(0.0f),
       panDepth_(0.0f),
       lfoPhase_(0.0f),
-      lfoPhaseIncrement_(0.0f) {
+      lfoPhaseIncrement_(0.0f),
+      dspChain_(),
+      limiterEffect_(nullptr) {
     
     // Validate sample directory
     if (sampleDir_.empty()) {
@@ -67,10 +69,15 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
                                                    const std::string& message) {
         logger.log(component, severity, message);
     });
-    
+
+    // Create and add DSP effects
+    auto limiter = std::make_unique<Limiter>();
+    limiterEffect_ = limiter.get();  // Uložit quick pointer
+    dspChain_.addEffect(std::move(limiter));
+
     logger.log("VoiceManager/constructor", LogSeverity::Info,
            "VoiceManager created with sampleDir '" + sampleDir_ +
-           "' using shared envelope data, constant power panning, LFO panning, and sustain pedal support. Ready for initialization pipeline.");
+           "' using shared envelope data, constant power panning, LFO panning, sustain pedal support, and DSP effects chain (Limiter). Ready for initialization pipeline.");
 }
 
 // ===== CONSTANT POWER PANNING =====
@@ -163,6 +170,11 @@ void VoiceManager::changeSampleRate(int newSampleRate, Logger& logger) {
 void VoiceManager::prepareToPlay(int maxBlockSize) noexcept {
     for (int i = 0; i < 128; ++i) {
         voices_[i].prepareToPlay(maxBlockSize);
+    }
+
+    // Prepare DSP chain
+    if (currentSampleRate_ > 0) {
+        dspChain_.prepare(currentSampleRate_, maxBlockSize);
     }
 }
 
@@ -298,12 +310,17 @@ bool VoiceManager::processBlockUninterleaved(float* outputLeft, float* outputRig
             voicesToRemove_.push_back(voice);
         }
     }
-    
+
     // Clean up inactive voices
     if (!voicesToRemove_.empty()) {
         cleanupInactiveVoices();
     }
-    
+
+    // Apply DSP chain (limiter, etc.) if we have audio
+    if (anyActive) {
+        dspChain_.process(outputLeft, outputRight, samplesPerBlock);
+    }
+
     return anyActive;
 }
 
@@ -695,5 +712,43 @@ void VoiceManager::cleanupInactiveVoices() noexcept {
         removeActiveVoice(voice);
     }
     voicesToRemove_.clear();
+}
+
+// ========================================================================
+// DSP EFFECTS API - MIDI Implementation
+// ========================================================================
+
+void VoiceManager::setLimiterThresholdMIDI(uint8_t midiValue) noexcept {
+    if (limiterEffect_) {
+        limiterEffect_->setThresholdMIDI(midiValue);
+    }
+}
+
+void VoiceManager::setLimiterReleaseMIDI(uint8_t midiValue) noexcept {
+    if (limiterEffect_) {
+        limiterEffect_->setReleaseMIDI(midiValue);
+    }
+}
+
+void VoiceManager::setLimiterEnabledMIDI(uint8_t midiValue) noexcept {
+    if (limiterEffect_) {
+        limiterEffect_->setEnabled(midiValue > 0);
+    }
+}
+
+uint8_t VoiceManager::getLimiterThresholdMIDI() const noexcept {
+    return limiterEffect_ ? limiterEffect_->getThresholdMIDI() : 127;
+}
+
+uint8_t VoiceManager::getLimiterReleaseMIDI() const noexcept {
+    return limiterEffect_ ? limiterEffect_->getReleaseMIDI() : 64;
+}
+
+uint8_t VoiceManager::getLimiterEnabledMIDI() const noexcept {
+    return (limiterEffect_ && limiterEffect_->isEnabled()) ? 127 : 0;
+}
+
+uint8_t VoiceManager::getLimiterGainReductionMIDI() const noexcept {
+    return limiterEffect_ ? limiterEffect_->getGainReductionMIDI() : 127;
 }
 

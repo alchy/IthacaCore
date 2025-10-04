@@ -7,6 +7,8 @@
 #include "instrument_loader.h"
 #include "sampler.h"
 #include "lfopan.h"
+#include "dsp/dsp_chain.h"
+#include "dsp/limiter/limiter.h"
 
 #include <vector>
 #include <string>
@@ -332,13 +334,89 @@ public:
     bool isRealTimeMode() const noexcept { return rtMode_.load(); }
 
     // ===== SYSTEM DIAGNOSTICS =====
-    
+
     /**
      * @brief Log comprehensive system statistics including LFO panning and sustain pedal
      * @param logger Reference to Logger
      * @note Non-RT: comprehensive system analysis and logging
      */
     void logSystemStatistics(Logger& logger);
+
+    // ========================================================================
+    // DSP EFFECTS API - MIDI Interface (0-127) - RT-safe
+    // ========================================================================
+
+    /**
+     * @brief Nastaví limiter threshold pomocí MIDI CC (0-127)
+     * @param midiValue 0 = -20 dB (hard limiting), 127 = 0 dB (transparent/off)
+     *
+     * @note RT-safe - lze volat z audio threadu
+     * @note Mapování: 0-127 → -20 až 0 dB (lineární)
+     */
+    void setLimiterThresholdMIDI(uint8_t midiValue) noexcept;
+
+    /**
+     * @brief Nastaví limiter release pomocí MIDI CC (0-127)
+     * @param midiValue 0 = 1 ms (fast), 127 = 1000 ms (slow)
+     *
+     * @note RT-safe - lze volat z audio threadu
+     * @note Mapování: exponenciální pro plynulou kontrolu
+     */
+    void setLimiterReleaseMIDI(uint8_t midiValue) noexcept;
+
+    /**
+     * @brief Zapne/vypne limiter (0 = off, 1-127 = on)
+     * @param midiValue 0 = disabled, jinak enabled
+     *
+     * @note RT-safe - lze volat z audio threadu
+     */
+    void setLimiterEnabledMIDI(uint8_t midiValue) noexcept;
+
+    /**
+     * @brief Získá limiter threshold jako MIDI hodnotu
+     * @return MIDI hodnota (0-127)
+     *
+     * @note RT-safe
+     */
+    uint8_t getLimiterThresholdMIDI() const noexcept;
+
+    /**
+     * @brief Získá limiter release jako MIDI hodnotu
+     * @return MIDI hodnota (0-127)
+     *
+     * @note RT-safe
+     */
+    uint8_t getLimiterReleaseMIDI() const noexcept;
+
+    /**
+     * @brief Získá stav limiteru (0 = off, 127 = on)
+     * @return MIDI hodnota (0 nebo 127)
+     *
+     * @note RT-safe
+     */
+    uint8_t getLimiterEnabledMIDI() const noexcept;
+
+    /**
+     * @brief Získá aktuální gain reduction pro metering (0-127)
+     * @return 127 = no reduction, 0 = maximum reduction
+     *
+     * @note RT-safe
+     * @note Použití v GUI pro vizualizaci limitingu
+     */
+    uint8_t getLimiterGainReductionMIDI() const noexcept;
+
+    // ========================================================================
+    // DSP EFFECTS API - Direct Access (pokročilé použití)
+    // ========================================================================
+
+    /**
+     * @brief Získá ukazatel na DspChain pro pokročilý přístup k efektům
+     * @return Pointer na DspChain (nikdy nullptr)
+     *
+     * @note Pro pokročilé použití - přímý přístup k DSP chain
+     * @note Umožňuje volat settery/gettery přímo na efektech
+     */
+    DspChain* getDspChain() { return &dspChain_; }
 
 private:
     // ===== CORE COMPONENTS =====
@@ -384,11 +462,16 @@ private:
     std::array<bool, 128> delayedNoteOffs_{};
 
     // ===== LFO PANNING STATE =====
-    
+
     float panSpeed_;                   // LFO frequency in Hz (0.0-2.0)
     float panDepth_;                   // LFO amplitude (0.0-1.0)
     float lfoPhase_;                   // Current LFO phase (0.0-2π)
     float lfoPhaseIncrement_;          // Phase increment per sample
+
+    // ===== DSP EFFECTS CHAIN =====
+
+    DspChain dspChain_;                // DSP effects chain (serial processing)
+    Limiter* limiterEffect_;           // Quick pointer k limiteru (convenience)
 
     // ===== PRIVATE HELPER METHODS =====
     

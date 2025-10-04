@@ -65,6 +65,13 @@ add_executable(IthacaCore
     sampler/lfopan.cpp
     sampler/lfopan.h
 
+    # DSP Effects
+    dsp/dsp_effect.h
+    dsp/dsp_chain.h
+    dsp/dsp_chain.cpp
+    dsp/limiter/limiter.h
+    dsp/limiter/limiter.cpp
+
     # tests
     sampler/tests/test_helpers.cpp
     sampler/tests/test_helpers.h
