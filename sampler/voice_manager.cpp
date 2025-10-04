@@ -28,6 +28,7 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
       panDepth_(0.0f),
       lfoPhase_(0.0f),
       lfoPhaseIncrement_(0.0f),
+      lfoPanBuffer_(),
       dspChain_(),
       limiterEffect_(nullptr) {
     
@@ -290,17 +291,19 @@ bool VoiceManager::processBlockUninterleaved(float* outputLeft, float* outputRig
 
     if (activeVoices_.empty()) return false;
 
-    // Apply LFO panning per-sample if active (eliminates zipper noise)
+    // Pre-calculate LFO panning buffer if active (eliminates zipper noise)
+    const float* panBuffer = nullptr;
     if (isLfoPanningActive()) {
         applyLfoPanningPerSample(samplesPerBlock);
+        panBuffer = lfoPanBuffer_.data();
     }
 
     bool anyActive = false;
 
-    // Process all active voices
+    // Process all active voices with optional per-sample pan buffer
     for (Voice* voice : activeVoices_) {
         if (voice && voice->isActive()) {
-            if (voice->processBlock(outputLeft, outputRight, samplesPerBlock)) {
+            if (voice->processBlock(outputLeft, outputRight, samplesPerBlock, panBuffer)) {
                 anyActive = true;
             } else {
                 voicesToRemove_.push_back(voice);
@@ -334,9 +337,11 @@ bool VoiceManager::processBlockInterleaved(AudioData* outputBuffer, int samplesP
 
     if (activeVoices_.empty()) return false;
 
-    // Apply LFO panning per-sample if active (eliminates zipper noise)
+    // Pre-calculate LFO panning buffer if active (eliminates zipper noise)
+    const float* panBuffer = nullptr;
     if (isLfoPanningActive()) {
         applyLfoPanningPerSample(samplesPerBlock);
+        panBuffer = lfoPanBuffer_.data();
     }
 
     // Pre-allocated temp buffers to avoid RT allocations
@@ -345,7 +350,7 @@ bool VoiceManager::processBlockInterleaved(AudioData* outputBuffer, int samplesP
 
     bool anyActive = false;
 
-    // Process all active voices
+    // Process all active voices with optional per-sample pan buffer
     for (Voice* voice : activeVoices_) {
         if (voice && voice->isActive()) {
             // Verify buffer capacity - critical error must be visible in development
@@ -360,7 +365,7 @@ bool VoiceManager::processBlockInterleaved(AudioData* outputBuffer, int samplesP
             std::fill(tempRight.begin(), tempRight.begin() + samplesPerBlock, 0.0f);
 
             // Process voice and mix to output
-            if (voice->processBlock(tempLeft.data(), tempRight.data(), samplesPerBlock)) {
+            if (voice->processBlock(tempLeft.data(), tempRight.data(), samplesPerBlock, panBuffer)) {
                 anyActive = true;
 
                 for (int i = 0; i < samplesPerBlock; ++i) {
@@ -661,16 +666,17 @@ void VoiceManager::reinitializeIfNeeded(int targetSampleRate, Logger& logger) {
 void VoiceManager::applyLfoPanningPerSample(int samplesPerBlock) noexcept {
     if (!isLfoPanningActive() || lfoPhaseIncrement_ <= 0.0f) return;
 
-    // Per-sample LFO update eliminates zipper noise at high depth/speed values
+    // Ensure pan buffer has sufficient size (RT-safe: resize only if needed)
+    if (lfoPanBuffer_.size() < static_cast<size_t>(samplesPerBlock)) {
+        lfoPanBuffer_.resize(samplesPerBlock);
+    }
+
+    // Pre-calculate LFO pan values for each sample in the block
+    // Voices will read from this buffer per-sample during processing
     for (int sample = 0; sample < samplesPerBlock; ++sample) {
         // Calculate current pan position from LFO phase
         float lfoValue = LfoPanning::getSineValue(lfoPhase_);
-        float currentPan = lfoValue * panDepth_;
-
-        // Apply to all voices for this sample
-        for (int i = 0; i < 128; ++i) {
-            voices_[i].setPan(currentPan);
-        }
+        lfoPanBuffer_[sample] = lfoValue * panDepth_;
 
         // Advance LFO phase by one sample
         lfoPhase_ += lfoPhaseIncrement_;

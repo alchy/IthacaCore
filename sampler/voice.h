@@ -265,10 +265,12 @@ public:
      * @param outputLeft Left channel output buffer (additive mixing)
      * @param outputRight Right channel output buffer (additive mixing)
      * @param samplesPerBlock Number of samples to process
+     * @param panBuffer Optional per-sample pan buffer for LFO panning (nullptr = use static pan_)
      * @return true if voice remains active
      * @note RT-safe: no allocations, pre-calculated gains
      */
-    bool processBlock(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept;
+    bool processBlock(float* outputLeft, float* outputRight, int samplesPerBlock,
+                     const float* panBuffer = nullptr) noexcept;
 
     // ===== GAIN CONTROL =====
 
@@ -504,9 +506,11 @@ private:
      * @param outputRight Right channel output buffer
      * @param stereoBuffer Source stereo sample data
      * @param samplesToProcess Number of samples to process
+     * @param panBuffer Optional per-sample pan buffer for LFO panning (nullptr = use static pan_)
      */
-    void processAudioWithGains(float* outputLeft, float* outputRight, 
-                              const float* stereoBuffer, int samplesToProcess) noexcept;
+    void processAudioWithGains(float* outputLeft, float* outputRight,
+                              const float* stereoBuffer, int samplesToProcess,
+                              const float* panBuffer = nullptr) noexcept;
     
     /**
      * @brief Calculate constant power panning gains

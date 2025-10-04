@@ -24,7 +24,8 @@
 // AUDIO PROCESSING - MAIN ENTRY POINT
 // =====================================================================
 
-bool Voice::processBlock(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept {
+bool Voice::processBlock(float* outputLeft, float* outputRight, int samplesPerBlock,
+                        const float* panBuffer) noexcept {
     // =====================================================================
     // PHASE 1: PROCESS DAMPING BUFFER (if retrigger active)
     // =====================================================================
@@ -104,8 +105,8 @@ bool Voice::processBlock(float* outputLeft, float* outputRight, int samplesPerBl
     }
     
     // ===== APPLY AUDIO PROCESSING WITH GAIN CHAIN =====
-    
-    processAudioWithGains(outputLeft, outputRight, stereoBuffer, samplesToProcess);
+
+    processAudioWithGains(outputLeft, outputRight, stereoBuffer, samplesToProcess, panBuffer);
     
     // ===== UPDATE POSITION =====
     
@@ -254,36 +255,40 @@ bool Voice::processReleasePhase(float* gainBuffer, int numSamples) noexcept {
 // AUDIO RENDERING WITH GAIN CHAIN
 // =====================================================================
 
-void Voice::processAudioWithGains(float* outputLeft, float* outputRight, 
-                                 const float* stereoBuffer, int samplesToProcess) noexcept {
+void Voice::processAudioWithGains(float* outputLeft, float* outputRight,
+                                 const float* stereoBuffer, int samplesToProcess,
+                                 const float* panBuffer) noexcept {
     // ===== CALCULATE SOURCE POINTER =====
-    
+
     const int startIndex = position_ * 2; // Convert position to stereo frame index
     const float* srcPtr = stereoBuffer + startIndex;
-    
-    // ===== CALCULATE PAN GAINS =====
-    
-    float pan_left_gain, pan_right_gain;
-    calculatePanGains(pan_, pan_left_gain, pan_right_gain);
 
     // ===== APPLY COMPLETE GAIN CHAIN AND MIX TO OUTPUT =====
-    
+
     // Full gain chain: sample * envelope * velocity * pan * master * stereoField
     // Stereo field gains are pre-calculated and cached for RT efficiency
+    // Pan gains are calculated PER-SAMPLE to support smooth LFO panning
     // Output is additive mixing (+=) to allow multiple voices
     for (int i = 0; i < samplesToProcess; ++i) {
         const int srcIndex = i * 2;
-        
+
+        // Calculate pan gains per-sample:
+        // - If panBuffer provided (LFO panning): use per-sample pan value
+        // - Otherwise: use static pan_ value
+        float currentPan = panBuffer ? panBuffer[i] : pan_;
+        float pan_left_gain, pan_right_gain;
+        calculatePanGains(currentPan, pan_left_gain, pan_right_gain);
+
         // Left channel: apply full gain chain including stereo field
-        outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i] * velocity_gain_ * 
+        outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i] * velocity_gain_ *
                          pan_left_gain * master_gain_ * stereoFieldGainLeft_;
-        
+
 #if DEBUG_ENVELOPE_TO_RIGHT_CHANNEL
         // Debug mode: output envelope shape to right channel
         outputRight[i] += gainBuffer_[i];
 #else
         // Normal mode: right channel with full gain chain including stereo field
-        outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i] * velocity_gain_ * 
+        outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i] * velocity_gain_ *
                           pan_right_gain * master_gain_ * stereoFieldGainRight_;
 #endif
     }

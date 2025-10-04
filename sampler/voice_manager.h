@@ -467,6 +467,7 @@ private:
     float panDepth_;                   // LFO amplitude (0.0-1.0)
     float lfoPhase_;                   // Current LFO phase (0.0-2π)
     float lfoPhaseIncrement_;          // Phase increment per sample
+    std::vector<float> lfoPanBuffer_;  // Pre-calculated per-sample pan values
 
     // ===== DSP EFFECTS CHAIN =====
 
