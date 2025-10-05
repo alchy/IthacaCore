@@ -11,7 +11,7 @@
 float LfoPanning::frequency_table[MIDI_TABLE_SIZE] = {0.0f};
 float LfoPanning::depth_table[MIDI_TABLE_SIZE] = {0.0f};
 float LfoPanning::sine_table[SINE_TABLE_SIZE] = {0.0f};
-bool LfoPanning::tables_initialized = false;
+bool  LfoPanning::tables_initialized = false;
 
 void LfoPanning::initializeLfoTables() {
     if (tables_initialized) return;

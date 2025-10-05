@@ -18,49 +18,17 @@
 
 /**
  * @class VoiceManager
- * @brief Polyphonic audio system manager with optimized resource usage and LFO panning
+ * @brief Správce polyfonního audio systému s optimalizovaným využitím zdrojů a LFO panningem
  * 
- * Core Features:
- * - 128 simultaneous voices (one per MIDI note)
- * - Dynamic sample rate management (44100/48000 Hz)
- * - Shared envelope data system for memory efficiency
- * - Constant power panning with pre-calculated lookup tables
- * - LFO automatic panning for electric piano effects
- * - RT-safe audio processing with pre-allocated buffers
- * - Swap-and-pop vector optimizations for O(1) performance
- * - Sustain pedal support (MIDI CC64) with delayed note-off handling
- * 
- * LFO Panning Features:
- * - Automatic sinusoidal panning motion (0-2 Hz frequency range)
- * - MIDI-controllable speed and depth (0-127 values)
- * - RT-safe operation with pre-calculated sine tables
- * - Global synchronization across all voices
- * - Independent from static pan control
- * 
- * Sustain Pedal Features:
- * - MIDI CC64 standard implementation (0-63 = OFF, 64-127 = ON)
- * - Delayed note-off processing when pedal is pressed
- * - Automatic release phase triggering when pedal is released
- * - RT-safe operation with minimal overhead (129 bytes total)
- * - Per-note tracking of delayed note-off events
- * 
- * Architecture:
- * - Stack-allocated components (SamplerIO, InstrumentLoader)
- * - Shared EnvelopeStaticData between instances (saves ~3.1GB for 16 channels)
- * - JUCE integration ready (prepareToPlay pattern)
- * - Modular initialization pipeline
- * 
- * Thread Safety:
- * - processBlock methods are fully RT-safe
- * - Initialization methods may log and allocate
- * - Atomic counters for voice statistics
- * 
- * Memory Usage:
- * - Fixed 128 voice pool: ~8MB for gain buffers (64KB each)
- * - Shared envelope lookup tables: ~2MB total (global)
- * - Pan lookup tables: <1KB per instance
- * - LFO lookup tables: ~16KB (global, shared)
- * - Sustain pedal state: 129 bytes (1 atomic bool + 128 bool flags)
+ * Hlavní vlastnosti:
+ * - 128 simultánních hlasů (jeden na MIDI notu)
+ * - Dynamická správa vzorkovací frekvence (44100/48000 Hz)
+ * - Sdílený systém obálek pro efektivní využití paměti
+ * - Konstantní panning s předpočítanými tabulkami
+ * - Automatický LFO panning pro efekty elektrického piana
+ * - RT-safe zpracování audia s předem alokovanými buffery
+ * - Swap-and-pop optimalizace pro O(1) výkon
+ * - Podpora sustain pedálu (MIDI CC64) s odloženým note-off
  */
 class VoiceManager {
 public:
@@ -187,23 +155,32 @@ public:
     // ===== AUDIO PROCESSING =====
     
     /**
-     * @brief Process audio block in interleaved format
-     * @param outputBuffer Interleaved stereo buffer (AudioData array)
-     * @param samplesPerBlock Number of samples to process
-     * @return true if any voices are active
-     * @note RT-safe: pre-allocated temp buffers, additive mixing, includes LFO panning
+     * @brief Zpracuje audio blok v neprokládaném formátu
+     * @param outputLeft Výstupní buffer levého kanálu
+     * @param outputRight Výstupní buffer pravého kanálu
+     * @param samplesPerBlock Počet vzorků v bloku
+     * @return true pokud je nějaký hlas aktivní
+     * @note RT-safe
+     */
+    bool processBlockUninterleaved(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept;
+
+    /**
+     * @brief Zpracuje audio blok v prokládaném formátu
+     * @param outputBuffer Výstupní buffer (prokládaný stereo)
+     * @param samplesPerBlock Počet vzorků v bloku
+     * @return true pokud je nějaký hlas aktivní
+     * @note RT-safe
      */
     bool processBlockInterleaved(AudioData* outputBuffer, int samplesPerBlock) noexcept;
     
     /**
-     * @brief Process audio block in uninterleaved format (JUCE style)
-     * @param outputLeft Left channel buffer (float array)
-     * @param outputRight Right channel buffer (float array) 
-     * @param samplesPerBlock Number of samples to process
-     * @return true if any voices are active
-     * @note RT-safe: direct mixing to separate channel buffers, includes LFO panning
+     * @brief Aplikuje LFO panning na finální mix
+     * @param leftOut Výstupní buffer levého kanálu
+     * @param rightOut Výstupní buffer pravého kanálu
+     * @param numSamples Počet vzorků ke zpracování
+     * @note RT-safe: aplikuje LFO panning s vyhlazováním gainu
      */
-    bool processBlockUninterleaved(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept;
+    void applyLfoPanToFinalMix(float* leftOut, float* rightOut, int numSamples) noexcept;
 
     // ===== VOICE CONTROL =====
     
@@ -468,6 +445,11 @@ private:
     float lfoPhase_;                   // Current LFO phase (0.0-2π)
     float lfoPhaseIncrement_;          // Phase increment per sample
     std::vector<float> lfoPanBuffer_;  // Pre-calculated per-sample pan values
+
+    // Členy pro vyhlazování LFO panningu
+    float previousPanLeft_ = 1.0f;      // Předchozí gain levého kanálu
+    float previousPanRight_ = 1.0f;     // Předchozí gain pravého kanálu
+    static constexpr float LFO_SMOOTHING = 0.995f; // Konstanta pro exponenciální vyhlazování
 
     // ===== DSP EFFECTS CHAIN =====
 

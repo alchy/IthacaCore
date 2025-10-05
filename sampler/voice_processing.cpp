@@ -24,41 +24,33 @@
 // AUDIO PROCESSING - MAIN ENTRY POINT
 // =====================================================================
 
-bool Voice::processBlock(float* outputLeft, float* outputRight, int samplesPerBlock,
-                        const float* panBuffer) noexcept {
+bool Voice::processBlock(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept {
     // =====================================================================
-    // PHASE 1: PROCESS DAMPING BUFFER (if retrigger active)
+    // HLAVNÍ VSTUPNÍ BOD PRO ZPRACOVÁNÍ AUDIA
+    // =====================================================================
+    // Zpracovává damping buffer (pokud je aktivní) a hlavní hlas.
     // =====================================================================
     
+    // FÁZE 1: ZPRACOVÁNÍ DAMPING BUFFERU (pokud je retrigger aktivní)
     if (dampingActive_) {
-        // Calculate how many damping samples remain
         const int dampingSamplesRemaining = dampingLength_ - dampingPosition_;
         const int dampingSamplesToProcess = std::min(samplesPerBlock, dampingSamplesRemaining);
         
-        // Mix pre-computed damping buffer directly into output
-        // No gain calculations needed - buffer already contains final audio
         for (int i = 0; i < dampingSamplesToProcess; ++i) {
             const int bufferIndex = dampingPosition_ + i;
             outputLeft[i] += dampingBufferLeft_[bufferIndex];
             outputRight[i] += dampingBufferRight_[bufferIndex];
         }
         
-        // Update damping playback position
         dampingPosition_ += dampingSamplesToProcess;
         
-        // Deactivate damping if we've finished playback
         if (dampingPosition_ >= dampingLength_) {
             dampingActive_ = false;
-            dampingPosition_ = 0; // Reset for potential future use
+            dampingPosition_ = 0;
         }
     }
     
-    // =====================================================================
-    // PHASE 2: PROCESS MAIN VOICE (new note after retrigger or normal playback)
-    // =====================================================================
-    
-    // ===== EARLY EXIT CONDITIONS =====
-    
+    // FÁZE 2: ZPRACOVÁNÍ HLAVNÍHO HLASU
     if (!isVoiceReady() || state_ == VoiceState::Idle) {
         return false;
     }
@@ -66,8 +58,6 @@ bool Voice::processBlock(float* outputLeft, float* outputRight, int samplesPerBl
     if (!outputLeft || !outputRight || samplesPerBlock <= 0) {
         return false;
     }
-    
-    // ===== GET INSTRUMENT DATA =====
     
     const float* stereoBuffer = instrument_->get_sample_begin_pointer(currentVelocityLayer_);
     const int maxFrames = instrument_->get_frame_count(currentVelocityLayer_);
@@ -77,49 +67,43 @@ bool Voice::processBlock(float* outputLeft, float* outputRight, int samplesPerBl
         return false;
     }
     
-    // ===== CALCULATE SAMPLES TO PROCESS =====
-    
     const int samplesUntilEnd = maxFrames - position_;
     const int samplesToProcess = std::min(samplesPerBlock, samplesUntilEnd);
     
-    // ===== VERIFY BUFFER CAPACITY =====
-    
-    // Critical error must be visible even in RT context
-    if (gainBuffer_.capacity() < static_cast<size_t>(samplesToProcess)) {
-        std::cout << "[Voice/processBlock] error: Buffer capacity insufficient - need " 
-                  << samplesToProcess << " samples, have " << gainBuffer_.capacity() << std::endl;
-        return false; // Buffer capacity insufficient - visible failure
-    }
-    
-    // ===== ENSURE BUFFER IS SIZED CORRECTLY =====
-    
+    // Zajištění kapacity gain bufferu
     if (gainBuffer_.size() < static_cast<size_t>(samplesToProcess)) {
         gainBuffer_.resize(samplesToProcess);
     }
-    
-    // ===== CALCULATE ENVELOPE GAINS =====
-    
-    if (!calculateBlockGains(gainBuffer_.data(), samplesToProcess)) {
-        state_ = VoiceState::Idle;
-        return false;
-    }
-    
-    // ===== APPLY AUDIO PROCESSING WITH GAIN CHAIN =====
 
-    processAudioWithGains(outputLeft, outputRight, stereoBuffer, samplesToProcess, panBuffer);
-    
-    // ===== UPDATE POSITION =====
-    
-    position_ += samplesToProcess;
-    
-    // ===== CHECK FOR END CONDITION =====
-    
+    bool voiceActive = false;
+
+    // Zpracování podle stavu obálky
+    switch (state_) {
+        case VoiceState::Attacking:
+            voiceActive = processAttackPhase(gainBuffer_.data(), samplesToProcess);
+            break;
+        case VoiceState::Sustaining:
+            voiceActive = processSustainPhase(gainBuffer_.data(), samplesToProcess);
+            break;
+        case VoiceState::Releasing:
+            voiceActive = processReleasePhase(gainBuffer_.data(), samplesToProcess);
+            break;
+        case VoiceState::Idle:
+            return false;
+    }
+
+    if (voiceActive) {
+        // Aplikace gainů na audio bez LFO panningu
+        processAudioWithGains(outputLeft, outputRight, stereoBuffer, samplesToProcess);
+        position_ += samplesToProcess;
+    }
+
     if (position_ >= maxFrames) {
         state_ = VoiceState::Idle;
         return false;
     }
-    
-    return state_ != VoiceState::Idle;
+
+    return voiceActive;
 }
 
 // =====================================================================
@@ -256,41 +240,43 @@ bool Voice::processReleasePhase(float* gainBuffer, int numSamples) noexcept {
 // =====================================================================
 
 void Voice::processAudioWithGains(float* outputLeft, float* outputRight,
-                                 const float* stereoBuffer, int samplesToProcess,
-                                 const float* panBuffer) noexcept {
-    // ===== CALCULATE SOURCE POINTER =====
+                                 const float* stereoBuffer, int samplesToProcess) noexcept {
 
-    const int startIndex = position_ * 2; // Convert position to stereo frame index
+    // =====================================================================
+    // ZPRACOVÁNÍ AUDIA S GAINY
+    // =====================================================================
+    // Aplikuje gainy (envelope, velocity, statický panning, stereo field, master)
+    // na stereo vzorky a mixuje je do výstupních bufferů.
+    // =====================================================================
+
+    const int startIndex = position_ * 2; // Konverze na stereo frame index
     const float* srcPtr = stereoBuffer + startIndex;
 
-    // ===== APPLY COMPLETE GAIN CHAIN AND MIX TO OUTPUT =====
+    // =====================================================================
+    // Výpočet statických panning gainů
+    // =====================================================================
+    float pan_left_gain, pan_right_gain;
+    calculatePanGains(pan_, pan_left_gain, pan_right_gain);
 
-    // Full gain chain: sample * envelope * velocity * pan * master * stereoField
-    // Stereo field gains are pre-calculated and cached for RT efficiency
-    // Pan gains are calculated PER-SAMPLE to support smooth LFO panning
-    // Output is additive mixing (+=) to allow multiple voices
+    // =====================================================================
+    // Zpracování každého vzorku
+    // =====================================================================
     for (int i = 0; i < samplesToProcess; ++i) {
         const int srcIndex = i * 2;
-
-        // Calculate pan gains per-sample:
-        // - If panBuffer provided (LFO panning): use per-sample pan value
-        // - Otherwise: use static pan_ value
-        float currentPan = panBuffer ? panBuffer[i] : pan_;
-        float pan_left_gain, pan_right_gain;
-        calculatePanGains(currentPan, pan_left_gain, pan_right_gain);
-
-        // Left channel: apply full gain chain including stereo field
+    
+        // =====================================================================    
+        // Kombinace všech gainů: envelope * velocity * panning * master * stereo field
+        // =====================================================================
         outputLeft[i] += srcPtr[srcIndex] * gainBuffer_[i] * velocity_gain_ *
                          pan_left_gain * master_gain_ * stereoFieldGainLeft_;
-
-#if DEBUG_ENVELOPE_TO_RIGHT_CHANNEL
-        // Debug mode: output envelope shape to right channel
-        outputRight[i] += gainBuffer_[i];
-#else
-        // Normal mode: right channel with full gain chain including stereo field
+        
+        #if DEBUG_ENVELOPE_TO_RIGHT_CHANNEL
+        outputRight[i] += gainBuffer_[i] * velocity_gain_ *
+                         pan_left_gain * master_gain_ * stereoFieldGainLeft_;
+        #else
         outputRight[i] += srcPtr[srcIndex + 1] * gainBuffer_[i] * velocity_gain_ *
                           pan_right_gain * master_gain_ * stereoFieldGainRight_;
-#endif
+        #endif
     }
 }
 

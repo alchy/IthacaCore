@@ -5,70 +5,82 @@
 
 /**
  * @class LfoPanning
- * @brief Handles LFO-based automatic panning with pre-calculated lookup tables
+ * @brief Spravuje automatické LFO panning s předpočítanými lookup tabulkami
  * 
- * Provides RT-safe LFO panning calculations for electric piano effects.
- * Uses pre-computed sine wave tables for smooth panning motion between channels.
- * Supports MIDI-based speed and depth control with linear interpolation.
+ * Poskytuje RT-safe výpočty LFO panningu pro efekty elektrického piana.
+ * Používá předpočítané sinusové tabulky pro hladký pohyb panoramy mezi kanály.
+ * Podporuje MIDI ovládání rychlosti a hloubky s kubickou interpolací.
  */
 class LfoPanning {
 public:
     /**
-     * @brief Initialize the LFO panning lookup tables
-     * @note Called once during VoiceManager construction
+     * @brief Inicializuje lookup tabulky pro LFO panning
+     * @note Voláno jednou během konstrukce VoiceManager
      */
     static void initializeLfoTables();
 
     /**
-     * @brief Convert MIDI speed value to LFO frequency in Hz
-     * @param midi_speed MIDI value (0-127)
-     * @return LFO frequency (0.0-2.0 Hz)
-     * @note RT-safe: linear interpolation from pre-calculated table
+     * @brief Převede MIDI hodnotu rychlosti na frekvenci LFO v Hz
+     * @param midi_speed MIDI hodnota (0-127)
+     * @return Frekvence LFO (0.0-2.0 Hz)
+     * @note RT-safe: lineární interpolace z předpočítané tabulky
      */
     static float getFrequencyFromMIDI(uint8_t midi_speed) noexcept;
 
     /**
-     * @brief Convert MIDI depth value to amplitude multiplier
-     * @param midi_depth MIDI value (0-127)
-     * @return Amplitude multiplier (0.0-1.0)
-     * @note RT-safe: linear interpolation from pre-calculated table
+     * @brief Převede MIDI hodnotu hloubky na multiplikátor amplitudy
+     * @param midi_depth MIDI hodnota (0-127)
+     * @return Multiplikátor amplitudy (0.0-1.0)
+     * @note RT-safe: lineární interpolace z předpočítané tabulky
      */
     static float getDepthFromMIDI(uint8_t midi_depth) noexcept;
 
     /**
-     * @brief Get sine wave value from pre-calculated lookup table
-     * @param phase Phase value (0.0-2π)
-     * @return Sine value (-1.0 to +1.0)
-     * @note RT-safe: uses pre-calculated sine values with interpolation
+     * @brief Získá hodnotu sinusovky z předpočítané lookup tabulky
+     * @param phase Fáze (0.0-2π)
+     * @return Sinusová hodnota (-1.0 až +1.0)
+     * @note RT-safe: používá předpočítané hodnoty s kubickou interpolací
      */
     static float getSineValue(float phase) noexcept;
 
     /**
-     * @brief Calculate phase increment per sample for given frequency
-     * @param frequency LFO frequency in Hz
-     * @param sampleRate Sample rate in Hz
-     * @return Phase increment per sample
-     * @note RT-safe: direct calculation
+     * @brief Vypočítá přírůstek fáze na vzorek pro danou frekvenci
+     * @param frequency Frekvence LFO v Hz
+     * @param sampleRate Vzorkovací frekvence v Hz
+     * @return Přírůstek fáze na vzorek
+     * @note RT-safe: přímý výpočet
      */
     static float calculatePhaseIncrement(float frequency, int sampleRate) noexcept;
 
     /**
-     * @brief Wrap phase to valid range (0.0-2π)
-     * @param phase Input phase value
-     * @return Wrapped phase (0.0-2π)
-     * @note RT-safe: modulo operation with 2π
+     * @brief Ořízne fázi do platného rozsahu (0.0-2π)
+     * @param phase Vstupní hodnota fáze
+     * @return Ořezaná fáze (0.0-2π)
+     * @note RT-safe: modulo operace s 2π
      */
     static float wrapPhase(float phase) noexcept;
 
-    // Public constant for external phase calculations
-    static constexpr float TWO_PI = 6.2831f;
+    /**
+     * @brief Kubická interpolace pro hladké přechody mezi hodnotami
+     * @param y0 První hodnota
+     * @param y1 Druhá hodnota
+     * @param y2 Třetí hodnota
+     * @param y3 Čtvrtá hodnota
+     * @param mu Interpolace (0.0-1.0)
+     * @return Interpolovaná hodnota
+     * @note RT-safe: přímý výpočet
+     */
+    static float cubicInterpolate(float y0, float y1, float y2, float y3, float mu) noexcept;
+
+    // Veřejná konstanta pro externí výpočty fází
+    static constexpr float TWO_PI = 6.283185307179586f;
 
 private:
-    // Lookup table sizes
+    // Velikosti lookup tabulek
     static constexpr int MIDI_TABLE_SIZE = 128;
-    static constexpr int SINE_TABLE_SIZE = 1024;
+    static constexpr int SINE_TABLE_SIZE = 8192; // Zvýšeno pro vyšší přesnost
     
-    // Pre-calculated lookup tables
+    // Předpočítané lookup tabulky
     static float frequency_table[MIDI_TABLE_SIZE];
     static float depth_table[MIDI_TABLE_SIZE];
     static float sine_table[SINE_TABLE_SIZE];

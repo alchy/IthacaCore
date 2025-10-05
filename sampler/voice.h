@@ -269,8 +269,7 @@ public:
      * @return true if voice remains active
      * @note RT-safe: no allocations, pre-calculated gains
      */
-    bool processBlock(float* outputLeft, float* outputRight, int samplesPerBlock,
-                     const float* panBuffer = nullptr) noexcept;
+    bool processBlock(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept;
 
     // ===== GAIN CONTROL =====
 
@@ -501,30 +500,29 @@ private:
     bool processReleasePhase(float* gainBuffer, int numSamples) noexcept;
     
     /**
-     * @brief Apply audio processing with calculated gains
-     * @param outputLeft Left channel output buffer
-     * @param outputRight Right channel output buffer
-     * @param stereoBuffer Source stereo sample data
-     * @param samplesToProcess Number of samples to process
-     * @param panBuffer Optional per-sample pan buffer for LFO panning (nullptr = use static pan_)
+     * @brief Zpracuje audio s vypočtenými gainy
+     * @param outputLeft Výstupní buffer levého kanálu
+     * @param outputRight Výstupní buffer pravého kanálu
+     * @param stereoBuffer Zdrojová stereo data vzorků
+     * @param samplesToProcess Počet vzorků ke zpracování
+     * @note Používá pouze statický panning (pan_) bez LFO modulace
      */
     void processAudioWithGains(float* outputLeft, float* outputRight,
-                              const float* stereoBuffer, int samplesToProcess,
-                              const float* panBuffer = nullptr) noexcept;
+                              const float* stereoBuffer, int samplesToProcess) noexcept;
     
     /**
-     * @brief Calculate constant power panning gains
+     * @brief Vypočítá gainy pro konstantní panning
      * 
-     * Uses sinusoidal curves to maintain constant perceived loudness.
-     * Total power (L² + R²) remains constant across the stereo field.
+     * Používá sinusové křivky pro udržení konstantní vnímané hlasitosti.
+     * Celkový výkon (L² + R²) zůstává konstantní přes stereo pole.
      * 
-     * @param pan Pan position (-1.0 to +1.0)
-     * @param leftGain Output left channel gain
-     * @param rightGain Output right channel gain
-     * @note Temporary implementation - will be moved to pan_utils.h
+     * @param pan Pozice panoramy (-1.0 až +1.0)
+     * @param leftGain Výstupní gain levého kanálu
+     * @param rightGain Výstupní gain pravého kanálu
+     * @note Dočasná implementace - bude přesunuta do pan_utils.h
      */
     void calculatePanGains(float pan, float& leftGain, float& rightGain) noexcept;
-    
+
 };
 
 #endif // VOICE_H

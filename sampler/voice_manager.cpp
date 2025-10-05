@@ -30,7 +30,9 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
       lfoPhaseIncrement_(0.0f),
       lfoPanBuffer_(),
       dspChain_(),
-      limiterEffect_(nullptr) {
+      limiterEffect_(nullptr),
+      previousPanLeft_(1.0f),  // Inicializace předchozích gainů
+      previousPanRight_(1.0f) {
     
     // Validate sample directory
     if (sampleDir_.empty()) {
@@ -283,27 +285,21 @@ void VoiceManager::processDelayedNoteOffs() noexcept {
 // ===== AUDIO PROCESSING =====
 
 bool VoiceManager::processBlockUninterleaved(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept {
+    // Ověření vstupů
     if (!outputLeft || !outputRight || samplesPerBlock <= 0) return false;
 
-    // Clear output buffers
+    // Vynulování výstupních bufferů
     std::fill(outputLeft, outputLeft + samplesPerBlock, 0.0f);
     std::fill(outputRight, outputRight + samplesPerBlock, 0.0f);
 
     if (activeVoices_.empty()) return false;
 
-    // Pre-calculate LFO panning buffer if active (eliminates zipper noise)
-    const float* panBuffer = nullptr;
-    if (isLfoPanningActive()) {
-        applyLfoPanningPerSample(samplesPerBlock);
-        panBuffer = lfoPanBuffer_.data();
-    }
-
     bool anyActive = false;
 
-    // Process all active voices with optional per-sample pan buffer
+    // Zpracování všech aktivních hlasů bez LFO panningu
     for (Voice* voice : activeVoices_) {
         if (voice && voice->isActive()) {
-            if (voice->processBlock(outputLeft, outputRight, samplesPerBlock, panBuffer)) {
+            if (voice->processBlock(outputLeft, outputRight, samplesPerBlock)) {
                 anyActive = true;
             } else {
                 voicesToRemove_.push_back(voice);
@@ -313,12 +309,18 @@ bool VoiceManager::processBlockUninterleaved(float* outputLeft, float* outputRig
         }
     }
 
-    // Clean up inactive voices
+    // Vyčištění neaktivních hlasů
     if (!voicesToRemove_.empty()) {
         cleanupInactiveVoices();
     }
 
-    // Apply DSP chain (limiter, etc.) if we have audio
+    // Aplikace LFO panningu na finální mix
+    if (isLfoPanningActive()) {
+        applyLfoPanningPerSample(samplesPerBlock);
+        applyLfoPanToFinalMix(outputLeft, outputRight, samplesPerBlock);
+    }
+
+    // Aplikace DSP řetězce (limiter atd.), pokud máme audio
     if (anyActive) {
         dspChain_.process(outputLeft, outputRight, samplesPerBlock);
     }
@@ -327,9 +329,10 @@ bool VoiceManager::processBlockUninterleaved(float* outputLeft, float* outputRig
 }
 
 bool VoiceManager::processBlockInterleaved(AudioData* outputBuffer, int samplesPerBlock) noexcept {
+    // Ověření vstupů
     if (!outputBuffer || samplesPerBlock <= 0) return false;
 
-    // Clear output buffer
+    // Vynulování výstupního bufferu
     for (int i = 0; i < samplesPerBlock; ++i) {
         outputBuffer[i].left = 0.0f;
         outputBuffer[i].right = 0.0f;
@@ -337,35 +340,28 @@ bool VoiceManager::processBlockInterleaved(AudioData* outputBuffer, int samplesP
 
     if (activeVoices_.empty()) return false;
 
-    // Pre-calculate LFO panning buffer if active (eliminates zipper noise)
-    const float* panBuffer = nullptr;
-    if (isLfoPanningActive()) {
-        applyLfoPanningPerSample(samplesPerBlock);
-        panBuffer = lfoPanBuffer_.data();
-    }
-
-    // Pre-allocated temp buffers to avoid RT allocations
+    // Předalokované dočasné buffery pro RT bezpečnost
     static thread_local std::vector<float> tempLeft(16384);
     static thread_local std::vector<float> tempRight(16384);
 
     bool anyActive = false;
 
-    // Process all active voices with optional per-sample pan buffer
+    // Zpracování všech aktivních hlasů bez LFO panningu
     for (Voice* voice : activeVoices_) {
         if (voice && voice->isActive()) {
-            // Verify buffer capacity - critical error must be visible in development
+            // Ověření kapacity bufferu
             if (tempLeft.size() < static_cast<size_t>(samplesPerBlock)) {
                 std::cout << "[VoiceManager/processBlockInterleaved] error: Temp buffer too small - need "
                           << samplesPerBlock << " samples, have " << tempLeft.size() << std::endl;
-                continue; // Skip this voice but log the issue
+                continue;
             }
 
-            // Clear temp buffers
+            // Vynulování dočasných bufferů
             std::fill(tempLeft.begin(), tempLeft.begin() + samplesPerBlock, 0.0f);
             std::fill(tempRight.begin(), tempRight.begin() + samplesPerBlock, 0.0f);
 
-            // Process voice and mix to output
-            if (voice->processBlock(tempLeft.data(), tempRight.data(), samplesPerBlock, panBuffer)) {
+            // Zpracování hlasu a mix do výstupu
+            if (voice->processBlock(tempLeft.data(), tempRight.data(), samplesPerBlock)) {
                 anyActive = true;
 
                 for (int i = 0; i < samplesPerBlock; ++i) {
@@ -380,12 +376,55 @@ bool VoiceManager::processBlockInterleaved(AudioData* outputBuffer, int samplesP
         }
     }
 
-    // Clean up inactive voices
+    // Vyčištění neaktivních hlasů
     if (!voicesToRemove_.empty()) {
         cleanupInactiveVoices();
     }
 
+    // Aplikace LFO panningu na finální mix
+    if (isLfoPanningActive()) {
+        applyLfoPanningPerSample(samplesPerBlock);
+        // Převod prokládaného bufferu na neprokládaný pro LFO panning
+        std::vector<float> tempLeftOut(samplesPerBlock);
+        std::vector<float> tempRightOut(samplesPerBlock);
+        for (int i = 0; i < samplesPerBlock; ++i) {
+            tempLeftOut[i] = outputBuffer[i].left;
+            tempRightOut[i] = outputBuffer[i].right;
+        }
+        applyLfoPanToFinalMix(tempLeftOut.data(), tempRightOut.data(), samplesPerBlock);
+        for (int i = 0; i < samplesPerBlock; ++i) {
+            outputBuffer[i].left = tempLeftOut[i];
+            outputBuffer[i].right = tempRightOut[i];
+        }
+    }
+
     return anyActive;
+}
+
+void VoiceManager::applyLfoPanToFinalMix(float* leftOut, float* rightOut, int numSamples) noexcept {
+    // Aplikace LFO panningu na finální mix s vyhlazováním gainu
+    if (!isLfoPanningActive()) return;
+
+    float currentPanLeft = previousPanLeft_;
+    float currentPanRight = previousPanRight_;
+
+    for (int i = 0; i < numSamples; ++i) {
+        // Získání panning gainů z lookup tabulky
+        float panLeft, panRight;
+        Panning::getPanGains(lfoPanBuffer_[i], panLeft, panRight);
+
+        // Exponenciální vyhlazování gainů pro eliminaci zip noise
+        currentPanLeft = (LFO_SMOOTHING * currentPanLeft) + ((1.0f - LFO_SMOOTHING) * panLeft);
+        currentPanRight = (LFO_SMOOTHING * currentPanRight) + ((1.0f - LFO_SMOOTHING) * panRight);
+
+        // Aplikace gainů na výstupní vzorky
+        leftOut[i] *= currentPanLeft;
+        rightOut[i] *= currentPanRight;
+    }
+
+    // Uložení aktuálních gainů pro další blok
+    previousPanLeft_ = currentPanLeft;
+    previousPanRight_ = currentPanRight;
 }
 
 // ===== VOICE CONTROL =====
@@ -664,27 +703,21 @@ void VoiceManager::reinitializeIfNeeded(int targetSampleRate, Logger& logger) {
 // ===== LFO PANNING HELPERS =====
 
 void VoiceManager::applyLfoPanningPerSample(int samplesPerBlock) noexcept {
-    if (!isLfoPanningActive() || lfoPhaseIncrement_ <= 0.0f) return;
-
-    // Ensure pan buffer has sufficient size (RT-safe: resize only if needed)
+    // Generování hodnot LFO panningu pro každý vzorek
     if (lfoPanBuffer_.size() < static_cast<size_t>(samplesPerBlock)) {
         lfoPanBuffer_.resize(samplesPerBlock);
     }
 
-    // Pre-calculate LFO pan values for each sample in the block
-    // Voices will read from this buffer per-sample during processing
     for (int sample = 0; sample < samplesPerBlock; ++sample) {
-        // Calculate current pan position from LFO phase
+        // Výpočet LFO hodnoty z předpočítané sinusové tabulky
         float lfoValue = LfoPanning::getSineValue(lfoPhase_);
         lfoPanBuffer_[sample] = lfoValue * panDepth_;
 
-        // Advance LFO phase by one sample
+        // Posun fáze LFO o jeden vzorek
         lfoPhase_ += lfoPhaseIncrement_;
 
-        // Wrap phase to valid range (0.0-2π) - optimized to reduce wrapping calls
-        if (lfoPhase_ >= LfoPanning::TWO_PI) {
-            lfoPhase_ -= LfoPanning::TWO_PI;
-        }
+        // Ořezání fáze do platného rozsahu (0.0-2π)
+        lfoPhase_ = LfoPanning::wrapPhase(lfoPhase_);
     }
 }
 
@@ -693,6 +726,8 @@ void VoiceManager::resetLfoParameters() noexcept {
     panDepth_ = 0.0f;
     lfoPhase_ = 0.0f;
     lfoPhaseIncrement_ = 0.0f;
+    previousPanLeft_ = 1.0f;  // Reset předchozích gainů
+    previousPanRight_ = 1.0f;
 }
 
 // ===== VOICE POOL MANAGEMENT =====
