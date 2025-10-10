@@ -440,10 +440,12 @@ private:
 
     // ===== LFO PANNING STATE =====
 
-    float panSpeed_;                   // LFO frequency in Hz (0.0-2.0)
-    float panDepth_;                   // LFO amplitude (0.0-1.0)
+    float panSpeed_;                   // Current interpolated LFO frequency in Hz (0.0-2.0)
+    float panSpeedTarget_;             // Target LFO frequency from MIDI (0.0-2.0)
+    float panDepth_;                   // Current interpolated LFO depth (0.0-1.0)
+    float panDepthTarget_;             // Target LFO depth from MIDI (0.0-1.0)
+    float panSmoothingTime_;           // Smoothing time for both speed and depth (default: 0.5s)
     float lfoPhase_;                   // Current LFO phase (0.0-2π)
-    float lfoPhaseIncrement_;          // Phase increment per sample
     std::vector<float> lfoPanBuffer_;  // Pre-calculated per-sample pan values
 
     // Členy pro vyhlazování LFO panningu
