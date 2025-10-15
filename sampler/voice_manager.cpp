@@ -25,9 +25,11 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
       sustainPedalActive_(false),
       delayedNoteOffs_(),  // Initialized to all false
       panSpeed_(0.0f),
+      panSpeedTarget_(0.0f),
       panDepth_(0.0f),
+      panDepthTarget_(0.0f),
+      panSmoothingTime_(0.5f),  // 500 ms default smoothing for both speed and depth
       lfoPhase_(0.0f),
-      lfoPhaseIncrement_(0.0f),
       lfoPanBuffer_(),
       dspChain_(),
       limiterEffect_(nullptr),
@@ -315,10 +317,10 @@ bool VoiceManager::processBlockUninterleaved(float* outputLeft, float* outputRig
     }
 
     // Aplikace LFO panningu na finální mix
-    if (isLfoPanningActive()) {
-        applyLfoPanningPerSample(samplesPerBlock);
-        applyLfoPanToFinalMix(outputLeft, outputRight, samplesPerBlock);
-    }
+    // Always process LFO (runs continuously, even when speed/depth are 0)
+    // This simplifies logic and prevents discontinuities
+    applyLfoPanningPerSample(samplesPerBlock);
+    applyLfoPanToFinalMix(outputLeft, outputRight, samplesPerBlock);
 
     // Aplikace DSP řetězce (limiter atd.), pokud máme audio
     if (anyActive) {
@@ -382,20 +384,20 @@ bool VoiceManager::processBlockInterleaved(AudioData* outputBuffer, int samplesP
     }
 
     // Aplikace LFO panningu na finální mix
-    if (isLfoPanningActive()) {
-        applyLfoPanningPerSample(samplesPerBlock);
-        // Převod prokládaného bufferu na neprokládaný pro LFO panning
-        std::vector<float> tempLeftOut(samplesPerBlock);
-        std::vector<float> tempRightOut(samplesPerBlock);
-        for (int i = 0; i < samplesPerBlock; ++i) {
-            tempLeftOut[i] = outputBuffer[i].left;
-            tempRightOut[i] = outputBuffer[i].right;
-        }
-        applyLfoPanToFinalMix(tempLeftOut.data(), tempRightOut.data(), samplesPerBlock);
-        for (int i = 0; i < samplesPerBlock; ++i) {
-            outputBuffer[i].left = tempLeftOut[i];
-            outputBuffer[i].right = tempRightOut[i];
-        }
+    // Always process LFO (runs continuously, even when speed/depth are 0)
+    applyLfoPanningPerSample(samplesPerBlock);
+
+    // Převod prokládaného bufferu na neprokládaný pro LFO panning
+    std::vector<float> tempLeftOut(samplesPerBlock);
+    std::vector<float> tempRightOut(samplesPerBlock);
+    for (int i = 0; i < samplesPerBlock; ++i) {
+        tempLeftOut[i] = outputBuffer[i].left;
+        tempRightOut[i] = outputBuffer[i].right;
+    }
+    applyLfoPanToFinalMix(tempLeftOut.data(), tempRightOut.data(), samplesPerBlock);
+    for (int i = 0; i < samplesPerBlock; ++i) {
+        outputBuffer[i].left = tempLeftOut[i];
+        outputBuffer[i].right = tempRightOut[i];
     }
 
     return anyActive;
@@ -403,13 +405,13 @@ bool VoiceManager::processBlockInterleaved(AudioData* outputBuffer, int samplesP
 
 void VoiceManager::applyLfoPanToFinalMix(float* leftOut, float* rightOut, int numSamples) noexcept {
     // Aplikace LFO panningu na finální mix s vyhlazováním gainu
-    if (!isLfoPanningActive()) return;
+    // Always update previousPan state to prevent discontinuities when depth changes from 0
 
     float currentPanLeft = previousPanLeft_;
     float currentPanRight = previousPanRight_;
 
     for (int i = 0; i < numSamples; ++i) {
-        // Získání panning gainů z lookup tabulky
+        // Získání panning gainů z lookup tabulky (již obsahuje interpolovaný depth)
         float panLeft, panRight;
         Panning::getPanGains(lfoPanBuffer_[i], panLeft, panRight);
 
@@ -529,23 +531,23 @@ void VoiceManager::setAllVoicesStereoFieldAmountMIDI(uint8_t midi_stereo) noexce
 
 void VoiceManager::setAllVoicesPanSpeedMIDI(uint8_t midi_speed) noexcept {
     if (midi_speed > 127) return;
-    
-    panSpeed_ = LfoPanning::getFrequencyFromMIDI(midi_speed);
-    
-    // Update phase increment if sample rate is available
-    if (currentSampleRate_ > 0) {
-        lfoPhaseIncrement_ = LfoPanning::calculatePhaseIncrement(panSpeed_, currentSampleRate_);
-    }
+
+    panSpeedTarget_ = LfoPanning::getFrequencyFromMIDI(midi_speed);
+    // panSpeed_ will be smoothly interpolated to panSpeedTarget_ in applyLfoPanningPerSample()
+    // No special handling needed - LFO runs continuously regardless of speed value
 }
 
 void VoiceManager::setAllVoicesPanDepthMIDI(uint8_t midi_depth) noexcept {
     if (midi_depth > 127) return;
-    
-    panDepth_ = LfoPanning::getDepthFromMIDI(midi_depth);
+
+    panDepthTarget_ = LfoPanning::getDepthFromMIDI(midi_depth);
+    // panDepth_ will be smoothly interpolated to panDepthTarget_ in applyLfoPanningPerSample()
 }
 
 bool VoiceManager::isLfoPanningActive() const noexcept {
-    return (panSpeed_ > 0.0f) && (panDepth_ > 0.0f);
+    // LFO is active if speed is set AND either current or target depth is non-zero
+    // This ensures LFO continues processing during smooth transitions
+    return (panSpeed_ > 0.0f) && ((panDepth_ > 0.0f) || (panDepthTarget_ > 0.0f));
 }
 
 // ===== VOICE ACCESS =====
@@ -708,13 +710,49 @@ void VoiceManager::applyLfoPanningPerSample(int samplesPerBlock) noexcept {
         lfoPanBuffer_.resize(samplesPerBlock);
     }
 
+    // Výpočet interpolačního kroku pro plynulé přechody (stejný pro speed i depth)
+    const float deltaPerSample = (currentSampleRate_ > 0)
+        ? (1.0f / (panSmoothingTime_ * currentSampleRate_))
+        : 0.0f;
+
     for (int sample = 0; sample < samplesPerBlock; ++sample) {
-        // Výpočet LFO hodnoty z předpočítané sinusové tabulky
+        // Plynulá interpolace speed k cílové hodnotě (stejně jako depth)
+        if (panSpeed_ < panSpeedTarget_) {
+            panSpeed_ += deltaPerSample;
+            if (panSpeed_ > panSpeedTarget_) {
+                panSpeed_ = panSpeedTarget_;
+            }
+        } else if (panSpeed_ > panSpeedTarget_) {
+            panSpeed_ -= deltaPerSample;
+            if (panSpeed_ < panSpeedTarget_) {
+                panSpeed_ = panSpeedTarget_;
+            }
+        }
+
+        // Plynulá interpolace depth k cílové hodnotě
+        if (panDepth_ < panDepthTarget_) {
+            panDepth_ += deltaPerSample;
+            if (panDepth_ > panDepthTarget_) {
+                panDepth_ = panDepthTarget_;
+            }
+        } else if (panDepth_ > panDepthTarget_) {
+            panDepth_ -= deltaPerSample;
+            if (panDepth_ < panDepthTarget_) {
+                panDepth_ = panDepthTarget_;
+            }
+        }
+
+        // Výpočet phase increment z interpolovaného speed (per-sample)
+        const float phaseIncrement = (currentSampleRate_ > 0)
+            ? LfoPanning::calculatePhaseIncrement(panSpeed_, currentSampleRate_)
+            : 0.0f;
+
+        // Výpočet LFO hodnoty z předpočítané sinusové tabulky s interpolovaným depth
         float lfoValue = LfoPanning::getSineValue(lfoPhase_);
         lfoPanBuffer_[sample] = lfoValue * panDepth_;
 
-        // Posun fáze LFO o jeden vzorek
-        lfoPhase_ += lfoPhaseIncrement_;
+        // Posun fáze LFO o jeden vzorek (s per-sample vypočítaným phase increment)
+        lfoPhase_ += phaseIncrement;
 
         // Ořezání fáze do platného rozsahu (0.0-2π)
         lfoPhase_ = LfoPanning::wrapPhase(lfoPhase_);
@@ -723,9 +761,10 @@ void VoiceManager::applyLfoPanningPerSample(int samplesPerBlock) noexcept {
 
 void VoiceManager::resetLfoParameters() noexcept {
     panSpeed_ = 0.0f;
+    panSpeedTarget_ = 0.0f;
     panDepth_ = 0.0f;
+    panDepthTarget_ = 0.0f;
     lfoPhase_ = 0.0f;
-    lfoPhaseIncrement_ = 0.0f;
     previousPanLeft_ = 1.0f;  // Reset předchozích gainů
     previousPanRight_ = 1.0f;
 }
