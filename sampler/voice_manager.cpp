@@ -10,13 +10,14 @@
 
 // ===== CONSTRUCTOR AND INITIALIZATION =====
 
-VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
+VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger, int velocityLayerCount)
     : samplerIO_(),
       instrumentLoader_(),
       envelope_(),
       currentSampleRate_(0),
       sampleDir_(sampleDir),
       systemInitialized_(false),
+      velocityLayerCount_(velocityLayerCount),  // Nově
       voices_(128),
       activeVoices_(),
       voicesToRemove_(),
@@ -35,14 +36,22 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
       limiterEffect_(nullptr),
       previousPanLeft_(1.0f),  // Inicializace předchozích gainů
       previousPanRight_(1.0f) {
-    
+
+    // Validate velocity layer count
+    if (velocityLayerCount_ < 1 || velocityLayerCount_ > 8) {
+        logger.log("VoiceManager/constructor", LogSeverity::Warning,
+                  "Invalid velocity layer count " + std::to_string(velocityLayerCount_) +
+                  ", using default 8");
+        velocityLayerCount_ = 8;
+    }
+
     // Validate sample directory
     if (sampleDir_.empty()) {
         const std::string errorMsg = "[VoiceManager/constructor] error: Invalid sampleDir - cannot be empty";
         logger.log("VoiceManager/constructor", LogSeverity::Error, errorMsg);
         std::exit(1);
     }
-    
+
     // Validate EnvelopeStaticData initialization
     if (!EnvelopeStaticData::isInitialized()) {
         const std::string errorMsg = "[VoiceManager/constructor] error: EnvelopeStaticData not initialized. Call EnvelopeStaticData::initialize() first";
@@ -81,8 +90,9 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger)
     dspChain_.addEffect(std::move(limiter));
 
     logger.log("VoiceManager/constructor", LogSeverity::Info,
-           "VoiceManager created with sampleDir '" + sampleDir_ +
-           "' using shared envelope data, constant power panning, LFO panning, sustain pedal support, and DSP effects chain (Limiter). Ready for initialization pipeline.");
+           "VoiceManager created with sampleDir '" + sampleDir_ + "', " +
+           std::to_string(velocityLayerCount_) + " velocity layers, " +
+           "using shared envelope data, constant power panning, LFO panning, sustain pedal support, and DSP effects chain (Limiter). Ready for initialization pipeline.");
 }
 
 // ===== CONSTANT POWER PANNING =====
@@ -96,10 +106,10 @@ void VoiceManager::getPanGains(float pan, float& leftGain, float& rightGain) noe
 void VoiceManager::initializeSystem(Logger& logger) {
     logger.log("VoiceManager/initializeSystem", LogSeverity::Info,
             "=== INIT PHASE 1: System initialization and directory scanning ===");
-    
+
     try {
         samplerIO_.scanSampleDirectory(sampleDir_, logger);
-        
+
         // Check if samples were loaded by checking if we can find at least one valid sample
         const auto& sampleList = samplerIO_.getLoadedSampleList();
         if (sampleList.empty()) {
@@ -107,9 +117,12 @@ void VoiceManager::initializeSystem(Logger& logger) {
             logger.log("VoiceManager/initializeSystem", LogSeverity::Error, errorMsg);
             std::exit(1);
         }
-        
+
+        // Set velocity layer count in InstrumentLoader
+        instrumentLoader_.setVelocityLayerCount(velocityLayerCount_);
+
         systemInitialized_ = true;
-        
+
         logger.log("VoiceManager/initializeSystem", LogSeverity::Info,
                 "=== INIT PHASE 1 COMPLETED: Sample directory scanned successfully ===");
         
@@ -659,9 +672,10 @@ void VoiceManager::initializeVoicesWithInstruments(Logger& logger) {
         uint8_t midiNote = static_cast<uint8_t>(i);
         const Instrument& inst = instrumentLoader_.getInstrumentNote(midiNote);
         Voice& voice = voices_[i];
-        
-        // Initialize voice with per-instance envelope wrapper
-        voice.initialize(inst, currentSampleRate_, envelope_, logger);
+
+        // Initialize voice with per-instance envelope wrapper and InstrumentLoader reference
+        // InstrumentLoader pointer enables dynamic velocity layer size calculation (1-8 layers)
+        voice.initialize(inst, currentSampleRate_, envelope_, logger, &instrumentLoader_);
         voice.prepareToPlay(512);
     }
 

@@ -59,9 +59,9 @@ void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRa
               "InstrumentLoader initialized with targetSampleRate " + 
               std::to_string(actual_samplerate_) + " Hz");
     
-    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
-              "Prepared array for " + std::to_string(MIDI_NOTE_MAX + 1) + 
-              " MIDI notes with " + std::to_string(VELOCITY_LAYERS) + " velocity layers");
+    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info,
+              "Prepared array for " + std::to_string(MIDI_NOTE_MAX + 1) +
+              " MIDI notes with " + std::to_string(velocityLayerCount_) + " velocity layers");
               
     logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
               "All samples will be converted to stereo interleaved format [L,R,L,R...]");
@@ -79,8 +79,8 @@ void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRa
     
     // Cyklus pro všechny MIDI noty 0-127
     for (int midi = MIDI_NOTE_MIN; midi <= MIDI_NOTE_MAX; midi++) {
-        // Cyklus pro všechny velocity 0-7
-        for (int vel = 0; vel < VELOCITY_LAYERS; vel++) {
+        // Cyklus pro skutečný počet velocity layers
+        for (int vel = 0; vel < velocityLayerCount_; vel++) {
             // Vyhledání indexu v SamplerIO
             int index = sampler.findSampleInSampleList(
                 static_cast<uint8_t>(midi), 
@@ -117,10 +117,20 @@ void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRa
                 missingSamples++;
             }
         }
+
+        // Vynulovat nepoužité layers (pokud velocityLayerCount_ < MAX_VELOCITY_LAYERS)
+        for (int vel = velocityLayerCount_; vel < MAX_VELOCITY_LAYERS; vel++) {
+            instruments_[midi].sample_ptr_sampleInfo[vel] = nullptr;
+            instruments_[midi].sample_ptr_velocity[vel] = nullptr;
+            instruments_[midi].velocityExists[vel] = false;
+            instruments_[midi].frame_count_stereo[vel] = 0;
+            instruments_[midi].total_samples_stereo[vel] = 0;
+            instruments_[midi].was_originally_mono[vel] = false;
+        }
     }
-    
+
     // Summary log s mono/stereo statistikami
-    int totalSlots = (MIDI_NOTE_MAX + 1) * VELOCITY_LAYERS;
+    int totalSlots = (MIDI_NOTE_MAX + 1) * velocityLayerCount_;
     logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
               "Loading completed. Found: " + std::to_string(foundSamples) + 
               ", Missing: " + std::to_string(missingSamples) + 
@@ -150,11 +160,11 @@ void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRa
  */
 void InstrumentLoader::clear(Logger& logger) {
     int freedCount = 0;
-    
+
     // Prochází všechny MIDI noty 0-127
     for (int midi = MIDI_NOTE_MIN; midi <= MIDI_NOTE_MAX; midi++) {
-        // Prochází všechny velocity 0-7
-        for (int vel = 0; vel < VELOCITY_LAYERS; vel++) {
+        // Prochází všechny velocity layers
+        for (int vel = 0; vel < MAX_VELOCITY_LAYERS; vel++) {
             if (instruments_[midi].velocityExists[vel] && 
                 instruments_[midi].sample_ptr_velocity[vel] != nullptr) {
                 
@@ -195,8 +205,8 @@ void InstrumentLoader::clear(Logger& logger) {
 void InstrumentLoader::clearWithoutLogging() {
     // Prochází všechny MIDI noty 0-127
     for (int midi = MIDI_NOTE_MIN; midi <= MIDI_NOTE_MAX; midi++) {
-        // Prochází všechny velocity 0-7
-        for (int vel = 0; vel < VELOCITY_LAYERS; vel++) {
+        // Prochází všechny velocity layers
+        for (int vel = 0; vel < MAX_VELOCITY_LAYERS; vel++) {
             if (instruments_[midi].velocityExists[vel] && 
                 instruments_[midi].sample_ptr_velocity[vel] != nullptr) {
                 
@@ -493,8 +503,8 @@ void InstrumentLoader::validateStereoConsistency(Logger& logger) {
     
     for (int midi = MIDI_NOTE_MIN; midi <= MIDI_NOTE_MAX; midi++) {
         const Instrument& inst = instruments_[midi];
-        
-        for (int vel = 0; vel < VELOCITY_LAYERS; vel++) {
+
+        for (int vel = 0; vel < MAX_VELOCITY_LAYERS; vel++) {
             if (inst.velocityExists[vel]) {
                 validatedSamples++;
                 
@@ -585,10 +595,10 @@ void InstrumentLoader::validateStereoConsistency(Logger& logger) {
  * @param logger Reference na Logger pro error log
  */
 void InstrumentLoader::validateVelocity(uint8_t velocity, const char* functionName, Logger& logger) const {
-    if (velocity >= VELOCITY_LAYERS) {
-        logger.log("InstrumentLoader/" + std::string(functionName), LogSeverity::Error, 
-                   "Invalid velocity " + std::to_string(velocity) + 
-                   " outside range 0-" + std::to_string(VELOCITY_LAYERS - 1));
+    if (velocity >= MAX_VELOCITY_LAYERS) {
+        logger.log("InstrumentLoader/" + std::string(functionName), LogSeverity::Error,
+                   "Invalid velocity " + std::to_string(velocity) +
+                   " outside range 0-" + std::to_string(MAX_VELOCITY_LAYERS - 1));
         std::exit(1);
     }
 }
@@ -646,9 +656,31 @@ void InstrumentLoader::validateSamplerReference(SamplerIO& sampler, Logger& logg
  */
 void InstrumentLoader::validateTargetSampleRate(int targetSampleRate, Logger& logger) {
     if (targetSampleRate != 44100 && targetSampleRate != 48000) {
-        logger.log("InstrumentLoader/validateTargetSampleRate", LogSeverity::Error, 
-                  "Invalid targetSampleRate " + std::to_string(targetSampleRate) + 
+        logger.log("InstrumentLoader/validateTargetSampleRate", LogSeverity::Error,
+                  "Invalid targetSampleRate " + std::to_string(targetSampleRate) +
                   " Hz - only 44100 Hz and 48000 Hz are supported");
         std::exit(1);
+    }
+}
+
+/**
+ * @brief Nastavit počet velocity layers
+ * @param count Počet layers (1-8)
+ */
+void InstrumentLoader::setVelocityLayerCount(int count) {
+    if (count < 1 || count > MAX_VELOCITY_LAYERS) {
+        if (logger_) {
+            logger_->log("InstrumentLoader/setVelocityLayerCount", LogSeverity::Warning,
+                        "Invalid velocity layer count " + std::to_string(count) +
+                        ", using default 8");
+        }
+        velocityLayerCount_ = 8;
+        return;
+    }
+    velocityLayerCount_ = count;
+
+    if (logger_) {
+        logger_->log("InstrumentLoader/setVelocityLayerCount", LogSeverity::Info,
+                    "Velocity layer count set to " + std::to_string(velocityLayerCount_));
     }
 }

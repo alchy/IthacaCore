@@ -28,20 +28,21 @@ std::atomic<bool> Voice::rtMode_{false};
 // CONSTRUCTORS
 // =====================================================================
 
-Voice::Voice() 
-    : midiNote_(0), 
-      instrument_(nullptr), 
+Voice::Voice()
+    : midiNote_(0),
+      instrument_(nullptr),
+      instrumentLoader_(nullptr),
       sampleRate_(0),
-      state_(VoiceState::Idle), 
-      position_(0), 
+      state_(VoiceState::Idle),
+      position_(0),
       currentVelocityLayer_(0),
-      envelope_gain_(0.0f), 
-      velocity_gain_(0.0f), 
+      envelope_gain_(0.0f),
+      velocity_gain_(0.0f),
       master_gain_(1.0f),
       pan_(0.0f),
       envelope_(nullptr),
-      envelope_attack_position_(0), 
-      envelope_release_position_(0), 
+      envelope_attack_position_(0),
+      envelope_release_position_(0),
       release_start_gain_(1.0f),
       dampingLength_(0),
       dampingPosition_(0),
@@ -60,19 +61,20 @@ Voice::Voice()
 }
 
 Voice::Voice(uint8_t midiNote)
-    : midiNote_(midiNote), 
-      instrument_(nullptr), 
+    : midiNote_(midiNote),
+      instrument_(nullptr),
+      instrumentLoader_(nullptr),
       sampleRate_(0),
-      state_(VoiceState::Idle), 
-      position_(0), 
+      state_(VoiceState::Idle),
+      position_(0),
       currentVelocityLayer_(0),
-      envelope_gain_(0.0f), 
-      velocity_gain_(0.0f), 
+      envelope_gain_(0.0f),
+      velocity_gain_(0.0f),
       master_gain_(1.0f),
       pan_(0.0f),
       envelope_(nullptr),
-      envelope_attack_position_(0), 
-      envelope_release_position_(0), 
+      envelope_attack_position_(0),
+      envelope_release_position_(0),
       release_start_gain_(1.0f),
       dampingLength_(0),
       dampingPosition_(0),
@@ -94,10 +96,12 @@ Voice::Voice(uint8_t midiNote)
 // INITIALIZATION AND LIFECYCLE
 // =====================================================================
 
-void Voice::initialize(const Instrument& instrument, int sampleRate, 
+void Voice::initialize(const Instrument& instrument, int sampleRate,
                       Envelope& envelope, Logger& logger,
+                      const InstrumentLoader* instrumentLoader,
                       uint8_t attackMIDI, uint8_t releaseMIDI, uint8_t sustainMIDI) {
     instrument_ = &instrument;
+    instrumentLoader_ = instrumentLoader;
     sampleRate_ = sampleRate;
     envelope_ = &envelope;
     
@@ -193,9 +197,10 @@ void Voice::cleanup(Logger& logger) {
 
 void Voice::reinitialize(const Instrument& instrument, int sampleRate,
                          Envelope& envelope, Logger& logger,
+                         const InstrumentLoader* instrumentLoader,
                          uint8_t attackMIDI, uint8_t releaseMIDI, uint8_t sustainMIDI) {
     // Full re-initialization including damping buffer recalculation
-    initialize(instrument, sampleRate, envelope, logger, attackMIDI, releaseMIDI, sustainMIDI);
+    initialize(instrument, sampleRate, envelope, logger, instrumentLoader, attackMIDI, releaseMIDI, sustainMIDI);
 
     logger.log("Voice/reinitialize", LogSeverity::Info,
            "Voice reinitialized with new instrument, sampleRate and ADSR envelope for MIDI " +
@@ -240,9 +245,15 @@ void Voice::startNote(uint8_t velocity) noexcept {
     // =====================================================================
     // START NEW NOTE
     // =====================================================================
-    
-    // Select velocity layer based on MIDI velocity (0-127 mapped to 0-7)
-    currentVelocityLayer_ = std::min(static_cast<uint8_t>(velocity / 16), static_cast<uint8_t>(7));
+
+    // Select velocity layer based on MIDI velocity with dynamic layer count
+    // Layer size adapts to actual velocity layer count (1-8 layers)
+    float layerSize = getVelocityLayerSize();
+    int maxLayer = (instrumentLoader_ ? instrumentLoader_->getVelocityLayerCount() : 8) - 1;
+    currentVelocityLayer_ = std::min(
+        static_cast<uint8_t>(velocity / layerSize),
+        static_cast<uint8_t>(maxLayer)
+    );
     
     // Update velocity gain with logarithmic scaling
     updateVelocityGain(velocity);
@@ -381,28 +392,32 @@ void Voice::updateVelocityGain(uint8_t velocity) noexcept {
     }
     
     // ===== LAYER CENTER CALCULATION =====
-    
+
     // Each layer represents a specific dynamic range in the sampled instrument
     // Samples are already recorded at their natural dynamic level
     // Calculate exact center of the selected velocity layer
-    const float layerCenter = (currentVelocityLayer_ * VELOCITY_LAYER_SIZE) + VELOCITY_LAYER_CENTER_OFFSET;
-    
+    // Uses dynamic layer size based on actual velocity layer count (1-8 layers)
+    const float layerSize = getVelocityLayerSize();
+    const float layerCenterOffset = getVelocityLayerCenterOffset();
+    const float layerCenter = (currentVelocityLayer_ * layerSize) + layerCenterOffset;
+
     // ===== BASE GAIN FOR LAYER CENTER =====
-    
+
     // Calculate base gain for the center of this layer
     // Uses logarithmic curve for natural velocity response
     const float normalizedCenter = layerCenter / 127.0f;
     const float baseGain = std::sqrt(normalizedCenter);
-    
+
     // ===== SYMMETRIC MODULATION WITHIN LAYER =====
-    
+
     // Fine-tune gain based on position within the layer
     // This provides smooth transitions within the selected velocity layer
     const float offsetFromCenter = static_cast<float>(velocity) - layerCenter;
-    
+
     // Normalize to -1.0 to +1.0 range (divide by half size for symmetry)
-    // Range is symmetric: -7.5 to +7.5 MIDI values from center
-    const float positionInLayer = offsetFromCenter / VELOCITY_LAYER_HALF_SIZE;
+    // Range is symmetric and adapts to layer size (e.g., -7.5 to +7.5 for 8 layers)
+    const float layerHalfSize = getVelocityLayerHalfSize();
+    const float positionInLayer = offsetFromCenter / layerHalfSize;
     
     // Apply configurable gain modulation based on position in layer
     // Default ±8% compensates for discrete layer selection while maintaining sample authenticity
@@ -481,9 +496,37 @@ void Voice::calculateStereoFieldGains() noexcept {
     }
     
     // ===== SAFETY CLAMP =====
-    
+
     // Ensure gains stay within expected range
     stereoFieldGainLeft_ = std::max(0.8f, std::min(1.2f, stereoFieldGainLeft_));
     stereoFieldGainRight_ = std::max(0.8f, std::min(1.2f, stereoFieldGainRight_));
+}
+
+// =====================================================================
+// DYNAMIC VELOCITY LAYER CALCULATION
+// =====================================================================
+
+float Voice::getVelocityLayerSize() const noexcept {
+    // If instrumentLoader is available, use actual velocity layer count
+    // Otherwise fallback to default 8 layers (16 MIDI values per layer)
+    if (instrumentLoader_) {
+        int layerCount = instrumentLoader_->getVelocityLayerCount();
+        return 128.0f / static_cast<float>(layerCount);
+    }
+    return VELOCITY_LAYER_SIZE; // Fallback to static value (16.0f)
+}
+
+float Voice::getVelocityLayerHalfSize() const noexcept {
+    return getVelocityLayerSize() / 2.0f;
+}
+
+float Voice::getVelocityLayerCenterOffset() const noexcept {
+    // Center offset is (layerSize - 1) / 2
+    // For 8 layers: (16-1)/2 = 7.5
+    // For 4 layers: (32-1)/2 = 15.5
+    // For 2 layers: (64-1)/2 = 31.5
+    // For 1 layer: (128-1)/2 = 63.5
+    float layerSize = getVelocityLayerSize();
+    return (layerSize - 1.0f) / 2.0f;
 }
 

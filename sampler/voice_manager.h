@@ -35,22 +35,24 @@ public:
     // ===== CONSTRUCTOR =====
     
     /**
-     * @brief Create VoiceManager with sample directory
+     * @brief Create VoiceManager with sample directory and velocity layer count
      * @param sampleDir Path to sample directory
      * @param logger Reference to Logger
-     * 
+     * @param velocityLayerCount Number of velocity layers (1-8), default 8
+     *
      * Prerequisites:
      * - EnvelopeStaticData must be initialized before construction
      * - Sample directory must exist and contain valid samples
-     * 
+     *
      * Initializes:
      * - 128-voice pool with pre-allocated buffers
      * - Constant power panning lookup tables
      * - LFO panning lookup tables
      * - Sustain pedal state arrays
      * - Error callbacks for envelope system
+     * - Dynamic velocity layer configuration
      */
-    VoiceManager(const std::string& sampleDir, Logger& logger);
+    VoiceManager(const std::string& sampleDir, Logger& logger, int velocityLayerCount = 8);
     
     // ===== CONSTANT POWER PANNING =====
     
@@ -266,7 +268,7 @@ public:
     bool isLfoPanningActive() const noexcept;
 
     // ===== VOICE ACCESS =====
-    
+
     /**
      * @brief Get reference to specific voice by MIDI note
      * @param midiNote MIDI note number (0-127)
@@ -274,6 +276,12 @@ public:
      * @note Non-RT: for parameter setup and inspection
      */
     Voice& getVoiceMIDI(uint8_t midiNote) noexcept;
+
+    /**
+     * @brief Get configured number of velocity layers
+     * @return Number of velocity layers (1-8)
+     */
+    int getVelocityLayerCount() const noexcept { return velocityLayerCount_; }
 
     // ===== STATISTICS =====
     
@@ -403,10 +411,11 @@ private:
     Envelope envelope_;                 // Per-instance envelope state wrapper
     
     // ===== SYSTEM STATE =====
-    
+
     int currentSampleRate_;            // Current sample rate (0 = not initialized)
     std::string sampleDir_;            // Sample directory path
     bool systemInitialized_;           // Initialization completion flag
+    int velocityLayerCount_;           // Number of velocity layers (1-8), default 8
     
     // ===== VOICE MANAGEMENT =====
     

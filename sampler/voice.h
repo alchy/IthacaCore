@@ -123,16 +123,17 @@ public:
 
     /**
      * @brief Initialize voice with instrument and envelope configuration
-     * 
+     *
      * Calculates damping buffer length based on sample rate and allocates
      * all necessary buffers for RT-safe operation.
-     * 
+     *
      * Damping buffer size = (DAMPING_RELEASE_MS / 1000.0f) * sampleRate
-     * 
+     *
      * @param instrument Reference to Instrument data
      * @param sampleRate Sample rate in Hz (44100 or 48000)
      * @param envelope Reference to Envelope processor
      * @param logger Reference to Logger
+     * @param instrumentLoader Pointer to InstrumentLoader for accessing velocity layer count
      * @param attackMIDI Initial attack MIDI value (0-127)
      * @param releaseMIDI Initial release MIDI value (0-127)
      * @param sustainMIDI Initial sustain MIDI value (0-127)
@@ -140,6 +141,7 @@ public:
      * @throws std::runtime_error if EnvelopeStaticData not initialized
      */
     void initialize(const Instrument& instrument, int sampleRate, Envelope& envelope, Logger& logger,
+               const InstrumentLoader* instrumentLoader,
                uint8_t attackMIDI = 0, uint8_t releaseMIDI = 16, uint8_t sustainMIDI = 127);
 
     /**
@@ -160,19 +162,21 @@ public:
 
     /**
      * @brief Reinitialize voice with new configuration
-     * 
+     *
      * Recalculates damping buffer length if sample rate changed.
      * Reallocates buffers as necessary.
-     * 
+     *
      * @param instrument New Instrument data
      * @param sampleRate New sample rate
      * @param envelope New Envelope processor
      * @param logger Reference to Logger
+     * @param instrumentLoader Pointer to InstrumentLoader for accessing velocity layer count
      * @param attackMIDI Attack MIDI value (0-127)
      * @param releaseMIDI Release MIDI value (0-127)
      * @param sustainMIDI Sustain MIDI value (0-127)
      */
     void reinitialize(const Instrument& instrument, int sampleRate, Envelope& envelope, Logger& logger,
+                 const InstrumentLoader* instrumentLoader,
                  uint8_t attackMIDI = 0, uint8_t releaseMIDI = 16, uint8_t sustainMIDI = 127);
 
     // ===== NOTE CONTROL =====
@@ -351,10 +355,11 @@ public:
 
 private:
     // ===== MEMBER VARIABLES =====
-    
+
     // --- Core identification and configuration ---
     uint8_t             midiNote_;                  // MIDI note number (0-127)
     const Instrument*   instrument_;                // Pointer to instrument data (non-owning)
+    const InstrumentLoader* instrumentLoader_;      // Pointer to InstrumentLoader for velocity layer count (non-owning)
     int                 sampleRate_;                // Sample rate for envelope calculations
     Envelope*           envelope_;                  // Pointer to envelope processor (non-owning)
     
@@ -393,10 +398,31 @@ private:
     static std::atomic<bool> rtMode_;
 
     // ===== PRIVATE HELPER METHODS =====
-    
+
+    /**
+     * @brief Get dynamic velocity layer size based on actual layer count
+     * @return MIDI range per layer (128 / velocityLayerCount)
+     * @note RT-safe: simple calculation, fallback to 16.0f if loader unavailable
+     */
+    float getVelocityLayerSize() const noexcept;
+
+    /**
+     * @brief Get half size of velocity layer for symmetric modulation
+     * @return Half of layer size
+     * @note RT-safe
+     */
+    float getVelocityLayerHalfSize() const noexcept;
+
+    /**
+     * @brief Get center offset within velocity layer
+     * @return Exact center offset within layer
+     * @note RT-safe
+     */
+    float getVelocityLayerCenterOffset() const noexcept;
+
     /**
      * @brief Reset all voice state variables to defaults
-     * 
+     *
      * Includes resetting damping state to inactive.
      */
     void resetVoiceState() noexcept;
