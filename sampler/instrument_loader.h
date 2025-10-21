@@ -13,7 +13,7 @@ THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
 // Globální konstanty pro MIDI rozsah
 #define MIDI_NOTE_MIN 0
 #define MIDI_NOTE_MAX 127
-#define VELOCITY_LAYERS 8  // Velocity 0-7
+#define MAX_VELOCITY_LAYERS 8  // Maximální kapacita pole (pro alokaci)
 
 /**
  * @struct Instrument
@@ -31,33 +31,33 @@ struct Instrument {
     // Pointery na SampleInfo struktury z SamplerIO pro velocity 0-7
     // Tyto pointery odkazují na data vlastněná SamplerIO (nesmí se uvolňovat)
     // POZOR: SampleInfo.channels obsahuje PŮVODNÍ počet kanálů (1=mono, 2=stereo)
-    SampleInfo* sample_ptr_sampleInfo[VELOCITY_LAYERS];
-    
+    SampleInfo* sample_ptr_sampleInfo[MAX_VELOCITY_LAYERS];
+
     // Pointery na načtená float data v RAM pro velocity 0-7
     // Buffery jsou alokované pomocí malloc a obsahují VÝDY stereo interleaved 32-bit float
     // Velikost: frame_count_stereo * 2 * sizeof(float) (vždy stereo)
     // Formát: [L1,R1,L2,R2,...] i pro původně mono samples (L=R)
-    float* sample_ptr_velocity[VELOCITY_LAYERS];
-    
+    float* sample_ptr_velocity[MAX_VELOCITY_LAYERS];
+
     // Indikátory existence samplu pro velocity 0-7
     // true = sample byl nalezen a načten jako stereo, false = sample neexistuje
-    bool velocityExists[VELOCITY_LAYERS];
-    
+    bool velocityExists[MAX_VELOCITY_LAYERS];
+
     // NOVÉ METADATA - stereo informace (nezávislé na SampleInfo)
     // Počet stereo frame párů (každý frame = L+R sample)
-    int frame_count_stereo[VELOCITY_LAYERS];
-    
+    int frame_count_stereo[MAX_VELOCITY_LAYERS];
+
     // Celkový počet float hodnot v bufferu (frame_count_stereo * 2)
-    int total_samples_stereo[VELOCITY_LAYERS];
-    
+    int total_samples_stereo[MAX_VELOCITY_LAYERS];
+
     // Indikátor původního formátu před konverzí (true = byl mono, false = byl stereo)
-    bool was_originally_mono[VELOCITY_LAYERS];
+    bool was_originally_mono[MAX_VELOCITY_LAYERS];
     
     /**
      * @brief Konstruktor - inicializuje všechny pointery na nullptr a flags na false
      */
     Instrument() {
-        for (int i = 0; i < VELOCITY_LAYERS; i++) {
+        for (int i = 0; i < MAX_VELOCITY_LAYERS; i++) {
             sample_ptr_sampleInfo[i] = nullptr;
             sample_ptr_velocity[i] = nullptr;
             velocityExists[i] = false;
@@ -74,7 +74,7 @@ struct Instrument {
      * Při neplatném velocity nebo neexistujícím samplu: nullptr
      */
     float* get_sample_begin_pointer(uint8_t velocity) const {
-        if (velocity >= VELOCITY_LAYERS || !velocityExists[velocity]) {
+        if (velocity >= MAX_VELOCITY_LAYERS || !velocityExists[velocity]) {
             return nullptr;
         }
         return sample_ptr_velocity[velocity];
@@ -87,7 +87,7 @@ struct Instrument {
      * Při neplatném velocity nebo neexistujícím samplu: 0
      */
     int get_frame_count(uint8_t velocity) const {
-        if (velocity >= VELOCITY_LAYERS || !velocityExists[velocity]) {
+        if (velocity >= MAX_VELOCITY_LAYERS || !velocityExists[velocity]) {
             return 0;
         }
         return frame_count_stereo[velocity];
@@ -100,7 +100,7 @@ struct Instrument {
      * Při neplatném velocity nebo neexistujícím samplu: 0
      */
     int get_total_sample_count(uint8_t velocity) const {
-        if (velocity >= VELOCITY_LAYERS || !velocityExists[velocity]) {
+        if (velocity >= MAX_VELOCITY_LAYERS || !velocityExists[velocity]) {
             return 0;
         }
         return total_samples_stereo[velocity];
@@ -113,7 +113,7 @@ struct Instrument {
      * Při neplatném velocity nebo neexistujícím samplu: false
      */
     bool get_was_originally_mono(uint8_t velocity) const {
-        if (velocity >= VELOCITY_LAYERS || !velocityExists[velocity]) {
+        if (velocity >= MAX_VELOCITY_LAYERS || !velocityExists[velocity]) {
             return false;
         }
         return was_originally_mono[velocity];
@@ -252,21 +252,37 @@ public:
      */
     void validateStereoConsistency(Logger& logger);
 
+    /**
+     * @brief Nastavit počet velocity layers
+     * @param count Počet layers (1-8)
+     * @note Musí se volat PŘED loadInstrumentData()
+     */
+    void setVelocityLayerCount(int count);
+
+    /**
+     * @brief Getter pro počet velocity layers
+     * @return Počet layers (1-8)
+     */
+    int getVelocityLayerCount() const { return velocityLayerCount_; }
+
 private:
     // Aktuální frekvence vzorkování (0 = neinicializováno)
     int actual_samplerate_;
-    
+
+    // Počet velocity layers (1-8), default 8
+    int velocityLayerCount_ = 8;
+
     // Pointery na SamplerIO a Logger (uložené z posledního volání loadInstrumentData)
     SamplerIO* sampler_;
     Logger* logger_;
-    
+
     // Pole Instrument struktur pro MIDI noty 0-127
     // Index pole odpovídá MIDI notě
     Instrument instruments_[MIDI_NOTE_MAX + 1];
-    
+
     // Počítadlo úspěšně načtených samplů
     int totalLoadedSamples_;
-    
+
     // Počítadla mono/stereo samplů pro diagnostiku
     int monoSamplesCount_;
     int stereoSamplesCount_;
