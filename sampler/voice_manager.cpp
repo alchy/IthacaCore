@@ -861,14 +861,8 @@ uint8_t VoiceManager::getLimiterGainReductionMIDI() const noexcept {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// BBE MAXIMIZER CONTROL
+// BBE MAXIMIZER CONTROL (Always enabled)
 // ═════════════════════════════════════════════════════════════════════
-
-void VoiceManager::setBBEEnabledMIDI(uint8_t midiValue) noexcept {
-    if (bbeEffect_) {
-        bbeEffect_->setEnabled(midiValue > 0);
-    }
-}
 
 void VoiceManager::setBBEDefinitionMIDI(uint8_t midiValue) noexcept {
     if (bbeEffect_) {

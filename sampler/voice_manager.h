@@ -392,16 +392,8 @@ public:
     uint8_t getLimiterGainReductionMIDI() const noexcept;
 
     // ========================================================================
-    // DSP EFFECTS API - BBE Maximizer Control
+    // DSP EFFECTS API - BBE Maximizer Control (Always enabled)
     // ========================================================================
-
-    /**
-     * @brief Zapne/vypne BBE Maximizer (0 = off, 1-127 = on)
-     * @param midiValue 0 = disabled, 1-127 = enabled
-     *
-     * @note RT-safe - lze volat z audio threadu
-     */
-    void setBBEEnabledMIDI(uint8_t midiValue) noexcept;
 
     /**
      * @brief Nastaví BBE Definition (clarity) pomocí MIDI CC (0-127)

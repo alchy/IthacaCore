@@ -425,7 +425,7 @@ private:
 
     std::atomic<float> definitionLevel_{32.0f / 127.0f};  ///< Definition: 0.0 - 1.0 (default: 25%)
     std::atomic<float> bassBoostLevel_{8.0f / 127.0f};    ///< Bass boost: 0.0 - 1.0 (default: ~6%)
-    std::atomic<bool> enabled_{false};                    ///< Enable/disable state (default: disabled)
+    std::atomic<bool> enabled_{true};                     ///< Enable/disable state (default: ENABLED - always on)
     
     // ═════════════════════════════════════════════════════════════════
     // STATE
