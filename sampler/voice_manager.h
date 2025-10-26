@@ -8,6 +8,7 @@
 #include "sampler.h"
 #include "lfopan.h"
 #include "dsp/dsp_chain.h"
+#include "dsp/bbe/bbe_processor.h"
 #include "dsp/limiter/limiter.h"
 
 #include <vector>
@@ -391,6 +392,36 @@ public:
     uint8_t getLimiterGainReductionMIDI() const noexcept;
 
     // ========================================================================
+    // DSP EFFECTS API - BBE Maximizer Control
+    // ========================================================================
+
+    /**
+     * @brief Zapne/vypne BBE Maximizer (0 = off, 1-127 = on)
+     * @param midiValue 0 = disabled, 1-127 = enabled
+     *
+     * @note RT-safe - lze volat z audio threadu
+     */
+    void setBBEEnabledMIDI(uint8_t midiValue) noexcept;
+
+    /**
+     * @brief Nastaví BBE Definition (clarity) pomocí MIDI CC (0-127)
+     * @param midiValue 0 = no enhancement, 127 = maximum clarity
+     *
+     * @note RT-safe - lze volat z audio threadu
+     * @note Mapování: 0-127 → 0.0-1.0 (linear)
+     */
+    void setBBEDefinitionMIDI(uint8_t midiValue) noexcept;
+
+    /**
+     * @brief Nastaví BBE Bass Boost pomocí MIDI CC (0-127)
+     * @param midiValue 0 = no boost, 127 = +12 dB boost
+     *
+     * @note RT-safe - lze volat z audio threadu
+     * @note Mapování: 0-127 → 0-12 dB (linear)
+     */
+    void setBBEBassBoostMIDI(uint8_t midiValue) noexcept;
+
+    // ========================================================================
     // DSP EFFECTS API - Direct Access (pokročilé použití)
     // ========================================================================
 
@@ -465,6 +496,7 @@ private:
     // ===== DSP EFFECTS CHAIN =====
 
     DspChain dspChain_;                // DSP effects chain (serial processing)
+    BBEProcessor* bbeEffect_;          // Quick pointer k BBE procesoru (convenience)
     Limiter* limiterEffect_;           // Quick pointer k limiteru (convenience)
 
     // ===== PRIVATE HELPER METHODS =====

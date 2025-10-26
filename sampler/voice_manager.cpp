@@ -84,7 +84,13 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger, int vel
         logger.log(component, severity, message);
     });
 
-    // Create and add DSP effects
+    // Create and add DSP effects in processing order
+    // 1. BBE Maximizer (enhancement - must come before limiter)
+    auto bbe = std::make_unique<BBEProcessor>();
+    bbeEffect_ = bbe.get();  // Uložit quick pointer
+    dspChain_.addEffect(std::move(bbe));
+
+    // 2. Limiter (protection - must be last!)
     auto limiter = std::make_unique<Limiter>();
     limiterEffect_ = limiter.get();  // Uložit quick pointer
     dspChain_.addEffect(std::move(limiter));
@@ -92,7 +98,7 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger, int vel
     logger.log("VoiceManager/constructor", LogSeverity::Info,
            "VoiceManager created with sampleDir '" + sampleDir_ + "', " +
            std::to_string(velocityLayerCount_) + " velocity layers, " +
-           "using shared envelope data, constant power panning, LFO panning, sustain pedal support, and DSP effects chain (Limiter). Ready for initialization pipeline.");
+           "using shared envelope data, constant power panning, LFO panning, sustain pedal support, and DSP effects chain (BBE Maximizer + Limiter). Ready for initialization pipeline.");
 }
 
 // ===== CONSTANT POWER PANNING =====
@@ -852,5 +858,27 @@ uint8_t VoiceManager::getLimiterEnabledMIDI() const noexcept {
 
 uint8_t VoiceManager::getLimiterGainReductionMIDI() const noexcept {
     return limiterEffect_ ? limiterEffect_->getGainReductionMIDI() : 127;
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// BBE MAXIMIZER CONTROL
+// ═════════════════════════════════════════════════════════════════════
+
+void VoiceManager::setBBEEnabledMIDI(uint8_t midiValue) noexcept {
+    if (bbeEffect_) {
+        bbeEffect_->setEnabled(midiValue > 0);
+    }
+}
+
+void VoiceManager::setBBEDefinitionMIDI(uint8_t midiValue) noexcept {
+    if (bbeEffect_) {
+        bbeEffect_->setDefinitionMIDI(midiValue);
+    }
+}
+
+void VoiceManager::setBBEBassBoostMIDI(uint8_t midiValue) noexcept {
+    if (bbeEffect_) {
+        bbeEffect_->setBassBoostMIDI(midiValue);
+    }
 }
 

@@ -69,6 +69,12 @@ add_executable(IthacaCore
     dsp/dsp_effect.h
     dsp/dsp_chain.h
     dsp/dsp_chain.cpp
+    dsp/bbe/bbe_processor.h
+    dsp/bbe/bbe_processor.cpp
+    dsp/bbe/biquad_filter.h
+    dsp/bbe/biquad_filter.cpp
+    dsp/bbe/harmonic_enhancer.h
+    dsp/bbe/harmonic_enhancer.cpp
     dsp/limiter/limiter.h
     dsp/limiter/limiter.cpp
 
