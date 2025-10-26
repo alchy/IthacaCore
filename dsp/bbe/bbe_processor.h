@@ -423,26 +423,41 @@ private:
     // PARAMETERS (Thread-safe atomic storage)
     // ═════════════════════════════════════════════════════════════════
 
-    std::atomic<float> definitionLevel_{32.0f / 127.0f};  ///< Definition: 0.0 - 1.0 (default: 25%)
-    std::atomic<float> bassBoostLevel_{8.0f / 127.0f};    ///< Bass boost: 0.0 - 1.0 (default: ~6%)
+    std::atomic<float> definitionLevel_{32.0f / 127.0f};  ///< Definition TARGET: 0.0 - 1.0 (default: 25%)
+    std::atomic<float> bassBoostLevel_{8.0f / 127.0f};    ///< Bass boost TARGET: 0.0 - 1.0 (default: ~6%)
     std::atomic<bool> enabled_{true};                     ///< Enable/disable state (default: ENABLED - always on)
-    
+
     // ═════════════════════════════════════════════════════════════════
-    // STATE
+    // STATE - Parameter Smoothing & Wet/Dry Mix
     // ═════════════════════════════════════════════════════════════════
-    
-    int sampleRate_{44100};           ///< Current sample rate (Hz)
-    float lastDefinition_{-1.0f};     ///< Last applied definition (for change detection)
-    float lastBassBoost_{-1.0f};      ///< Last applied bass boost (for change detection)
+
+    int sampleRate_{44100};              ///< Current sample rate (Hz)
+
+    // Parameter smoothing (click-free transitions)
+    float definitionSmoothed_{32.0f / 127.0f};  ///< Current smoothed definition value
+    float bassBoostSmoothed_{8.0f / 127.0f};    ///< Current smoothed bass boost value
+
+    // Wet/dry mix (fade-in/out without clicks)
+    float wetAmount_{0.0f};              ///< Current wet/dry ratio: 0.0 = bypass, 1.0 = full effect
+
+    // Change detection (for coefficient updates)
+    float lastDefinition_{-1.0f};        ///< Last applied definition (for change detection)
+    float lastBassBoost_{-1.0f};         ///< Last applied bass boost (for change detection)
     
     // ═════════════════════════════════════════════════════════════════
     // CONSTANTS (Based on BA3884F specifications)
     // ═════════════════════════════════════════════════════════════════
-    
+
     static constexpr double BASS_CUTOFF = 150.0;     ///< Bass/mid crossover (Hz)
     static constexpr double TREBLE_CUTOFF = 2400.0;  ///< Mid/treble crossover (Hz)
     static constexpr double MID_CENTER = 1200.0;     ///< Mid band center (geometric mean)
     static constexpr double TREBLE_CENTER = 7200.0;  ///< Treble band center (geometric mean)
+
+    // Smoothing & Mix Constants
+    static constexpr float SMOOTHING_TIME_SEC = 0.15f;     ///< Parameter smoothing time (150ms - slower, smoother)
+    static constexpr float WET_MIX_FADE_RANGE = 0.05f;     ///< Fade range 0.0-0.05 → wet 0.0-1.0
+    static constexpr float BYPASS_THRESHOLD = 0.001f;      ///< Skip processing if wet < 0.1%
+    static constexpr int CHUNK_SIZE = 8;                   ///< Process in small chunks for smooth parameter updates
 };
 
 #endif // BBE_PROCESSOR_H

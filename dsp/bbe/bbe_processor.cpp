@@ -161,32 +161,116 @@ void BBEProcessor::prepare(int sampleRate, int maxBlockSize) {
 // ═════════════════════════════════════════════════════════════════════
 
 void BBEProcessor::process(float* leftBuffer, float* rightBuffer, int numSamples) noexcept {
-    // ─────────────────────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════
     // STEP 1: ENABLE CHECK
-    // ─────────────────────────────────────────────────────────────────
-    // If disabled, return immediately (zero overhead)
-    // Audio passes through unmodified (true zero-latency bypass)
+    // ═════════════════════════════════════════════════════════════════
 
     if (!enabled_.load(std::memory_order_relaxed)) {
         return;  // Early exit - no processing
     }
-    
-    // ─────────────────────────────────────────────────────────────────
-    // STEP 2: UPDATE COEFFICIENTS IF PARAMETERS CHANGED
-    // ─────────────────────────────────────────────────────────────────
-    // Check if definition or bass boost changed since last call
-    // Recalculate filter coefficients only when needed
-    
-    updateCoefficients();
-    
-    // ─────────────────────────────────────────────────────────────────
-    // STEP 3: PROCESS EACH CHANNEL INDEPENDENTLY
-    // ─────────────────────────────────────────────────────────────────
-    // Left and right channels are processed identically
-    // but use separate filter banks to maintain stereo image
 
-    processChannel(leftBuffer, numSamples, 0);   // Channel 0 = left
-    processChannel(rightBuffer, numSamples, 1);  // Channel 1 = right
+    // ═════════════════════════════════════════════════════════════════
+    // STEP 2: SETUP - Target values and smoothing coefficient
+    // ═════════════════════════════════════════════════════════════════
+
+    // Read target values from MIDI/GUI (atomic, thread-safe)
+    const float definitionTarget = definitionLevel_.load(std::memory_order_relaxed);
+    const float bassBoostTarget = bassBoostLevel_.load(std::memory_order_relaxed);
+
+    // Calculate smoothing step per sample
+    const float deltaPerSample = (sampleRate_ > 0)
+        ? (1.0f / (SMOOTHING_TIME_SEC * static_cast<float>(sampleRate_)))
+        : 0.0f;
+
+    // Allocate dry signal buffers (thread_local, pre-allocated)
+    static thread_local std::vector<float> dryLeft(16384);
+    static thread_local std::vector<float> dryRight(16384);
+
+    if (dryLeft.size() < static_cast<size_t>(numSamples)) {
+        return;  // Safety check
+    }
+
+    // Save dry (original) signal for wet/dry mixing
+    std::copy(leftBuffer, leftBuffer + numSamples, dryLeft.begin());
+    std::copy(rightBuffer, rightBuffer + numSamples, dryRight.begin());
+
+    // ═════════════════════════════════════════════════════════════════
+    // STEP 3: CHUNKED PROCESSING WITH PER-CHUNK SMOOTHING
+    // ═════════════════════════════════════════════════════════════════
+    // Process audio in small chunks (8 samples) to allow smooth
+    // parameter transitions without clicks or zipper noise
+
+    int processedSamples = 0;
+
+    while (processedSamples < numSamples) {
+        // Determine chunk size (8 samples or remaining samples)
+        const int chunkSize = std::min(CHUNK_SIZE, numSamples - processedSamples);
+        const int chunkEnd = processedSamples + chunkSize;
+
+        // ─────────────────────────────────────────────────────────────
+        // PER-SAMPLE SMOOTHING WITHIN CHUNK
+        // ─────────────────────────────────────────────────────────────
+        for (int i = processedSamples; i < chunkEnd; ++i) {
+            // Smooth definition
+            if (definitionSmoothed_ < definitionTarget) {
+                definitionSmoothed_ = std::min(definitionSmoothed_ + deltaPerSample, definitionTarget);
+            } else if (definitionSmoothed_ > definitionTarget) {
+                definitionSmoothed_ = std::max(definitionSmoothed_ - deltaPerSample, definitionTarget);
+            }
+
+            // Smooth bass boost
+            if (bassBoostSmoothed_ < bassBoostTarget) {
+                bassBoostSmoothed_ = std::min(bassBoostSmoothed_ + deltaPerSample, bassBoostTarget);
+            } else if (bassBoostSmoothed_ > bassBoostTarget) {
+                bassBoostSmoothed_ = std::max(bassBoostSmoothed_ - deltaPerSample, bassBoostTarget);
+            }
+
+            // Calculate target wet amount from smoothed parameters
+            const float maxParam = std::max(definitionSmoothed_, bassBoostSmoothed_);
+            const float targetWet = std::min(1.0f, maxParam / WET_MIX_FADE_RANGE);
+
+            // Smooth wet amount (same smoothing rate as parameters)
+            if (wetAmount_ < targetWet) {
+                wetAmount_ = std::min(wetAmount_ + deltaPerSample, targetWet);
+            } else if (wetAmount_ > targetWet) {
+                wetAmount_ = std::max(wetAmount_ - deltaPerSample, targetWet);
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // SMART BYPASS CHECK
+        // ─────────────────────────────────────────────────────────────
+        if (wetAmount_ < BYPASS_THRESHOLD) {
+            // Skip this chunk - signal stays dry
+            processedSamples += chunkSize;
+            continue;
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // UPDATE COEFFICIENTS WITH SMOOTHED VALUES
+        // ─────────────────────────────────────────────────────────────
+        // This happens once per chunk (every 8 samples)
+        updateCoefficients();
+
+        // ─────────────────────────────────────────────────────────────
+        // PROCESS THIS CHUNK (WET SIGNAL)
+        // ─────────────────────────────────────────────────────────────
+        processChannel(leftBuffer + processedSamples, chunkSize, 0);
+        processChannel(rightBuffer + processedSamples, chunkSize, 1);
+
+        // ─────────────────────────────────────────────────────────────
+        // WET/DRY MIX FOR THIS CHUNK
+        // ─────────────────────────────────────────────────────────────
+        const float dry = 1.0f - wetAmount_;
+        const float wet = wetAmount_;
+
+        for (int i = processedSamples; i < chunkEnd; ++i) {
+            leftBuffer[i] = dryLeft[i] * dry + leftBuffer[i] * wet;
+            rightBuffer[i] = dryRight[i] * dry + rightBuffer[i] * wet;
+        }
+
+        processedSamples += chunkSize;
+    }
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -329,15 +413,15 @@ void BBEProcessor::processChannel(float* buffer, int samples, int channelIndex) 
 // ═════════════════════════════════════════════════════════════════════
 
 void BBEProcessor::updateCoefficients() noexcept {
-    // Read current parameter values (atomic, thread-safe)
-    const float currentDefinition = definitionLevel_.load(std::memory_order_relaxed);
-    const float currentBassBoost = bassBoostLevel_.load(std::memory_order_relaxed);
-    
+    // Use smoothed parameter values (already interpolated per-sample)
+    const float currentDefinition = definitionSmoothed_;
+    const float currentBassBoost = bassBoostSmoothed_;
+
     // ─────────────────────────────────────────────────────────────────
     // UPDATE DEFINITION LEVEL
     // ─────────────────────────────────────────────────────────────────
     // Only update if changed (avoids unnecessary work)
-    
+
     if (currentDefinition != lastDefinition_) {
         // Update both channel enhancers
         for (int ch = 0; ch < 2; ++ch) {
@@ -345,19 +429,19 @@ void BBEProcessor::updateCoefficients() noexcept {
         }
         lastDefinition_ = currentDefinition;
     }
-    
+
     // ─────────────────────────────────────────────────────────────────
     // UPDATE BASS BOOST LEVEL
     // ─────────────────────────────────────────────────────────────────
     // Recalculate filter coefficients if gain changed
-    
+
     if (currentBassBoost != lastBassBoost_) {
         // Convert 0.0-1.0 range to 0-12 dB gain
         // 0.0 → 0 dB (no boost)
         // 0.5 → 6 dB
         // 1.0 → 12 dB
         const float gainDB = currentBassBoost * 12.0f;
-        
+
         // Update both channel bass boost filters
         for (int ch = 0; ch < 2; ++ch) {
             bassBoost_[ch].setCoefficients(
