@@ -27,19 +27,19 @@ int runSampler(Logger& logger) {
 
         // FÁZE 1: Vytvoření VoiceManager instance
         logger.log("runSampler", LogSeverity::Info, "Creating VoiceManager instance...");
-        VoiceManager voiceManager(DEFAULT_SAMPLE_DIR, logger);
+        VoiceManager voiceManager("", logger);
         
         // FÁZE 2: Systémová inicializace
         logger.log("runSampler", LogSeverity::Info, "Initializing system...");
         voiceManager.initializeSystem(logger);
         
         // FÁZE 3: Načtení pro sample rate
-        logger.log("runSampler", LogSeverity::Info, "Loading for sample rate " + std::to_string(DEFAULT_SAMPLE_RATE) + " Hz");
-        voiceManager.loadForSampleRate(DEFAULT_SAMPLE_RATE, logger);
+        logger.log("runSampler", LogSeverity::Info, "Loading for sample rate " + std::to_string(ITHACA_DEFAULT_SAMPLE_RATE) + " Hz");
+        voiceManager.loadForSampleRate(ITHACA_DEFAULT_SAMPLE_RATE, logger);
         
         // FÁZE 4: JUCE příprava
         logger.log("runSampler", LogSeverity::Info, "Preparing for audio processing...");
-        voiceManager.prepareToPlay(DEFAULT_JUCE_BLOCK_SIZE);
+        voiceManager.prepareToPlay(ITHACA_DEFAULT_BLOCK_SIZE);
         
         // FÁZE 5: Základní ověření funkčnosti (refaktorováno do tests/)
         logger.log("runSampler", LogSeverity::Info, "Verifying basic functionality...");

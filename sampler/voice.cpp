@@ -225,7 +225,7 @@ void Voice::setNoteState(bool isOn) noexcept {
     if (!isVoiceReady()) return;
 
     if (isOn) {
-        startNote(DEFAULT_VELOCITY);
+        startNote(ITHACA_DEFAULT_VELOCITY);
     } else {
         stopNote();
     }

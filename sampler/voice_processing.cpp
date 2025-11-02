@@ -159,7 +159,7 @@ bool Voice::processAttackPhase(float* gainBuffer, int numSamples) noexcept {
     
     // ===== CHECK IF ATTACK PHASE IS COMPLETE =====
     
-    if (!attackContinues || gainBuffer[numSamples - 1] >= ENVELOPE_TRIGGERS_END_ATTACK) {
+    if (!attackContinues || gainBuffer[numSamples - 1] >= ITHACA_ENVELOPE_TRIGGERS_END_ATTACK) {
         // Transition to sustain phase
         state_ = VoiceState::Sustaining;
         
@@ -168,7 +168,7 @@ bool Voice::processAttackPhase(float* gainBuffer, int numSamples) noexcept {
         
         // Fill remainder of block with sustain values
         for (int i = 0; i < numSamples; ++i) {
-            if (gainBuffer[i] >= ENVELOPE_TRIGGERS_END_ATTACK) {
+            if (gainBuffer[i] >= ITHACA_ENVELOPE_TRIGGERS_END_ATTACK) {
                 gainBuffer[i] = sustainLevel;
             }
         }
@@ -225,7 +225,7 @@ bool Voice::processReleasePhase(float* gainBuffer, int numSamples) noexcept {
     
     // ===== CHECK IF RELEASE PHASE IS COMPLETE =====
     
-    if (!releaseContinues || envelope_gain_ <= ENVELOPE_TRIGGERS_END_RELEASE) {
+    if (!releaseContinues || envelope_gain_ <= ITHACA_ENVELOPE_TRIGGERS_END_RELEASE) {
         // Transition to idle - voice is finished
         state_ = VoiceState::Idle;
         envelope_gain_ = 0.0f;

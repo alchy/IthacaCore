@@ -204,7 +204,7 @@ public:
     /**
      * @brief Set note state with default velocity
      * @param isOn true for note-on, false for note-off
-     * @note RT-safe: uses DEFAULT_VELOCITY for note-on
+     * @note RT-safe: uses ITHACA_DEFAULT_VELOCITY for note-on
      */
     void setNoteState(bool isOn) noexcept;
 

@@ -123,7 +123,7 @@ public:
      * @brief Set MIDI note state with default velocity
      * @param midiNote MIDI note number (0-127)
      * @param isOn true for note-on, false for note-off
-     * @note RT-safe: uses DEFAULT_VELOCITY for note-on
+     * @note RT-safe: uses ITHACA_DEFAULT_VELOCITY for note-on
      * @note Sustain pedal: if pedal is pressed, note-off events are delayed
      */
     void setNoteStateMIDI(uint8_t midiNote, bool isOn) noexcept;

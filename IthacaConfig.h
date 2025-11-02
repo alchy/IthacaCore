@@ -118,20 +118,6 @@
 #endif
 
 // ============================================================================
-// BACKWARD COMPATIBILITY - Legacy Macro Names
-// ============================================================================
-// These exist only for backward compatibility with existing ithaca-core code.
-// New code should use the ITHACA_* prefixed names.
-
-#define DEFAULT_SAMPLE_RATE ITHACA_DEFAULT_SAMPLE_RATE
-#define DEFAULT_JUCE_BLOCK_SIZE ITHACA_DEFAULT_BLOCK_SIZE
-#define VOICE_GAIN ITHACA_DEFAULT_VOICE_GAIN
-#define DEFAULT_VELOCITY ITHACA_DEFAULT_VELOCITY
-#define MAX_JUCE_BLOCK_SIZE ITHACA_MAX_BLOCK_SIZE
-#define ENVELOPE_TRIGGERS_END_ATTACK ITHACA_ENVELOPE_TRIGGERS_END_ATTACK
-#define ENVELOPE_TRIGGERS_END_RELEASE ITHACA_ENVELOPE_TRIGGERS_END_RELEASE
-
-// ============================================================================
 // END OF ITHACA-CORE CONFIGURATION
 // ============================================================================
 
