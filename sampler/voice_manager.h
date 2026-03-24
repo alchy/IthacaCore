@@ -33,8 +33,8 @@
  */
 class VoiceManager {
 public:
-    // ===== CONSTRUCTOR =====
-    
+    // ===== CONSTRUCTORS =====
+
     /**
      * @brief Create VoiceManager with sample directory and velocity layer count
      * @param sampleDir Path to sample directory
@@ -54,6 +54,26 @@ public:
      * - Dynamic velocity layer configuration
      */
     VoiceManager(const std::string& sampleDir, Logger& logger, int velocityLayerCount = 8);
+
+    /**
+     * @brief Create VoiceManager with sine wave fallback (no sample bank loaded)
+     * @param logger Reference to Logger
+     * @param velocityLayerCount Number of velocity layers (1-8), default 8
+     * @param sampleRate Initial sample rate (44100 or 48000)
+     *
+     * Purpose: Initialize plugin with sine waves when no sample bank is available.
+     *
+     * Prerequisites:
+     * - EnvelopeStaticData must be initialized before construction
+     *
+     * Initializes:
+     * - 128-voice pool with sine wave samples
+     * - All standard voice manager features
+     * - Ready for loadSampleBank() call later
+     *
+     * @note After this constructor, call loadSampleBank() to load real samples
+     */
+    VoiceManager(Logger& logger, int velocityLayerCount, int sampleRate);
     
     // ===== CONSTANT POWER PANNING =====
     
@@ -82,6 +102,25 @@ public:
      * @note Non-RT: may allocate and log
      */
     void loadForSampleRate(int sampleRate, Logger& logger);
+
+    /**
+     * @brief Load sample bank from directory (replaces sine waves with real samples)
+     * @param sampleDir Path to sample directory
+     * @param sampleRate Target sample rate (44100 or 48000 Hz)
+     * @param logger Reference to Logger
+     *
+     * Purpose: Load real samples after plugin initialized with sine waves.
+     *
+     * Algorithm:
+     * 1. Validate sample directory exists
+     * 2. Call initializeSystem() to scan directory
+     * 3. Call loadForSampleRate() to load samples
+     * 4. Update all 128 voices with new sample pointers
+     *
+     * @note This can be called multiple times to switch between sample banks
+     * @note Non-RT: may allocate and log
+     */
+    void loadSampleBank(const std::string& sampleDir, int sampleRate, Logger& logger);
 
     // ===== SAMPLE RATE MANAGEMENT =====
     

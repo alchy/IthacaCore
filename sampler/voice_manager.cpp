@@ -101,6 +101,119 @@ VoiceManager::VoiceManager(const std::string& sampleDir, Logger& logger, int vel
            "using shared envelope data, constant power panning, LFO panning, sustain pedal support, and DSP effects chain (BBE Maximizer + Limiter). Ready for initialization pipeline.");
 }
 
+/**
+ * @brief Sine wave constructor - Initialize with sine waves instead of samples
+ * @param logger Reference to Logger
+ * @param velocityLayerCount Number of velocity layers (1-8)
+ * @param sampleRate Initial sample rate (44100 or 48000)
+ */
+VoiceManager::VoiceManager(Logger& logger, int velocityLayerCount, int sampleRate)
+    : samplerIO_(),
+      instrumentLoader_(),
+      envelope_(),
+      currentSampleRate_(0),
+      sampleDir_(""),  // Empty - no sample directory initially
+      systemInitialized_(false),
+      velocityLayerCount_(velocityLayerCount),
+      voices_(128),
+      activeVoices_(),
+      voicesToRemove_(),
+      activeVoicesCount_(0),
+      rtMode_(false),
+      sustainPedalActive_(false),
+      delayedNoteOffs_(),
+      panSpeed_(0.0f),
+      panSpeedTarget_(0.0f),
+      panDepth_(0.0f),
+      panDepthTarget_(0.0f),
+      panSmoothingTime_(0.5f),
+      lfoPhase_(0.0f),
+      lfoPanBuffer_(),
+      dspChain_(),
+      limiterEffect_(nullptr),
+      previousPanLeft_(1.0f),
+      previousPanRight_(1.0f) {
+
+    logger.log("VoiceManager/constructor_sine", LogSeverity::Info,
+              "=== SINE WAVE MODE: Initializing VoiceManager ===");
+
+    // Validate velocity layer count
+    if (velocityLayerCount_ < 1 || velocityLayerCount_ > 8) {
+        logger.log("VoiceManager/constructor_sine", LogSeverity::Warning,
+                  "Invalid velocity layer count " + std::to_string(velocityLayerCount_) +
+                  ", using default 8");
+        velocityLayerCount_ = 8;
+    }
+
+    // Validate EnvelopeStaticData initialization
+    if (!EnvelopeStaticData::isInitialized()) {
+        const std::string errorMsg = "[VoiceManager/constructor_sine] error: EnvelopeStaticData not initialized. Call EnvelopeStaticData::initialize() first";
+        logger.log("VoiceManager/constructor_sine", LogSeverity::Error, errorMsg);
+        std::exit(1);
+    }
+
+    // Initialize pan lookup tables
+    Panning::initializePanTables();
+
+    // Initialize LFO panning lookup tables
+    LfoPanning::initializeLfoTables();
+
+    // Initialize voice pool (128 voices for all MIDI notes)
+    for (int i = 0; i < 128; ++i) {
+        voices_[i] = Voice(static_cast<uint8_t>(i));
+    }
+
+    // Pre-allocate management vectors
+    activeVoices_.reserve(128);
+    voicesToRemove_.reserve(128);
+
+    // Initialize delayed note-off flags to false
+    delayedNoteOffs_.fill(false);
+
+    // Setup error callback for envelope static data
+    EnvelopeStaticData::setErrorCallback([&logger](const std::string& component,
+                                                   LogSeverity severity,
+                                                   const std::string& message) {
+        logger.log(component, severity, message);
+    });
+
+    // Create and add DSP effects
+    auto bbe = std::make_unique<BBEProcessor>();
+    bbeEffect_ = bbe.get();
+    dspChain_.addEffect(std::move(bbe));
+
+    auto limiter = std::make_unique<Limiter>();
+    limiterEffect_ = limiter.get();
+    dspChain_.addEffect(std::move(limiter));
+
+    logger.log("VoiceManager/constructor_sine", LogSeverity::Info,
+              "VoiceManager base initialization completed, loading sine waves...");
+
+    // Load sine wave data instead of samples
+    instrumentLoader_.setVelocityLayerCount(velocityLayerCount_);
+    instrumentLoader_.loadSineWaveData(sampleRate, logger);
+
+    // Set sample rate
+    currentSampleRate_ = sampleRate;
+
+    // Initialize all voices with sine wave instrument references
+    for (int midiNote = 0; midiNote < 128; ++midiNote) {
+        const Instrument& inst = instrumentLoader_.getInstrumentNote(static_cast<uint8_t>(midiNote));
+        voices_[midiNote].initialize(inst, currentSampleRate_, envelope_, logger, &instrumentLoader_);
+        voices_[midiNote].prepareToPlay(512);  // Use default block size
+    }
+
+    // Mark system as initialized (sine mode doesn't need directory scanning)
+    systemInitialized_ = true;
+
+    logger.log("VoiceManager/constructor_sine", LogSeverity::Info,
+              "=== SINE WAVE MODE: VoiceManager initialized successfully with " +
+              std::to_string(velocityLayerCount_) + " velocity layers at " +
+              std::to_string(sampleRate) + " Hz ===");
+    logger.log("VoiceManager/constructor_sine", LogSeverity::Info,
+              "Ready to play sine waves. Call loadSampleBank() to load real samples.");
+}
+
 // ===== CONSTANT POWER PANNING =====
 
 void VoiceManager::getPanGains(float pan, float& leftGain, float& rightGain) noexcept {
@@ -169,6 +282,61 @@ void VoiceManager::loadForSampleRate(int sampleRate, Logger& logger) {
         const std::string errorMsg = "[VoiceManager/loadForSampleRate] error: INIT PHASE 2: Loading failed";
         logger.log("VoiceManager/loadForSampleRate", LogSeverity::Error, errorMsg);
         std::exit(1);
+    }
+}
+
+/**
+ * @brief Load sample bank from directory (replaces sine waves with real samples)
+ * @param sampleDir Path to sample directory
+ * @param sampleRate Target sample rate (44100 or 48000 Hz)
+ * @param logger Reference to Logger
+ */
+void VoiceManager::loadSampleBank(const std::string& sampleDir, int sampleRate, Logger& logger) {
+    logger.log("VoiceManager/loadSampleBank", LogSeverity::Info,
+              "=== LOADING SAMPLE BANK ===");
+    logger.log("VoiceManager/loadSampleBank", LogSeverity::Info,
+              "Sample directory: " + sampleDir);
+    logger.log("VoiceManager/loadSampleBank", LogSeverity::Info,
+              "Target sample rate: " + std::to_string(sampleRate) + " Hz");
+
+    // Validate sample directory
+    if (sampleDir.empty()) {
+        const std::string errorMsg = "[VoiceManager/loadSampleBank] error: Sample directory cannot be empty";
+        logger.log("VoiceManager/loadSampleBank", LogSeverity::Error, errorMsg);
+        return;  // Don't exit - just keep sine waves
+    }
+
+    // Update sample directory
+    sampleDir_ = sampleDir;
+
+    try {
+        // Phase 1: Scan sample directory
+        logger.log("VoiceManager/loadSampleBank", LogSeverity::Info,
+                  "Phase 1: Scanning sample directory...");
+        initializeSystem(logger);
+
+        // Phase 2: Load samples for target sample rate
+        logger.log("VoiceManager/loadSampleBank", LogSeverity::Info,
+                  "Phase 2: Loading samples at " + std::to_string(sampleRate) + " Hz...");
+        loadForSampleRate(sampleRate, logger);
+
+        logger.log("VoiceManager/loadSampleBank", LogSeverity::Info,
+                  "=== SAMPLE BANK LOADED SUCCESSFULLY ===");
+        logger.log("VoiceManager/loadSampleBank", LogSeverity::Info,
+                  "Total samples loaded: " + std::to_string(instrumentLoader_.getTotalLoadedSamples()));
+
+    } catch (const std::exception& e) {
+        logger.log("VoiceManager/loadSampleBank", LogSeverity::Error,
+                  "Failed to load sample bank: " + std::string(e.what()));
+        logger.log("VoiceManager/loadSampleBank", LogSeverity::Warning,
+                  "Reverting to sine wave mode");
+        // Keep sine waves - don't crash
+    } catch (...) {
+        logger.log("VoiceManager/loadSampleBank", LogSeverity::Error,
+                  "Unknown error while loading sample bank");
+        logger.log("VoiceManager/loadSampleBank", LogSeverity::Warning,
+                  "Reverting to sine wave mode");
+        // Keep sine waves - don't crash
     }
 }
 

@@ -172,15 +172,15 @@ public:
      * @param sampler Reference na SamplerIO pro přístup k sample metadatům
      * @param targetSampleRate Požadovaná frekvence vzorkování (44100 nebo 48000 Hz)
      * @param logger Reference na Logger pro zaznamenávání
-     * 
+     *
      * Validuje parametry:
      * - Kontroluje platnost reference na sampler (není nullptr)
      * - Kontroluje targetSampleRate (povoleno jen 44100 nebo 48000)
      * - Při chybě loguje error a volá std::exit(1)
-     * 
+     *
      * Pokud už jsou data načtená, automaticky je vyčistí voláním clear().
      * Poté načte všechny MIDI noty 0-127 stejným algoritmem jako původní loadInstrument().
-     * 
+     *
      * Algoritmus:
      * 1. Validace parametrů
      * 2. Automatické vyčištění předchozích dat (pokud existují)
@@ -193,11 +193,37 @@ public:
      *    c) Pokud nenalezeno:
      *       - Nastaví null pointery, velocityExists[vel] = false
      *       - Warning log "Sample pro MIDI [midi] velocity [vel] nenalezen"
-     * 
+     *
      * Loguje progress info a summary na konci.
      * Uloží targetSampleRate do actual_samplerate_.
      */
     void loadInstrumentData(SamplerIO& sampler, int targetSampleRate, Logger& logger);
+
+    /**
+     * @brief Load sine wave data for all MIDI notes (fallback when no sample bank)
+     * @param targetSampleRate Target sample rate (44100 or 48000 Hz)
+     * @param logger Reference to Logger for logging
+     *
+     * Purpose: Provide fallback audio when no sample bank is loaded.
+     *
+     * Generates sine waves for all 128 MIDI notes with velocity layers.
+     * Output format: Stereo interleaved float [L1,R1,L2,R2,...] matching WAV loader.
+     *
+     * Algorithm:
+     * 1. Validate targetSampleRate (44100 or 48000)
+     * 2. Clear previous data if any
+     * 3. For each MIDI note (0-127):
+     *    4. For each velocity layer (1-velocityLayerCount_):
+     *       a) Generate stereo sine wave via SineWaveGenerator
+     *       b) Allocate permanent buffer (malloc)
+     *       c) Copy sine data to permanent buffer
+     *       d) Set metadata (frame_count_stereo, total_samples_stereo, etc.)
+     *       e) Set velocityExists[vel] = true
+     *
+     * Memory management: Same as loadInstrumentData (malloc/free).
+     * Logs progress and summary.
+     */
+    void loadSineWaveData(int targetSampleRate, Logger& logger);
 
     /**
      * @brief Getter pro přístup k Instrument struktuře podle MIDI noty

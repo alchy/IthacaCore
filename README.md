@@ -411,6 +411,303 @@ classDiagram
     VoiceManager --> InstrumentLoader
 ```
 
+### Správné pořadí instanciace VoiceManager
+
+IthacaCore podporuje **dva různé workflow** pro inicializaci VoiceManageru, každý s vlastním konstruktorem a pořadím operací.
+
+#### Workflow 1: Okamžitá inicializace se sine vlnami (bez samplů)
+
+Tento workflow umožňuje **okamžité přehrávání** bez načítání WAV souborů. Ideální pro:
+- Rychlý start pluginu (žádné čekání na disk I/O)
+- Testování audio pipeline bez samples
+- Fallback, když sample bank není k dispozici
+
+**Konstruktor:**
+```cpp
+VoiceManager(Logger& logger, int velocityLayerCount, int targetSampleRate);
+```
+
+**Kompletní příklad:**
+```cpp
+#include "core_logger.h"
+#include "voice_manager.h"
+#include "envelope_static_data.h"
+
+// 1. Inicializace Logger
+Logger logger("./");
+
+// 2. Inicializace EnvelopeStaticData (MUSÍ být před VoiceManager)
+EnvelopeStaticData::initialize(logger);
+
+// 3. Vytvoření VoiceManager se sine vlnami
+int velocityLayers = 8;      // Počet velocity vrstev (1-8)
+int sampleRate = 44100;      // Target sample rate (44100 nebo 48000 Hz)
+int blockSize = 256;         // Audio block size
+
+VoiceManager voiceManager(logger, velocityLayers, sampleRate);
+
+// 4. Příprava na přehrávání
+voiceManager.prepareToPlay(blockSize);
+voiceManager.setRealTimeMode(true);
+
+// 5. HOTOVO - VoiceManager je připraven k použití
+voiceManager.setNoteStateMIDI(60, true, 100);  // Middle C, velocity 100
+
+// 6. Zpracování audio bloků
+float* leftBuffer = new float[blockSize];
+float* rightBuffer = new float[blockSize];
+std::fill(leftBuffer, leftBuffer + blockSize, 0.0f);
+std::fill(rightBuffer, rightBuffer + blockSize, 0.0f);
+
+voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
+
+// Cleanup
+delete[] leftBuffer;
+delete[] rightBuffer;
+EnvelopeStaticData::cleanup();
+```
+
+**Klíčové body:**
+- **Konstruktor vytváří sine vlny okamžitě** - žádné další kroky načítání
+- `EnvelopeStaticData::initialize()` **MUSÍ** být volána před vytvořením VoiceManager
+- Není potřeba `SamplerIO`, `InstrumentLoader`, ani `loadForSampleRate()`
+- `prepareToPlay()` nastaví audio buffer size
+- `setRealTimeMode(true)` optimalizuje pro RT-safe operace
+
+---
+
+#### Workflow 2: Načtení samplů z adresáře (plná funkcionalita)
+
+Tento workflow načítá **skutečné WAV samples** z disku. Použijte pro:
+- Produkční použití s plným soundem
+- Kdy chcete velocity layers z WAV souborů
+- Multi-sampling s různými MIDI notami
+
+**Konstruktor:**
+```cpp
+VoiceManager(const std::string& sampleDirectory, Logger& logger, int velocityLayerCount);
+```
+
+**Kompletní příklad:**
+```cpp
+#include "core_logger.h"
+#include "voice_manager.h"
+#include "envelope_static_data.h"
+
+// 1. Inicializace Logger
+Logger logger("./");
+
+// 2. Inicializace EnvelopeStaticData (MUSÍ být před VoiceManager)
+EnvelopeStaticData::initialize(logger);
+
+// 3. Vytvoření VoiceManager s cestou k samplům
+std::string sampleDir = "C:/SoundBanks/IthacaPlayer/VntV";
+int velocityLayers = 8;  // Musí odpovídat počtu velocity vrstev v samplů
+
+VoiceManager voiceManager(sampleDir, logger, velocityLayers);
+
+// 4. Inicializace systému (skenování adresáře, validace souborů)
+voiceManager.initializeSystem(logger);
+
+// 5. Načtení samplů pro target sample rate
+int targetSampleRate = 44100;  // Nebo 48000 Hz
+voiceManager.loadSampleBank(sampleDir, targetSampleRate, logger);
+
+// 6. Příprava na přehrávání
+int blockSize = 256;
+voiceManager.prepareToPlay(blockSize);
+voiceManager.setRealTimeMode(true);
+
+// 7. HOTOVO - VoiceManager je připraven k použití
+voiceManager.setNoteStateMIDI(60, true, 100);  // Middle C, velocity 100
+
+// 8. Zpracování audio bloků
+float* leftBuffer = new float[blockSize];
+float* rightBuffer = new float[blockSize];
+std::fill(leftBuffer, leftBuffer + blockSize, 0.0f);
+std::fill(rightBuffer, rightBuffer + blockSize, 0.0f);
+
+voiceManager.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize);
+
+// Cleanup
+delete[] leftBuffer;
+delete[] rightBuffer;
+EnvelopeStaticData::cleanup();
+```
+
+**Klíčové body:**
+- **Konstruktor pouze inicializuje struktury** - NELADÍ samples automaticky
+- `initializeSystem()` **MUSÍ** být volána pro skenování WAV souborů
+- `loadSampleBank()` **MUSÍ** být volána pro skutečné načtení dat do paměti
+- Target sample rate se předává až v `loadSampleBank()`, ne v konstruktoru
+- Stejné `prepareToPlay()` a `setRealTimeMode()` jako Workflow 1
+
+---
+
+#### Workflow 3: Runtime přepnutí ze sine vln na samples
+
+Tento workflow kombinuje oba předchozí - **start se sine vlnami**, později **nahrazení skutečnými samples**. Použijte pro:
+- Plugin UI s tlačítkem "Load Sample Bank"
+- Okamžitý start + async loading na pozadí
+- Uživatelské vybírání sample bank za běhu
+
+**Kompletní příklad:**
+```cpp
+#include "core_logger.h"
+#include "voice_manager.h"
+#include "envelope_static_data.h"
+#include "async_sample_loader.h"
+
+// 1. Inicializace Logger
+Logger logger("./");
+
+// 2. Inicializace EnvelopeStaticData
+EnvelopeStaticData::initialize(logger);
+
+// 3. Vytvoření AsyncSampleLoader (wrapper pro background loading)
+AsyncSampleLoader asyncLoader;
+
+// 4. Inicializace se sine vlnami (okamžitý start)
+int velocityLayers = 8;
+int sampleRate = 44100;
+int blockSize = 256;
+
+asyncLoader.initializeWithSineWaves(sampleRate, blockSize, logger, velocityLayers);
+
+// 5. Převzetí VoiceManager (přesun ownership)
+std::unique_ptr<VoiceManager> voiceManager = asyncLoader.takeVoiceManager();
+
+// 6. Plugin je OKAMŽITĚ připraven k přehrávání se sine vlnami
+voiceManager->setNoteStateMIDI(60, true, 100);
+
+// ... (uživatel hraje se sine vlnami)
+
+// 7. POZDĚJI: Uživatel klikne "Load Sample Bank" v GUI
+std::string selectedPath = "C:/SoundBanks/IthacaPlayer/VntV";
+
+// 8. Asynchronní načtení samplů (NEBLOKUJE audio thread)
+asyncLoader.loadSampleBankAsync(selectedPath, logger);
+
+// 9. Kontrola stavu loading v main loop nebo timer
+while (asyncLoader.isInProgress()) {
+    // Čekání na dokončení (nebo pokračování přehrávání se sine vlnami)
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+}
+
+// 10. Kontrola chyb
+if (asyncLoader.hasError()) {
+    logger.log("main", LogSeverity::Error,
+               "Loading failed: " + asyncLoader.getErrorMessage());
+} else {
+    // 11. Získání nového VoiceManager se samples
+    std::unique_ptr<VoiceManager> newVoiceManager = asyncLoader.takeVoiceManager();
+
+    // 12. RT-safe swap: Zaměnit starý VoiceManager (sine) za nový (samples)
+    // DŮLEŽITÉ: Proveďte swap v audio thread mezi processBlock() voláními!
+    voiceManager = std::move(newVoiceManager);
+
+    logger.log("main", LogSeverity::Info,
+               "Sample bank loaded: " + asyncLoader.getInstrumentName());
+}
+
+// 13. Plugin nyní přehrává skutečné samples místo sine vln
+
+// Cleanup
+EnvelopeStaticData::cleanup();
+```
+
+**Klíčové body:**
+- `initializeWithSineWaves()` vytváří VoiceManager **okamžitě** (synchronní)
+- `takeVoiceManager()` **přesouvá ownership** - AsyncLoader už nemá pointer
+- `loadSampleBankAsync()` načítá v **background threadu** (neblokuje)
+- **MUSÍTE** vytvořit nový VoiceManager se samples (starý zůstává se sine vlnami)
+- Swap `std::move()` nahradí starý VoiceManager novým **atomicky**
+- Swap by měl být proveden v audio thread pro RT-safe operaci
+
+---
+
+#### Srovnání workflow
+
+| Aspekt | Workflow 1 (Sine) | Workflow 2 (Samples) | Workflow 3 (Sine → Samples) |
+|--------|-------------------|----------------------|----------------------------|
+| **Konstruktor** | `VoiceManager(logger, velocityCount, sampleRate)` | `VoiceManager(sampleDir, logger, velocityCount)` | Workflow 1 + AsyncLoader |
+| **Rychlost startu** | Okamžitá | Pomalá (disk I/O) | Okamžitá (sine) → async load |
+| **Kvalita zvuku** | Sinusové vlny | Plné WAV samples | Začíná sine, přepne na samples |
+| **initializeSystem()** | ❌ Není potřeba | ✅ MUSÍ volat | ✅ V background thread |
+| **loadSampleBank()** | ❌ Není potřeba | ✅ MUSÍ volat | ✅ V background thread |
+| **EnvelopeStaticData** | ✅ MUSÍ init před VM | ✅ MUSÍ init před VM | ✅ MUSÍ init před VM |
+| **prepareToPlay()** | ✅ MUSÍ volat | ✅ MUSÍ volat | ✅ MUSÍ volat |
+| **Use case** | Testování, fallback | Produkce, offline render | Plugin UI, user choice |
+
+---
+
+#### Běžné chyby při instanciaci
+
+**❌ ŠPATNĚ - EnvelopeStaticData až po VoiceManager:**
+```cpp
+VoiceManager vm(logger, 8, 44100);  // CRASH! EnvelopeStaticData není inicializován
+EnvelopeStaticData::initialize(logger);  // Příliš pozdě
+```
+
+**✅ SPRÁVNĚ - EnvelopeStaticData před VoiceManager:**
+```cpp
+EnvelopeStaticData::initialize(logger);
+VoiceManager vm(logger, 8, 44100);  // OK
+```
+
+---
+
+**❌ ŠPATNĚ - Workflow 2 bez initializeSystem():**
+```cpp
+VoiceManager vm("./samples", logger, 8);
+vm.loadSampleBank("./samples", 44100, logger);  // CRASH! Samples nejsou naskenovány
+```
+
+**✅ SPRÁVNĚ - Workflow 2 se všemi kroky:**
+```cpp
+VoiceManager vm("./samples", logger, 8);
+vm.initializeSystem(logger);  // Skenuje WAV soubory
+vm.loadSampleBank("./samples", 44100, logger);  // Načte do paměti
+```
+
+---
+
+**❌ ŠPATNĚ - Workflow 2 bez loadSampleBank():**
+```cpp
+VoiceManager vm("./samples", logger, 8);
+vm.initializeSystem(logger);
+vm.prepareToPlay(256);  // Připraven, ale BEZ samplů - přehrává ticho
+```
+
+**✅ SPRÁVNĚ - Workflow 2 s loadSampleBank():**
+```cpp
+VoiceManager vm("./samples", logger, 8);
+vm.initializeSystem(logger);
+vm.loadSampleBank("./samples", 44100, logger);  // Načte samples
+vm.prepareToPlay(256);  // Připraven s plnými samples
+```
+
+---
+
+**❌ ŠPATNĚ - Použití voiceManager_ po takeVoiceManager():**
+```cpp
+asyncLoader.initializeWithSineWaves(44100, 256, logger);
+auto vm = asyncLoader.takeVoiceManager();  // Přesune ownership
+asyncLoader.loadSampleBankAsync("./samples", logger);  // CRASH! voiceManager_ je NULL
+```
+
+**✅ SPRÁVNĚ - loadSampleBankAsync() vytvoří NOVÝ VoiceManager:**
+```cpp
+asyncLoader.initializeWithSineWaves(44100, 256, logger);
+auto vm1 = asyncLoader.takeVoiceManager();  // Starý VM se sine vlnami
+asyncLoader.loadSampleBankAsync("./samples", logger);  // Načte samples
+// ... čekej na dokončení
+auto vm2 = asyncLoader.takeVoiceManager();  // NOVÝ VM se samples
+// vm1 zůstává funkční se sine vlnami, vm2 má samples
+```
+
+---
+
 ### Třída `WavExporter`
 Exportuje audio data do WAV souborů pro testování.
 

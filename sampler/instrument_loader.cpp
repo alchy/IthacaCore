@@ -1,4 +1,5 @@
 #include "instrument_loader.h"
+#include "sine_wave_generator.h"  // Pro SineWaveGenerator
 #include <cstdlib>      // Pro malloc, free, std::exit
 #include <cstring>      // Pro memcpy
 #include <sndfile.h>    // Pro sf_open, sf_readf_float, sf_close
@@ -149,8 +150,112 @@ void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRa
               "Starting stereo consistency validation...");
     validateStereoConsistency(logger);
     
-    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
+    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info,
               "InstrumentLoader data loading completed successfully");
+}
+
+/**
+ * @brief Load sine wave data for all MIDI notes (fallback when no sample bank)
+ * @param targetSampleRate Target sample rate (44100 or 48000 Hz)
+ * @param logger Reference to Logger for logging
+ */
+void InstrumentLoader::loadSineWaveData(int targetSampleRate, Logger& logger) {
+    // Validate targetSampleRate
+    validateTargetSampleRate(targetSampleRate, logger);
+
+    logger.log("InstrumentLoader/loadSineWaveData", LogSeverity::Info,
+              "=== SINE WAVE MODE: Starting initialization ===");
+    logger.log("InstrumentLoader/loadSineWaveData", LogSeverity::Info,
+              "Target sample rate: " + std::to_string(targetSampleRate) + " Hz");
+
+    // Clear previous data if any
+    if (actual_samplerate_ != 0) {
+        logger.log("InstrumentLoader/loadSineWaveData", LogSeverity::Info,
+                  "Clearing previous data (previous sampleRate: " +
+                  std::to_string(actual_samplerate_) + " Hz)");
+        clear(logger);
+    }
+
+    // Set sample rate
+    actual_samplerate_ = targetSampleRate;
+
+    logger.log("InstrumentLoader/loadSineWaveData", LogSeverity::Info,
+              "Generating sine waves for " + std::to_string(MIDI_NOTE_MAX + 1) +
+              " MIDI notes with " + std::to_string(velocityLayerCount_) + " velocity layers");
+
+    // Counters
+    int generatedSamples = 0;
+    totalLoadedSamples_ = 0;
+    monoSamplesCount_ = 0;
+    stereoSamplesCount_ = 0;
+
+    // Generate sine waves for all MIDI notes
+    for (int midi = MIDI_NOTE_MIN; midi <= MIDI_NOTE_MAX; midi++) {
+        // Generate for all velocity layers (1-indexed in generator, 0-indexed in array)
+        for (int vel = 0; vel < velocityLayerCount_; vel++) {
+            // Generate stereo sine wave
+            std::vector<float> sineData = SineWaveGenerator::generateStereoSine(
+                static_cast<uint8_t>(midi),
+                vel + 1,  // Velocity layer 1-8 (generator uses 1-indexed)
+                velocityLayerCount_,
+                targetSampleRate,
+                2.0f  // 2 second duration
+            );
+
+            // Calculate metadata
+            int totalSamples = static_cast<int>(sineData.size());
+            int stereoFrames = totalSamples / 2;  // Interleaved L/R
+
+            // Allocate permanent buffer (same as WAV loader)
+            size_t bufferSize = totalSamples * sizeof(float);
+            float* permanentBuffer = static_cast<float*>(malloc(bufferSize));
+
+            if (!permanentBuffer) {
+                logger.log("InstrumentLoader/loadSineWaveData", LogSeverity::Error,
+                          "Memory allocation error for MIDI " + std::to_string(midi) +
+                          " velocity " + std::to_string(vel) + ": " +
+                          std::to_string(bufferSize) + " bytes");
+                std::exit(1);
+            }
+
+            // Copy sine data to permanent buffer
+            std::memcpy(permanentBuffer, sineData.data(), bufferSize);
+
+            // Store in instruments array
+            instruments_[midi].sample_ptr_velocity[vel] = permanentBuffer;
+            instruments_[midi].velocityExists[vel] = true;
+            instruments_[midi].frame_count_stereo[vel] = stereoFrames;
+            instruments_[midi].total_samples_stereo[vel] = totalSamples;
+            instruments_[midi].was_originally_mono[vel] = false;  // Sine is always stereo
+
+            // Note: sample_ptr_sampleInfo[vel] stays nullptr (no WAV file metadata)
+
+            generatedSamples++;
+            totalLoadedSamples_++;
+            stereoSamplesCount_++;  // Count as stereo
+        }
+    }
+
+    // Summary log
+    int totalSlots = (MIDI_NOTE_MAX + 1) * velocityLayerCount_;
+    logger.log("InstrumentLoader/loadSineWaveData", LogSeverity::Info,
+              "Sine wave generation completed. Generated: " + std::to_string(generatedSamples) +
+              " / " + std::to_string(totalSlots) + " slots");
+
+    logger.log("InstrumentLoader/loadSineWaveData", LogSeverity::Info,
+              "Successfully loaded " + std::to_string(totalLoadedSamples_) +
+              " sine wave samples into memory as 32-bit stereo float buffers");
+
+    logger.log("InstrumentLoader/loadSineWaveData", LogSeverity::Info,
+              "All sine waves are stereo with slight phase offset for width");
+
+    // Validate stereo consistency
+    logger.log("InstrumentLoader/loadSineWaveData", LogSeverity::Info,
+              "Starting stereo consistency validation...");
+    validateStereoConsistency(logger);
+
+    logger.log("InstrumentLoader/loadSineWaveData", LogSeverity::Info,
+              "=== SINE WAVE MODE: Initialization completed successfully ===");
 }
 
 /**
@@ -497,92 +602,115 @@ int InstrumentLoader::getStereoSamplesCount() const {
  */
 void InstrumentLoader::validateStereoConsistency(Logger& logger) {
     checkInitialization("validateStereoConsistency");
-    
+
     int validatedSamples = 0;
     int validationErrors = 0;
-    
+    int sineWaveSamples = 0;
+    int wavSamples = 0;
+
     for (int midi = MIDI_NOTE_MIN; midi <= MIDI_NOTE_MAX; midi++) {
         const Instrument& inst = instruments_[midi];
 
         for (int vel = 0; vel < MAX_VELOCITY_LAYERS; vel++) {
             if (inst.velocityExists[vel]) {
                 validatedSamples++;
-                
+
                 // Kontrola 1: Buffer pointer nesmí být null
                 if (inst.sample_ptr_velocity[vel] == nullptr) {
-                    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error, 
-                              "NULL audio buffer for MIDI " + std::to_string(midi) + 
-                              " velocity " + std::to_string(vel) + 
+                    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error,
+                              "NULL audio buffer for MIDI " + std::to_string(midi) +
+                              " velocity " + std::to_string(vel) +
                               " despite velocityExists=true");
                     validationErrors++;
                     continue;
                 }
-                
-                // Kontrola 2: SampleInfo pointer nesmí být null
-                if (inst.sample_ptr_sampleInfo[vel] == nullptr) {
-                    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error, 
-                              "NULL sampleInfo for MIDI " + std::to_string(midi) + 
-                              " velocity " + std::to_string(vel) + 
-                              " despite velocityExists=true");
-                    validationErrors++;
-                    continue;
-                }
-                
-                // Kontrola 3: Frame count musí být > 0
-                if (inst.frame_count_stereo[vel] <= 0) {
-                    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error, 
-                              "Invalid frame_count_stereo " + std::to_string(inst.frame_count_stereo[vel]) + 
-                              " for MIDI " + std::to_string(midi) + " velocity " + std::to_string(vel));
-                    validationErrors++;
-                }
-                
-                // Kontrola 4: Total samples musí být frame_count * 2
-                int expectedTotalSamples = inst.frame_count_stereo[vel] * 2;
-                if (inst.total_samples_stereo[vel] != expectedTotalSamples) {
-                    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error, 
-                              "Inconsistent total_samples_stereo for MIDI " + std::to_string(midi) + 
-                              " velocity " + std::to_string(vel) + 
-                              ": expected " + std::to_string(expectedTotalSamples) + 
-                              ", got " + std::to_string(inst.total_samples_stereo[vel]));
-                    validationErrors++;
-                }
-                
-                // Kontrola 5: Konzistence s původními metadata (SampleInfo.sample_count)
-                SampleInfo* sampleInfo = inst.sample_ptr_sampleInfo[vel];
-                if (inst.frame_count_stereo[vel] != sampleInfo->sample_count) {
-                    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error, 
-                              "Frame count mismatch for MIDI " + std::to_string(midi) + 
-                              " velocity " + std::to_string(vel) + 
-                              ": stereo_frame_count=" + std::to_string(inst.frame_count_stereo[vel]) + 
-                              ", original_sample_count=" + std::to_string(sampleInfo->sample_count));
-                    validationErrors++;
-                }
-                
-                // Kontrola 6: Logická konzistence was_originally_mono vs původní channels
-                bool expectedMono = (sampleInfo->channels == 1);
-                if (inst.was_originally_mono[vel] != expectedMono) {
-                    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error, 
-                              "Mono flag inconsistency for MIDI " + std::to_string(midi) + 
-                              " velocity " + std::to_string(vel) + 
-                              ": was_originally_mono=" + (inst.was_originally_mono[vel] ? "true" : "false") + 
-                              ", original_channels=" + std::to_string(sampleInfo->channels));
-                    validationErrors++;
+
+                // Detekce sine wave mode: sampleInfo je nullptr pro sine waves
+                bool isSineWaveMode = (inst.sample_ptr_sampleInfo[vel] == nullptr);
+
+                if (isSineWaveMode) {
+                    // SINE WAVE MODE: Přeskočit sampleInfo-dependent kontroly
+                    sineWaveSamples++;
+
+                    // Kontrola 3: Frame count musí být > 0
+                    if (inst.frame_count_stereo[vel] <= 0) {
+                        logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error,
+                                  "Invalid frame_count_stereo " + std::to_string(inst.frame_count_stereo[vel]) +
+                                  " for MIDI " + std::to_string(midi) + " velocity " + std::to_string(vel));
+                        validationErrors++;
+                    }
+
+                    // Kontrola 4: Total samples musí být frame_count * 2
+                    int expectedTotalSamples = inst.frame_count_stereo[vel] * 2;
+                    if (inst.total_samples_stereo[vel] != expectedTotalSamples) {
+                        logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error,
+                                  "Inconsistent total_samples_stereo for MIDI " + std::to_string(midi) +
+                                  " velocity " + std::to_string(vel) +
+                                  ": expected " + std::to_string(expectedTotalSamples) +
+                                  ", got " + std::to_string(inst.total_samples_stereo[vel]));
+                        validationErrors++;
+                    }
+                } else {
+                    // WAV FILE MODE: Provést všechny kontroly včetně sampleInfo
+                    wavSamples++;
+
+                    // Kontrola 3: Frame count musí být > 0
+                    if (inst.frame_count_stereo[vel] <= 0) {
+                        logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error,
+                                  "Invalid frame_count_stereo " + std::to_string(inst.frame_count_stereo[vel]) +
+                                  " for MIDI " + std::to_string(midi) + " velocity " + std::to_string(vel));
+                        validationErrors++;
+                    }
+
+                    // Kontrola 4: Total samples musí být frame_count * 2
+                    int expectedTotalSamples = inst.frame_count_stereo[vel] * 2;
+                    if (inst.total_samples_stereo[vel] != expectedTotalSamples) {
+                        logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error,
+                                  "Inconsistent total_samples_stereo for MIDI " + std::to_string(midi) +
+                                  " velocity " + std::to_string(vel) +
+                                  ": expected " + std::to_string(expectedTotalSamples) +
+                                  ", got " + std::to_string(inst.total_samples_stereo[vel]));
+                        validationErrors++;
+                    }
+
+                    // Kontrola 5: Konzistence s původními metadata (SampleInfo.sample_count)
+                    SampleInfo* sampleInfo = inst.sample_ptr_sampleInfo[vel];
+                    if (inst.frame_count_stereo[vel] != sampleInfo->sample_count) {
+                        logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error,
+                                  "Frame count mismatch for MIDI " + std::to_string(midi) +
+                                  " velocity " + std::to_string(vel) +
+                                  ": stereo_frame_count=" + std::to_string(inst.frame_count_stereo[vel]) +
+                                  ", original_sample_count=" + std::to_string(sampleInfo->sample_count));
+                        validationErrors++;
+                    }
+
+                    // Kontrola 6: Logická konzistence was_originally_mono vs původní channels
+                    bool expectedMono = (sampleInfo->channels == 1);
+                    if (inst.was_originally_mono[vel] != expectedMono) {
+                        logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error,
+                                  "Mono flag inconsistency for MIDI " + std::to_string(midi) +
+                                  " velocity " + std::to_string(vel) +
+                                  ": was_originally_mono=" + (inst.was_originally_mono[vel] ? "true" : "false") +
+                                  ", original_channels=" + std::to_string(sampleInfo->channels));
+                        validationErrors++;
+                    }
                 }
             }
         }
     }
-    
+
     // Summary validace
-    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Info, 
-              "Stereo consistency validation completed. Validated " + std::to_string(validatedSamples) + 
-              " samples, found " + std::to_string(validationErrors) + " errors");
-    
+    logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Info,
+              "Stereo consistency validation completed. Validated " + std::to_string(validatedSamples) +
+              " samples (" + std::to_string(sineWaveSamples) + " sine waves, " +
+              std::to_string(wavSamples) + " WAV files), found " + std::to_string(validationErrors) + " errors");
+
     if (validationErrors == 0) {
-        logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Info, 
+        logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Info,
                   "✓ All stereo buffers are consistent and valid");
     } else {
-        logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error, 
-                  "✗ Stereo consistency validation FAILED with " + 
+        logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error,
+                  "✗ Stereo consistency validation FAILED with " +
                   std::to_string(validationErrors) + " errors - terminating");
         std::exit(1);
     }
