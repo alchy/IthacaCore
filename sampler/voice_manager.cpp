@@ -540,7 +540,7 @@ bool VoiceManager::processBlockInterleaved(AudioData* outputBuffer, int samplesP
         if (voice && voice->isActive()) {
             // Ověření kapacity bufferu
             if (tempLeft.size() < static_cast<size_t>(samplesPerBlock)) {
-                std::cout << "[VoiceManager/processBlockInterleaved] error: Temp buffer too small - need "
+                std::cerr << "[VoiceManager/processBlockInterleaved] error: Temp buffer too small - need "
                           << samplesPerBlock << " samples, have " << tempLeft.size() << std::endl;
                 continue;
             }

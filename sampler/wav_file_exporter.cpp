@@ -29,9 +29,11 @@ WavExporter::WavExporter(const std::string& outputDir, Logger& logger, ExportFor
 // wavFileCreate: Vytvoří soubor, nastaví formát (default Pcm16), alokuje buffery, loguje (pokud LOG_ENABLED)
 float* WavExporter::wavFileCreate(const std::string& filename, int frequency, int bufferSize, bool stereo, bool dummy_write) {
     if (frequency <= 0 || bufferSize <= 0) {
+        std::string errorMsg = "Invalid params: frequency=" + std::to_string(frequency) + ", bufferSize=" + std::to_string(bufferSize);
         #if LOG_ENABLED
-        logger_.log("WavExporter/wavFileCreate", LogSeverity::Error, "Invalid params: frequency=" + std::to_string(frequency) + ", bufferSize=" + std::to_string(bufferSize));
+        logger_.log("WavExporter/wavFileCreate", LogSeverity::Error, errorMsg);
         #endif
+        std::cerr << "[FATAL] WavExporter/wavFileCreate: " << errorMsg << std::endl;
         std::exit(1);
     }
 
@@ -54,9 +56,11 @@ float* WavExporter::wavFileCreate(const std::string& filename, int frequency, in
     if (!dummy_write_) {
         sndfile_ = sf_open(fullPath.string().c_str(), SFM_WRITE, &sfinfo_);
         if (!sndfile_) {
+            std::string errorMsg = "Cannot create WAV file: " + fullPath.string() + " - " + sf_strerror(nullptr);
             #if LOG_ENABLED
-            logger_.log("WavExporter/wavFileCreate", LogSeverity::Error, "Cannot create WAV file: " + fullPath.string() + " - " + sf_strerror(nullptr));
+            logger_.log("WavExporter/wavFileCreate", LogSeverity::Error, errorMsg);
             #endif
+            std::cerr << "[FATAL] WavExporter/wavFileCreate: " << errorMsg << std::endl;
             std::exit(1);
         }
         #if LOG_ENABLED
@@ -74,9 +78,11 @@ float* WavExporter::wavFileCreate(const std::string& filename, int frequency, in
     size_t bufferBytes = static_cast<size_t>(bufferSize_) * channels_ * sizeof(float);
     buffer_ = static_cast<float*>(malloc(bufferBytes));
     if (!buffer_) {
+        std::string errorMsg = "Memory allocation failed for float buffer: " + std::to_string(bufferBytes) + " bytes";
         #if LOG_ENABLED
-        logger_.log("WavExporter/wavFileCreate", LogSeverity::Error, "Memory allocation failed for float buffer: " + std::to_string(bufferBytes) + " bytes");
+        logger_.log("WavExporter/wavFileCreate", LogSeverity::Error, errorMsg);
         #endif
+        std::cerr << "[FATAL] WavExporter/wavFileCreate: " << errorMsg << std::endl;
         if (sndfile_) sf_close(sndfile_);
         std::exit(1);
     }
@@ -86,9 +92,11 @@ float* WavExporter::wavFileCreate(const std::string& filename, int frequency, in
         size_t pcmBytes = static_cast<size_t>(bufferSize_) * channels_ * sizeof(int16_t);
         tempPcmBuffer_ = static_cast<int16_t*>(malloc(pcmBytes));
         if (!tempPcmBuffer_) {
+            std::string errorMsg = "Memory allocation failed for Pcm16 temp buffer: " + std::to_string(pcmBytes) + " bytes";
             #if LOG_ENABLED
-            logger_.log("WavExporter/wavFileCreate", LogSeverity::Error, "Memory allocation failed for Pcm16 temp buffer: " + std::to_string(pcmBytes) + " bytes");
+            logger_.log("WavExporter/wavFileCreate", LogSeverity::Error, errorMsg);
             #endif
+            std::cerr << "[FATAL] WavExporter/wavFileCreate: " << errorMsg << std::endl;
             free(buffer_);
             if (sndfile_) sf_close(sndfile_);
             std::exit(1);

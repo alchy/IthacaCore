@@ -753,10 +753,11 @@ void InstrumentLoader::validateMidiNote(uint8_t midi_note, const char* functionN
  */
 void InstrumentLoader::checkInitialization(const char* functionName) const {
     if (actual_samplerate_ == 0) {
+        std::string errorMsg = "InstrumentLoader not initialized - call loadInstrumentData() first";
         if (logger_) {
-            logger_->log("InstrumentLoader/" + std::string(functionName), LogSeverity::Error, 
-                       "InstrumentLoader not initialized - call loadInstrumentData() first");
+            logger_->log("InstrumentLoader/" + std::string(functionName), LogSeverity::Error, errorMsg);
         }
+        std::cerr << "[FATAL] InstrumentLoader/" << functionName << ": " << errorMsg << std::endl;
         std::exit(1);
     }
 }

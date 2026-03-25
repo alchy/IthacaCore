@@ -118,10 +118,10 @@ bool Voice::calculateBlockGains(float* gainBuffer, int numSamples) noexcept {
     }
     
     // ===== BUFFER OVERFLOW PROTECTION =====
-    
+
     // Critical error must be visible even in RT context
     if (static_cast<size_t>(numSamples) > gainBuffer_.capacity()) {
-        std::cout << "[Voice/calculateBlockGains] error: Buffer overflow - requested " 
+        std::cerr << "[Voice/calculateBlockGains] error: Buffer overflow - requested "
                   << numSamples << " samples, capacity " << gainBuffer_.capacity() << std::endl;
         return false; // Fail gracefully but visibly
     }

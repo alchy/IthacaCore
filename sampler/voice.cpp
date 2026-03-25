@@ -172,10 +172,10 @@ void Voice::initialize(const Instrument& instrument, int sampleRate,
 
 void Voice::prepareToPlay(int maxBlockSize) noexcept {
     // ===== BUFFER SIZE VALIDATION =====
-    
+
     // Critical errors must be logged even in RT context for visibility
     if (maxBlockSize > 16384) {
-        std::cout << "[Voice/prepareToPlay] error: Block size " << maxBlockSize 
+        std::cerr << "[Voice/prepareToPlay] error: Block size " << maxBlockSize
                   << " exceeds pre-allocated buffer capacity 16384" << std::endl;
         return; // Fail gracefully but visibly
     }

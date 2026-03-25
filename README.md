@@ -43,43 +43,50 @@ IthacaCore je audio sampler engine napsaný v C++17, navržený pro přehráván
 
 ---
 ### Inicializace IthacaCore
-Diagram ukazuje postupnou inicializaci IthacaCore od spuštění programu (main) přes načtení samplů až po testování hlasů. 
 
-```mermaid
-sequenceDiagram
-    participant Main as main.cpp
-    participant Sampler as sampler.h/cpp (runSampler)
-    participant Logger as core_logger.h/cpp
-    participant SamplerIO as sampler_io.h/cpp
-    participant Loader as instrument_loader.h/cpp
-    participant EnvelopeData as envelope_static_data.h/cpp
-    participant VoiceMgr as voice_manager.h/cpp
-    participant Voice as voice.h/cpp
-    participant Exporter as wav_exporter.h/cpp
+Postup inicializace od spuštění programu přes načtení samplů až po zpracování audio:
 
-    Main->>Sampler: Spuštění runSampler(logger)
-    Sampler->>Logger: Inicializace Logger (./core_logger/)
-    Sampler->>SamplerIO: Inicializace SamplerIO
-    SamplerIO->>SamplerIO: scanSampleDirectory(directoryPath, logger) [prohledání WAV souborů]
-    Sampler->>Loader: Inicializace InstrumentLoader(samplerIO, sampleRate, logger)
-    Loader->>Loader: loadInstrument() [načtení samplů do stereo bufferů, validace]
-    Sampler->>EnvelopeData: EnvelopeStaticData::initialize(logger) [předpočítané attack/release křivky pro 44100/48000 Hz]
-    Sampler->>VoiceMgr: Inicializace VoiceManager(maxVoices=128, logger)
-    VoiceMgr->>VoiceMgr: initializeAll(loader, sampleRate) [inicializace hlasů s instrumenty]
-    VoiceMgr->>Voice: Per-voice: Voice::initialize(instrument, sampleRate, envelope) [nastavení stavů Idle]
-    Sampler->>Voice: Test: Voice::setNoteState(true, velocity) [note-on, přechod na Attacking]
-    Sampler->>Voice: Test: Voice::processBlock(buffer, numSamples) [aplikace envelope gains]
-    Sampler->>Voice: Test: Voice::setNoteState(false, 0) [note-off, přechod na Releasing]
-    Sampler->>Exporter: Inicializace WavExporter(outputDir, logger)
-    Exporter->>Exporter: wavFileCreate(filename, frequency, bufferSize) [vytvoření test WAV]
-    Exporter->>Exporter: wavFileWriteBuffer(buffer, size) [export dat pro validaci]
+1. **Logger** (`core_logger.h/cpp`)
+   - Inicializace: `Logger logger("./core_logger/")`
+   - Vytvoří adresář a log soubor pro thread-safe logování
 
-    Note over Main,Exporter: Inicializace dokončena – připraveno na RT-safe zpracování a testy
-```
+2. **EnvelopeStaticData** (`envelope_static_data.h/cpp`)
+   - Inicializace: `EnvelopeStaticData::initialize(logger)`
+   - Předpočítá attack/release křivky pro 44100 Hz a 48000 Hz
+   - MUSÍ být provedeno PŘED vytvořením VoiceManager
 
-#### Krátké vysvětlení diagramu
-- **Sekvence**: Začíná v main, pokračuje inicializací komponent (Logger, SamplerIO, Loader), předpočítáním dat (EnvelopeStaticData) a končí testy hlasů a exporty.
-- **Klíčové body**: Inicializace je non-RT (předpočítané buffery pro envelope), příprava pro RT-safe operace (voice processing). 
+3. **VoiceManager** - dva způsoby inicializace:
+
+   **A) Se sine vlnami (okamžitý start):**
+   ```cpp
+   VoiceManager vm(logger, velocityLayerCount, targetSampleRate);
+   vm.prepareToPlay(blockSize);
+   vm.setRealTimeMode(true);
+   // Připraven k použití okamžitě
+   ```
+
+   **B) S WAV samples (načtení z disku):**
+   ```cpp
+   VoiceManager vm(sampleDirectory, logger, velocityLayerCount);
+   vm.initializeSystem(logger);                    // Skenování WAV souborů
+   vm.loadSampleBank(sampleDirectory, sampleRate, logger);  // Načtení do paměti
+   vm.prepareToPlay(blockSize);
+   vm.setRealTimeMode(true);
+   // Připraven k použití po načtení
+   ```
+
+4. **Zpracování audio**
+   - `vm.setNoteStateMIDI(midiNote, true, velocity)` - Note On
+   - `vm.processBlockUninterleaved(leftBuffer, rightBuffer, blockSize)` - Zpracování bloku
+   - `vm.setNoteStateMIDI(midiNote, false)` - Note Off
+
+5. **Cleanup**
+   - `EnvelopeStaticData::cleanup()` - Uvolnění předpočítaných dat
+
+**Klíčové body:**
+- Inicializace je non-RT (předpočítané buffery, načítání samples)
+- Zpracování audio (`processBlock`) je RT-safe
+- EnvelopeStaticData MUSÍ být inicializován před VoiceManager
 
 ---
 
@@ -120,18 +127,6 @@ if (idx != -1) {
 }
 ```
 
-#### Diagram třídy SamplerIO
-```mermaid
-classDiagram
-    class SamplerIO {
-        -std::vector~SampleInfo~ sampleList
-        +SamplerIO()
-        +~SamplerIO()
-        +scanSampleDirectory(const std::string& directoryPath, Logger& logger) void
-        +findSampleInSampleList(uint8_t midi_note, uint8_t velocity, int sampleRate) const int
-        +getLoadedSampleList() const const std::vector~SampleInfo~&
-    }
-```
 
 ### Třída `InstrumentLoader`
 Načítá WAV soubory do paměti jako stereo float buffery, zajišťuje mono→stereo konverzi a validaci.
@@ -177,25 +172,6 @@ if (inst.velocityExists[7]) {
 }
 ```
 
-#### Diagram třídy InstrumentLoader
-```mermaid
-classDiagram
-    class InstrumentLoader {
-        -SamplerIO& samplerIO
-        -Instrument instrument_notes[128]
-        -int target_sample_rate
-        +InstrumentLoader(SamplerIO& sampler, int targetSampleRate, Logger& logger)
-        +loadInstrument() void
-        +getInstrumentNote(uint8_t midi_note) Instrument&
-        +getTotalLoadedSamples() int
-        +getMonoSamplesCount() int
-        +getStereoSamplesCount() int
-        +getTargetSampleRate() int
-    }
-    InstrumentLoader --> SamplerIO
-    InstrumentLoader --> Instrument
-```
-
 ### Třída `Envelope`
 Spravuje per-voice ADSR obálku, deleguje těžká data na `EnvelopeStaticData`.
 
@@ -223,26 +199,6 @@ bool continues = envelope.getAttackGains(gains, 256, 0, 44100);
 logger.log("demo", "info", "Attack length: " + std::to_string(envelope.getAttackLength(44100)) + " ms");
 ```
 
-#### Diagram třídy Envelope
-```mermaid
-classDiagram
-    class Envelope {
-        -uint8_t attack_midi_index_
-        -uint8_t release_midi_index_
-        -float sustain_level_
-        +Envelope()
-        +setAttackMIDI(uint8_t midi_value) void
-        +setReleaseMIDI(uint8_t midi_value) void
-        +setSustainLevelMIDI(uint8_t midi_value) void
-        +getSustainLevel() const float
-        +getAttackGains(float* gain_buffer, int num_samples, int envelope_attack_position, int sample_rate) const bool
-        +getReleaseGains(float* gain_buffer, int num_samples, int envelope_release_position, int sample_rate) const bool
-        +getAttackLength(int sample_rate) const float
-        +getReleaseLength(int sample_rate) const float
-    }
-    Envelope --> EnvelopeStaticData : deleguje
-```
-
 ### Třída `EnvelopeStaticData`
 Spravuje předpočítaná data obálek pro všechny MIDI hodnoty a vzorkovací frekvence.
 
@@ -264,20 +220,6 @@ float gains[256];
 EnvelopeStaticData::getAttackGains(gains, 256, 0, 64, 44100);
 logger.log("demo", "info", "Attack length: " + std::to_string(EnvelopeStaticData::getAttackLength(64, 44100)) + " ms");
 EnvelopeStaticData::cleanup();
-```
-
-#### Diagram třídy EnvelopeStaticData
-```mermaid
-classDiagram
-    class EnvelopeStaticData {
-        +initialize(Logger& logger) bool
-        +cleanup() void
-        +getAttackGains(float* gainBuffer, int numSamples, int position, uint8_t midiValue, int sampleRate) bool
-        +getReleaseGains(float* gainBuffer, int numSamples, int position, uint8_t midiValue, int sampleRate) bool
-        +getAttackLength(uint8_t midiValue, int sampleRate) float
-        +getReleaseLength(uint8_t midiValue, int sampleRate) float
-        +isInitialized() bool
-    }
 ```
 
 ### Třída `Voice`
@@ -309,32 +251,6 @@ voice.setAttackMIDI(64);   // Střední attack
 voice.setAttackMIDI(127);  // Nejdelší attack
 voice.setReleaseMIDI(50);        // Nastavení release
 voice.setSustainLevelMIDI(100);  // Nastavení sustain level
-```
-
-#### Diagram třídy Voice
-```mermaid
-classDiagram
-    class Voice {
-        -uint8_t midi_note
-        -VoiceState state
-        -Envelope envelope
-        +Voice()
-        +Voice(uint8_t midiNote)
-        +initialize(const Instrument& instrument, int sampleRate, Envelope& envelope, Logger& logger, uint8_t attackMIDI, uint8_t releaseMIDI, uint8_t sustainMIDI) void
-        +setNoteState(bool isOn, uint8_t velocity) void
-        +setNoteState(bool isOn) void
-        +setAttackMIDI(uint8_t midi_value) void
-        +setReleaseMIDI(uint8_t midi_value) void
-        +setSustainLevelMIDI(uint8_t midi_value) void
-        +processBlock(float* outputLeft, float* outputRight, int samplesPerBlock) bool
-        +isActive() const bool
-        +getState() const VoiceState
-        +getCurrentEnvelopeGain() const float
-        +getVelocityGain() const float
-        +getMasterGain() const float
-    }
-    Voice --> Envelope
-    Voice --> Instrument
 ```
 
 ### Třída `VoiceManager`
@@ -379,36 +295,6 @@ voice.setAttackMIDI(0);      // Okamžitý attack jen pro tuto voice
 manager.setNoteStateMIDI(60, true, 100);  // Note on
 // ... zpracování audio bloků
 manager.setNoteStateMIDI(60, false);      // Note off
-```
-
-#### Diagram třídy VoiceManager
-```mermaid
-classDiagram
-    class VoiceManager {
-        -std::vector~Voice~ voices
-        -std::string sample_dir
-        -SamplerIO sampler_io
-        -InstrumentLoader instrument_loader
-        +VoiceManager(const std::string& sampleDir, Logger& logger)
-        +initializeSystem(Logger& logger) void
-        +loadForSampleRate(int sampleRate, Logger& logger) void
-        +setNoteStateMIDI(uint8_t midiNote, bool isOn, uint8_t velocity) void
-        +setNoteStateMIDI(uint8_t midiNote, bool isOn) void
-        +processBlockUninterleaved(float* outputLeft, float* outputRight, int samplesPerBlock) bool
-        +processBlockInterleaved(AudioData* outputBuffer, int samplesPerBlock) bool
-        +setAllVoicesMasterGainMIDI(uint8_t midi_gain, Logger& logger) void
-        +setAllVoicesPanMIDI(uint8_t midi_pan) void
-        +setAllVoicesAttackMIDI(uint8_t midi_attack) void
-        +setAllVoicesReleaseMIDI(uint8_t midi_release) void
-        +setAllVoicesSustainLevelMIDI(uint8_t midi_sustain) void
-        +getActiveVoicesCount() const int
-        +getSustainingVoicesCount() const int
-        +getReleasingVoicesCount() const int
-        +getVoiceMIDI(uint8_t midiNote) Voice&
-    }
-    VoiceManager --> Voice
-    VoiceManager --> SamplerIO
-    VoiceManager --> InstrumentLoader
 ```
 
 ### Správné pořadí instanciace VoiceManager
@@ -725,20 +611,6 @@ WavExporter exporter("./exports", logger);
 float* buffer = exporter.wavFileCreate("test.wav", 44100, 512, true, true);
 std::fill(buffer, buffer + 512 * 2, 0.5f); // Naplní stereo buffer
 exporter.wavFileWriteBuffer(buffer, 512);
-```
-
-#### Diagram třídy WavExporter
-```mermaid
-classDiagram
-    class WavExporter {
-        -std::string output_dir
-        -Logger& logger
-        -ExportFormat export_format
-        +WavExporter(const std::string& outputDir, Logger& logger, ExportFormat exportFormat)
-        +~WavExporter()
-        +wavFileCreate(const std::string& filename, int frequency, int bufferSize, bool stereo, bool dummy_write) float*
-        +wavFileWriteBuffer(float* buffer_ptr, int buffer_size) bool
-    }
 ```
 
 ### Funkce `runSampler`
