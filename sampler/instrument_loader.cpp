@@ -2,6 +2,7 @@
 #include "sine_wave_generator.h"  // Pro SineWaveGenerator
 #include <cstdlib>      // Pro malloc, free, std::exit
 #include <cstring>      // Pro memcpy
+#include <iostream>     // Pro std::cerr
 #include <sndfile.h>    // Pro sf_open, sf_readf_float, sf_close
 
 /**
