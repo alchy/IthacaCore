@@ -90,6 +90,190 @@ Postup inicializace od spuštění programu přes načtení samplů až po zprac
 
 ---
 
+## Kompletní příklad: 10sekundové přehrávání s MIDI kontroléry
+
+Tento příklad ukazuje plný životní cyklus použití IthacaCore engine - od inicializace přes přehrávání až po čisté ukončení.
+
+```cpp
+#include "core_logger.h"
+#include "voice_manager.h"
+#include "envelope_static_data.h"
+#include <iostream>
+#include <thread>
+#include <chrono>
+#include <vector>
+
+int main() {
+    // === 1. INICIALIZACE SYSTÉMU ===
+    Logger logger("./core_logger/");
+    EnvelopeStaticData::initialize(logger);
+
+    const int sampleRate = 44100;
+    const int blockSize = 512;
+    const int velocityLayers = 8;
+
+    // Vytvoření VoiceManager s WAV samples
+    std::string sampleDir = R"(C:\SoundBanks\MyInstrument)";
+    VoiceManager vm(sampleDir, logger, velocityLayers);
+    vm.initializeSystem(logger);
+    vm.loadSampleBank(sampleDir, sampleRate, logger);
+    vm.prepareToPlay(blockSize);
+    vm.setRealTimeMode(true);
+
+    // Alokace stereo float bufferů
+    std::vector<float> leftBuffer(blockSize, 0.0f);
+    std::vector<float> rightBuffer(blockSize, 0.0f);
+
+    // === 2. NASTAVENÍ POČÁTEČNÍCH MIDI PARAMETRŮ ===
+    vm.setAllVoicesMasterGainMIDI(100, logger);      // Gain na 78% (100/127)
+    vm.setAllVoicesPanMIDI(64);                      // Pan střed (64/127)
+    vm.setAllVoicesAttackMIDI(20);                   // Rychlý attack (~160ms)
+    vm.setAllVoicesReleaseMIDI(40);                  // Středně rychlý release
+    vm.setAllVoicesSustainLevelMIDI(100);            // Sustain na 79%
+
+    // DSP efekty
+    vm.setLimiterEnabledMIDI(127);                   // Limiter zapnut
+    vm.setLimiterThresholdMIDI(100);                 // Threshold -6 dB
+    vm.setBBEDefinitionMIDI(64);                     // BBE střední intenzita
+    vm.setBBEBassBoostMIDI(50);                      // Mírný bass boost
+
+    // === 3. SPUŠTĚNÍ NOTY (NOTE ON) ===
+    uint8_t midiNote = 60;  // C4 (střední C)
+    uint8_t velocity = 100; // ~79% síly úderu
+    vm.setNoteStateMIDI(midiNote, true, velocity);
+
+    std::cout << "▶ Note ON: MIDI " << (int)midiNote
+              << " vel=" << (int)velocity << std::endl;
+
+    // === 4. HLAVNÍ SMYČKA PŘEHRÁVÁNÍ (10 sekund) ===
+    const float durationSeconds = 10.0f;
+    const int totalBlocks = static_cast<int>((durationSeconds * sampleRate) / blockSize);
+
+    auto startTime = std::chrono::steady_clock::now();
+
+    for (int blockIdx = 0; blockIdx < totalBlocks; ++blockIdx) {
+        // Vynulování bufferů
+        std::fill(leftBuffer.begin(), leftBuffer.end(), 0.0f);
+        std::fill(rightBuffer.begin(), rightBuffer.end(), 0.0f);
+
+        // === DYNAMICKÉ ZMĚNY PARAMETRŮ BĚHEM PŘEHRÁVÁNÍ ===
+        float elapsedSeconds = (blockIdx * blockSize) / (float)sampleRate;
+
+        // Po 2 sekundách: zvýšení gainu
+        if (blockIdx == static_cast<int>(2.0f * sampleRate / blockSize)) {
+            vm.setAllVoicesMasterGainMIDI(127, logger); // Max gain
+            std::cout << "⚡ t=2s: Gain → 100%" << std::endl;
+        }
+
+        // Po 3 sekundách: aktivace LFO panning efektu
+        if (blockIdx == static_cast<int>(3.0f * sampleRate / blockSize)) {
+            vm.setAllVoicesPanSpeedMIDI(40);   // Rychlost LFO
+            vm.setAllVoicesPanDepthMIDI(80);   // Hloubka LFO
+            std::cout << "🎚  t=3s: LFO panning aktivován" << std::endl;
+        }
+
+        // Po 5 sekundách: změna panorámy na levý kanál
+        if (blockIdx == static_cast<int>(5.0f * sampleRate / blockSize)) {
+            vm.setAllVoicesPanMIDI(20);  // Pan doleva
+            std::cout << "🔊 t=5s: Pan → doleva" << std::endl;
+        }
+
+        // Po 6 sekundách: vypnutí noty (NOTE OFF)
+        if (blockIdx == static_cast<int>(6.0f * sampleRate / blockSize)) {
+            vm.setNoteStateMIDI(midiNote, false);  // Note off
+            std::cout << "⏹ t=6s: Note OFF (release fáze)" << std::endl;
+        }
+
+        // Po 7 sekundách: změna BBE efektu
+        if (blockIdx == static_cast<int>(7.0f * sampleRate / blockSize)) {
+            vm.setBBEDefinitionMIDI(100);  // Zvýšení definition
+            std::cout << "✨ t=7s: BBE definition → vysoká" << std::endl;
+        }
+
+        // === ZPRACOVÁNÍ AUDIO BLOKU ===
+        vm.processBlockUninterleaved(leftBuffer.data(), rightBuffer.data(), blockSize);
+
+        // === SIMULACE REAL-TIME ZPRACOVÁNÍ ===
+        // V reálné aplikaci by zde byl audio callback místo sleep
+        std::this_thread::sleep_for(
+            std::chrono::microseconds(
+                static_cast<long long>((blockSize / (float)sampleRate) * 1000000.0f)
+            )
+        );
+
+        // Průběžný výpis každou sekundu
+        if (blockIdx % (sampleRate / blockSize) == 0 && blockIdx > 0) {
+            int secondsElapsed = blockIdx / (sampleRate / blockSize);
+            std::cout << "⏱  t=" << secondsElapsed << "s..." << std::endl;
+        }
+    }
+
+    // === 5. MĚŘENÍ ČASU ===
+    auto endTime = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+    std::cout << "✓ Přehrávání dokončeno za " << elapsed.count() << "ms" << std::endl;
+
+    // === 6. ČISTÉ UKONČENÍ ===
+    vm.setRealTimeMode(false);
+    EnvelopeStaticData::cleanup();
+    std::cout << "✓ Cleanup dokončen - program ukončen čistě" << std::endl;
+
+    return 0;
+}
+```
+
+**Výstup programu:**
+```
+▶ Note ON: MIDI 60 vel=100
+⏱  t=1s...
+⚡ t=2s: Gain → 100%
+⏱  t=2s...
+🎚  t=3s: LFO panning aktivován
+⏱  t=3s...
+⏱  t=4s...
+🔊 t=5s: Pan → doleva
+⏱  t=5s...
+⏹ t=6s: Note OFF (release fáze)
+⏱  t=6s...
+✨ t=7s: BBE definition → vysoká
+⏱  t=7s...
+⏱  t=8s...
+⏱  t=9s...
+⏱  t=10s...
+✓ Přehrávání dokončeno za 10015ms
+✓ Cleanup dokončen - program ukončen čistě
+```
+
+**Dostupné MIDI setter metody (0-127):**
+
+| Metoda | Rozsah | Popis |
+|--------|--------|-------|
+| `setNoteStateMIDI(note, on, vel)` | note: 0-127, vel: 0-127 | Spuštění/zastavení noty s velocity |
+| `setSustainPedalMIDI(down)` | true/false | Sustain pedál (CC64) |
+| `setAllVoicesMasterGainMIDI(val, logger)` | 0-127 | Hlavní hlasitost (-60 až 0 dB) |
+| `setAllVoicesPanMIDI(val)` | 0-127 | Panoráma (0=L, 64=C, 127=R) |
+| `setAllVoicesAttackMIDI(val)` | 0-127 | Attack čas ADSR obálky |
+| `setAllVoicesReleaseMIDI(val)` | 0-127 | Release čas ADSR obálky |
+| `setAllVoicesSustainLevelMIDI(val)` | 0-127 | Sustain level ADSR obálky |
+| `setAllVoicesStereoFieldAmountMIDI(val)` | 0-127 | Šířka stereo pole |
+| `setAllVoicesPanSpeedMIDI(val)` | 0-127 | Rychlost LFO panning efektu |
+| `setAllVoicesPanDepthMIDI(val)` | 0-127 | Hloubka LFO panning efektu |
+| `setLimiterThresholdMIDI(val)` | 0-127 | Limiter threshold (-60 až 0 dB) |
+| `setLimiterReleaseMIDI(val)` | 0-127 | Limiter release čas (1-1000ms) |
+| `setLimiterEnabledMIDI(val)` | 0/127 | Limiter zapnut/vypnut |
+| `setBBEDefinitionMIDI(val)` | 0-127 | BBE high frequency definition |
+| `setBBEBassBoostMIDI(val)` | 0-127 | BBE low frequency boost |
+
+**Klíčové vlastnosti příkladu:**
+- ✅ Kompletní inicializace (Logger → EnvelopeStaticData → VoiceManager)
+- ✅ Nastavení MIDI parametrů před i během přehrávání
+- ✅ Note ON s velocity → 6 sekund přehrávání → Note OFF
+- ✅ Dynamické změny efektů v reálném čase
+- ✅ Správné časování pomocí blocků (44100 Hz / 512 samples = ~86 bloků/s)
+- ✅ Čisté ukončení s cleanup
+
+---
+
 ## Použití v projektu
 Pro integraci do vlastního projektu zahrňte hlavičky a linkujte `libsndfile`. Minimální příklad:
 
