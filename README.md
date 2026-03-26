@@ -865,6 +865,8 @@ Offline stereo resampling pomocí knihovny `speexdsp`. Používá se automaticky
 | Metoda | Parametry | Popis | Návratový typ |
 |--------|-----------|-------|---------------|
 | `resampleStereo(input, inputFrames, sourceRate, targetRate, outputFrames, logger)` | `input` (interleaved stereo float), `inputFrames`, `sourceRate`, `targetRate`, `outputFrames` (výstupní), `logger` | Resampleuje stereo buffer z `sourceRate` na `targetRate`. Alokuje výstupní buffer (`malloc`), volající musí uvolnit (`free`). Vrátí `nullptr` při chybě. | `float*` |
+| `buildResampledPath(originalPath, sourceRate, targetRate)` | `originalPath` (cesta k původnímu WAV), `sourceRate`, `targetRate` | Sestaví výstupní cestu pro resampleovaný WAV: nahradí příponu `fXX` za `fYY` (např. `m021-vel0-f48.wav` → `m021-vel0-f44.wav`). Vrátí `""` pokud přípona není nalezena. | `std::string` |
+| `saveWav(path, buffer, frameCount, sampleRate, logger)` | `path` (výstupní cesta), `buffer` (interleaved stereo float), `frameCount`, `sampleRate`, `logger` | Zapíše stereo float buffer jako 32-bit float WAV soubor přes libsndfile. Vrátí `false` při chybě (již zalogováno). | `bool` |
 
 **Příklad**:
 ```cpp
@@ -894,14 +896,27 @@ Pokud sample bank neobsahuje soubory pro požadovanou vzorkovací frekvenci (nap
 2. **Exact match**: Pokud existuje přesná shoda → načtení bez resamplingu
 3. **Fallback**: Pokud shoda neexistuje → vybere nejbližší dostupnou frekvenci, loguje `[WARNING]`
 4. **Resampling**: Každý sample je resampleován `SampleRateConverter::resampleStereo()` při načítání
+5. **Caching**: Po resamplingu se resampleovaný WAV uloží vedle originálu (např. `m021-vel0-f44.wav` vedle `m021-vel0-f48.wav`) — příští spuštění načte f44 přímo bez resamplingu
 
 ```
 [WARNING] Target rate 44100 Hz not available. Available rates in bank: [48000 Hz]
 [WARNING] Resampling fallback activated: 48000 Hz -> 44100 Hz. Source files: 1370. Ratio: 0.9187
 [INFO]    Resampled 481680 frames @ 48000 Hz -> 442544 frames @ 44100 Hz
+[INFO]    Cached resampled WAV: m021-vel0-f44.wav (442544 frames @ 44100 Hz)
 ```
 
 Resampling probíhá **offline při načítání** (ne v real-time audio threadu) — žádný dopad na výkon přehrávání.
+
+### Neúplný cache a fallback
+
+Pokud byl cache přerušen (např. první spuštění ukončeno předčasně), může existovat jen část f44 souborů. `InstrumentLoader` řeší tuto situaci dvoustupňovým vyhledáváním per-nota:
+
+1. **Krok 1**: Vyhledá notu na `targetSampleRate` (f44) — nalezeno → načte přímo
+2. **Krok 2**: Pokud nenalezeno → vyhledá na `altRate` (nejbližší dostupné, např. f48) → resampluje a uloží do cache
+
+Tím je zaručeno, že chybějící noty v cache budou při dalším spuštění doplněny.
+
+**Poznámka k corrupt WAV**: Program detekuje soubory s neplatným formátem (libsndfile vrátí chybu) a přeskočí je. Soubory s validním WAV headerem, ale poškozeným audio obsahem, nejsou detekovatelné — načtou se normálně, ale při přehrávání vydají šum místo tónu. Řešení: smazat poškozený soubor.
 
 ---
 
