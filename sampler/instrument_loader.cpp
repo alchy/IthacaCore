@@ -76,7 +76,22 @@ void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRa
     monoSamplesCount_ = 0;
     stereoSamplesCount_ = 0;
 
+    // Count total available samples for progress reporting
+    int totalAvailable = static_cast<int>(sampler.getLoadedSampleList().size());
+
     for (int midi = MIDI_NOTE_MIN; midi <= MIDI_NOTE_MAX; midi++) {
+        // Progress trace every 10 MIDI notes
+        if (midi % 10 == 0) {
+            int pct = totalAvailable > 0
+                      ? (foundSamples * 100 / totalAvailable)
+                      : 0;
+            logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info,
+                      "Progress: MIDI " + std::to_string(midi) +
+                      "/127, loaded " + std::to_string(foundSamples) +
+                      "/" + std::to_string(totalAvailable) +
+                      " samples (" + std::to_string(pct) + "%)");
+        }
+
         for (int vel = 0; vel < velocityLayerCount_; vel++) {
             // Search using sourceRate (the rate that actually exists in the bank)
             int index = sampler.findSampleInSampleList(
@@ -486,6 +501,16 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
         logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Info,
                    "Resampling complete: " + std::to_string(frameCount) +
                    " -> " + std::to_string(finalFrameCount) + " frames");
+
+        // Cache resampled file next to the originals so future loads skip resampling
+        const std::string srcPath = sampler_->getFilename(sampleIndex, logger);
+        const std::string dstPath = SampleRateConverter::buildResampledPath(srcPath, sourceRate, targetRate);
+        if (!dstPath.empty()) {
+            SampleRateConverter::saveWav(dstPath, finalBuffer, finalFrameCount, targetRate, logger);
+        } else {
+            logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Warning,
+                       "Could not build cache path for: " + srcPath + " — cache skipped");
+        }
     }
 
     // Krok 7: Přiřazení finálního bufferu a metadat
@@ -692,8 +717,10 @@ void InstrumentLoader::validateStereoConsistency(Logger& logger) {
                     }
 
                     // Kontrola 5: Konzistence s původními metadata (SampleInfo.sample_count)
+                    // Přeskočit pokud byl resampling aktivní — frame count se zákonitě liší
                     SampleInfo* sampleInfo = inst.sample_ptr_sampleInfo[vel];
-                    if (inst.frame_count_stereo[vel] != sampleInfo->sample_count) {
+                    bool wasResampled = (actual_samplerate_ != sampleInfo->frequency);
+                    if (!wasResampled && inst.frame_count_stereo[vel] != sampleInfo->sample_count) {
                         logger.log("InstrumentLoader/validateStereoConsistency", LogSeverity::Error,
                                   "Frame count mismatch for MIDI " + std::to_string(midi) +
                                   " velocity " + std::to_string(vel) +

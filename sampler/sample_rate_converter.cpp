@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <string>
+#include <sndfile.h>
 
 // speexdsp is a C library — include with C linkage
 extern "C" {
@@ -84,4 +86,58 @@ float* SampleRateConverter::resampleStereo(
                std::to_string(targetRate) + " Hz");
 
     return output;
+}
+
+std::string SampleRateConverter::buildResampledPath(
+    const std::string& originalPath,
+    int                sourceRate,
+    int                targetRate)
+{
+    std::string srcSuffix = "f" + std::to_string(sourceRate / 1000);
+    std::string dstSuffix = "f" + std::to_string(targetRate / 1000);
+
+    // Find the last occurrence of srcSuffix (before ".wav")
+    size_t pos = originalPath.rfind(srcSuffix);
+    if (pos == std::string::npos)
+        return "";
+
+    std::string result = originalPath;
+    result.replace(pos, srcSuffix.length(), dstSuffix);
+    return result;
+}
+
+bool SampleRateConverter::saveWav(
+    const std::string& path,
+    const float*       buffer,
+    int                frameCount,
+    int                sampleRate,
+    Logger&            logger)
+{
+    SF_INFO sfinfo = {};
+    sfinfo.samplerate = sampleRate;
+    sfinfo.channels   = 2;
+    sfinfo.format     = SF_FORMAT_WAV | SF_FORMAT_FLOAT;
+
+    SNDFILE* sndfile = sf_open(path.c_str(), SFM_WRITE, &sfinfo);
+    if (!sndfile) {
+        logger.log("SampleRateConverter/saveWav", LogSeverity::Error,
+                   "Cannot create file: " + path + " - " + sf_strerror(nullptr));
+        return false;
+    }
+
+    sf_count_t written = sf_writef_float(sndfile, buffer, frameCount);
+    sf_close(sndfile);
+
+    if (written != static_cast<sf_count_t>(frameCount)) {
+        logger.log("SampleRateConverter/saveWav", LogSeverity::Error,
+                   "Write incomplete: expected " + std::to_string(frameCount) +
+                   " frames, wrote " + std::to_string(written) + " — " + path);
+        return false;
+    }
+
+    logger.log("SampleRateConverter/saveWav", LogSeverity::Info,
+               "Cached resampled WAV: " + path +
+               " (" + std::to_string(frameCount) + " frames @ " +
+               std::to_string(sampleRate) + " Hz)");
+    return true;
 }
