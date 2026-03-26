@@ -1,7 +1,3 @@
-/*
-THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
-*/
-
 #include "sampler.h"  // Include hlavičky pro definice SampleInfo a SamplerIO (nyní v sampler.h)
 #include <filesystem>   // Pro procházení adresáře
 #include <regex>        // Pro parsování názvů souborů
@@ -234,9 +230,9 @@ void SamplerIO::scanSampleDirectory(const std::string& directoryPath, Logger& lo
                 
                 SNDFILE* sndFile = sf_open(fullPath.c_str(), SFM_READ, &sfInfo);
                 if (!sndFile) {
-                    logger.log("SamplerIO/scanSampleDirectory", LogSeverity::Error, 
-                              "Cannot open WAV file: " + fullPath + " - " + sf_strerror(nullptr));
-                    std::exit(1);
+                    logger.log("SamplerIO/scanSampleDirectory", LogSeverity::Error,
+                              "Skipping unreadable WAV file: " + fullPath + " - " + sf_strerror(nullptr));
+                    continue;
                 }
                 
                 // Kontrola konzistence frekvence (pokud je v názvu)

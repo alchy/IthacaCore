@@ -9,6 +9,7 @@ IthacaCore je audio sampler engine napsaný v C++17, navržený pro přehráván
 - Načítání WAV souborů do paměti jako stereo interleaved float buffery `[L1,R1,L2,R2...]`.
 - Automatická mono→stereo konverze (L=R) pro jednotný formát.
 - Podpora 16-bit PCM, 24-bit PCM, 32-bit PCM, 32-bit float a 64-bit double formátů.
+- **Automatický sample rate resampling**: Pokud sample bank neobsahuje soubory pro požadovanou vzorkovací frekvenci, engine automaticky resampleuje nejbližší dostupnou frekvenci (např. 48000 Hz → 44100 Hz) pomocí `speexdsp`.
 - Polyfonní přehrávání s ADSR obálkou (attack, decay, sustain, release) a stavy hlasu (Idle, Attacking, Sustaining, Releasing).
 - RT-safe zpracování obálek s předpočítanými křivkami pro 44100 Hz a 48000 Hz.
 - **Flexibilní envelope control**: Individuální i globální nastavení ADSR parametrů pro každou voice.
@@ -21,6 +22,7 @@ IthacaCore je audio sampler engine napsaný v C++17, navržený pro přehráván
 - Visual Studio 2022 Build Tools nebo Community Edition (C++ komponenty).
 - CMake 3.10+ (v PATH).
 - `libsndfile` (automaticky integrováno přes `add_subdirectory` v `CMakeLists.txt`).
+- `speexdsp` (automaticky integrováno jako submodul v `speexdsp/`).
 - C++17 kompatibilní kompilátor (MSVC/GCC/Clang).
 
 ## Postup nastavení
@@ -295,7 +297,7 @@ Spravuje IO operace, prohledávání a metadata WAV souborů.
 |--------|-----------|-------|---------------|
 | `SamplerIO()` | - | Inicializuje prázdný seznam `sampleList`. | `void` |
 | `~SamplerIO()` | - | Uvolní seznam automaticky. | `void` |
-| `scanSampleDirectory(const std::string& directoryPath, Logger& logger)` | `directoryPath` (cesta k WAV souborům), `logger` | Prohledá adresář, parsuje názvy (`mXXX-velY-fZZ.wav`), validuje frekvenci a formát. Chyby vedou k `std::exit(1)`. | `void` |
+| `scanSampleDirectory(const std::string& directoryPath, Logger& logger)` | `directoryPath` (cesta k WAV souborům), `logger` | Prohledá adresář, parsuje názvy (`mXXX-velY-fZZ.wav`), validuje frekvenci a formát. Nečitelné soubory jsou přeskočeny s `[ERROR]` do logu (bez pádu). | `void` |
 | `findSampleInSampleList(uint8_t midi_note, uint8_t velocity, int sampleRate) const` | `midi_note` (0-127), `velocity` (0-7), `sampleRate` | Vyhledá index sample v seznamu. | `int` (-1 pokud nenalezeno) |
 | `getLoadedSampleList() const` | - | Vrátí konstantní referenci na vektor `SampleInfo`. | `const std::vector<SampleInfo>&` |
 
@@ -802,16 +804,19 @@ exporter.wavFileWriteBuffer(buffer, 512);
 - **Popis**: Spustí workflow: inicializuje `SamplerIO`, `InstrumentLoader`, `Envelope`, `VoiceManager`, načte samples, nastaví testovací notu (např. MIDI 108, vel 7), procesuje blok s ADSR obálkou a exportuje WAV. Loguje všechny kroky. Vrátí 0 při úspěchu, jinak `std::exit(1)`.
 
 ## Struktura projektu
-- **CMakeLists.txt**: Definuje projekt, linkuje `libsndfile`, obsahuje všechny zdrojové soubory.
+- **CMakeLists.txt**: Definuje projekt, linkuje `libsndfile` a `speexdsp`, obsahuje všechny zdrojové soubory.
 - **main.cpp**: Vstupní bod, volá `runSampler`.
 - **sampler/core_logger.h/cpp**: Thread-safe logování.
 - **sampler/sampler.h/cpp**: Funkce `runSampler` a třída `SamplerIO`.
-- **sampler/instrument_loader.h/cpp**: Načítání samples do paměti.
+- **sampler/instrument_loader.h/cpp**: Načítání samples do paměti, automatický resampling.
+- **sampler/sample_rate_converter.h/cpp**: Offline stereo resampling přes `speexdsp` (libovolný poměr frekvencí).
 - **sampler/voice.h/cpp**: Správa jedné hlasové jednotky s envelope kontrolou.
 - **sampler/voice_manager.h/cpp**: Polyfonní management hlasů s globálními envelope metodami.
 - **sampler/envelopes/envelope.h/cpp**: Per-voice ADSR obálka.
 - **sampler/envelopes/envelope_static_data.h/cpp**: Předpočítaná data obálek.
 - **sampler/wav_file_exporter.h/cpp**: Export WAV souborů.
+- **libsndfile/**: Submodul pro čtení/zápis WAV souborů.
+- **speexdsp/**: Submodul pro offline resampling (speex_resampler, floating-point mód).
 - **.vscode/**: Konfigurace VS Code (build, launch, settings).
 - **README.md**: Tento soubor.
 
@@ -854,6 +859,52 @@ voice.initialize(instrument, sampleRate, envelope, logger,
 - **Attack/Release**: 0-127 (0 = nejkratší/okamžitá, 127 = nejdelší)
 - **Sustain Level**: 0-127 (0 = tichý, 127 = maximum)
 
+### Třída `SampleRateConverter`
+Offline stereo resampling pomocí knihovny `speexdsp`. Používá se automaticky v `InstrumentLoader` při neshodě vzorkovacích frekvencí.
+
+| Metoda | Parametry | Popis | Návratový typ |
+|--------|-----------|-------|---------------|
+| `resampleStereo(input, inputFrames, sourceRate, targetRate, outputFrames, logger)` | `input` (interleaved stereo float), `inputFrames`, `sourceRate`, `targetRate`, `outputFrames` (výstupní), `logger` | Resampleuje stereo buffer z `sourceRate` na `targetRate`. Alokuje výstupní buffer (`malloc`), volající musí uvolnit (`free`). Vrátí `nullptr` při chybě. | `float*` |
+
+**Příklad**:
+```cpp
+int outputFrames = 0;
+float* resampled = SampleRateConverter::resampleStereo(
+    inputBuffer, inputFrames, 48000, 44100, outputFrames, logger);
+if (resampled) {
+    // outputFrames obsahuje počet výstupních frame párů
+    // resampled je stereo interleaved [L,R,L,R...]
+    free(resampled);  // Volající uvolní paměť
+}
+```
+
+**Klíčové body:**
+- Podporuje libovolný poměr frekvencí (ne jen 44100/48000)
+- Triviální případ (`sourceRate == targetRate`): vrátí kopii, bez resamplingu
+- Interní kvalita: `SPEEX_RESAMPLER_QUALITY_DEFAULT` (kvalita 4 z 10)
+- Výstupní buffer alokován `malloc` — volající zodpovídá za `free()`
+
+---
+
+## Automatický resampling v `InstrumentLoader`
+
+Pokud sample bank neobsahuje soubory pro požadovanou vzorkovací frekvenci (např. sample bank má 48000 Hz, plugin běží na 44100 Hz), `InstrumentLoader` automaticky aktivuje resampling fallback:
+
+1. **Detekce**: `detectAvailableSampleRate()` projde dostupné frekvence v bank
+2. **Exact match**: Pokud existuje přesná shoda → načtení bez resamplingu
+3. **Fallback**: Pokud shoda neexistuje → vybere nejbližší dostupnou frekvenci, loguje `[WARNING]`
+4. **Resampling**: Každý sample je resampleován `SampleRateConverter::resampleStereo()` při načítání
+
+```
+[WARNING] Target rate 44100 Hz not available. Available rates in bank: [48000 Hz]
+[WARNING] Resampling fallback activated: 48000 Hz -> 44100 Hz. Source files: 1370. Ratio: 0.9187
+[INFO]    Resampled 481680 frames @ 48000 Hz -> 442544 frames @ 44100 Hz
+```
+
+Resampling probíhá **offline při načítání** (ne v real-time audio threadu) — žádný dopad na výkon přehrávání.
+
+---
+
 ## Řešení problémů
 - **Execution Policy**: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`.
 - **libsndfile chybí**: Stáhněte z [libsndfile GitHub](https://github.com/libsndfile/libsndfile).
@@ -870,7 +921,8 @@ voice.initialize(instrument, sampleRate, envelope, logger,
 - **RT-safe operace**: Třídy `Envelope`, `Voice` a globální VoiceManager metody jsou optimalizovány pro real-time audio.
 - **Paměť**: Předpočítané obálky (`EnvelopeStaticData`) šetří paměť pro více hlasů.
 - **Envelope flexibility**: Kombinace individuálního a globálního ovládání umožňuje jak komplexní sound design, tak rychlé globální úpravy.
-- **Chyby**: Kritické chyby (neinicializovaná data, neplatná frekvence) vedou k `std::exit(1)`.
+- **Nečitelné WAV soubory**: Přeskočeny s `[ERROR]` do logu, loading pokračuje (žádný pád).
+- **Chyby**: Kritické chyby (neinicializovaná data, prázdná sample bank) vedou k `std::exit(1)`.
 
 ---
 

@@ -1,9 +1,11 @@
 #include "instrument_loader.h"
-#include "sine_wave_generator.h"  // Pro SineWaveGenerator
-#include <cstdlib>      // Pro malloc, free, std::exit
-#include <cstring>      // Pro memcpy
-#include <iostream>     // Pro std::cerr
-#include <sndfile.h>    // Pro sf_open, sf_readf_float, sf_close
+#include "sine_wave_generator.h"
+#include "sample_rate_converter.h"
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <sndfile.h>
+#include <set>
 
 /**
  * @brief Prázdný konstruktor InstrumentLoader
@@ -34,88 +36,74 @@ InstrumentLoader::~InstrumentLoader() {
  * @param logger Reference na Logger pro zaznamenávání
  */
 void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRate, Logger& logger) {
-    // Validace parametrů
     validateSamplerReference(sampler, logger);
-    validateTargetSampleRate(targetSampleRate, logger);
-    
-    // Uložení referencí pro pozdější použití
+
     sampler_ = &sampler;
     logger_ = &logger;
-    
-    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
-              "Starting loadInstrumentData with targetSampleRate " + 
+
+    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info,
+              "Starting loadInstrumentData with targetSampleRate " +
               std::to_string(targetSampleRate) + " Hz");
-    
-    // Automatické vyčištění předchozích dat (pokud existují)
+
+    // Detect which rate is actually available; may activate resampling fallback
+    int sourceRate = detectAvailableSampleRate(sampler, targetSampleRate, logger);
+    bool needsResampling = (sourceRate != targetSampleRate);
+
     if (actual_samplerate_ != 0) {
-        logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
-                  "Clearing previous data (previous sampleRate: " + 
+        logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info,
+                  "Clearing previous data (previous sampleRate: " +
                   std::to_string(actual_samplerate_) + " Hz)");
         clear(logger);
     }
-    
-    // Nastavení nové target sample rate
+
     actual_samplerate_ = targetSampleRate;
-    
-    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
-              "InstrumentLoader initialized with targetSampleRate " + 
-              std::to_string(actual_samplerate_) + " Hz");
-    
+
+    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info,
+              "InstrumentLoader initialized: sourceRate=" + std::to_string(sourceRate) +
+              " Hz, targetRate=" + std::to_string(targetSampleRate) + " Hz" +
+              (needsResampling ? " [RESAMPLING ACTIVE]" : " [exact match]"));
+
     logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info,
               "Prepared array for " + std::to_string(MIDI_NOTE_MAX + 1) +
               " MIDI notes with " + std::to_string(velocityLayerCount_) + " velocity layers");
-              
-    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
-              "All samples will be converted to stereo interleaved format [L,R,L,R...]");
-    
-    // Hlavní loading loop - stejný algoritmus jako původní loadInstrument()
-    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
-              "Starting loading of all instruments for targetSampleRate " + 
-              std::to_string(actual_samplerate_) + " Hz");
-    
+
+    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info,
+              "All samples will be stored as stereo interleaved float [L,R,L,R...]");
+
     int foundSamples = 0;
     int missingSamples = 0;
     totalLoadedSamples_ = 0;
     monoSamplesCount_ = 0;
     stereoSamplesCount_ = 0;
-    
-    // Cyklus pro všechny MIDI noty 0-127
+
     for (int midi = MIDI_NOTE_MIN; midi <= MIDI_NOTE_MAX; midi++) {
-        // Cyklus pro skutečný počet velocity layers
         for (int vel = 0; vel < velocityLayerCount_; vel++) {
-            // Vyhledání indexu v SamplerIO
+            // Search using sourceRate (the rate that actually exists in the bank)
             int index = sampler.findSampleInSampleList(
-                static_cast<uint8_t>(midi), 
-                static_cast<uint8_t>(vel), 
-                actual_samplerate_
+                static_cast<uint8_t>(midi),
+                static_cast<uint8_t>(vel),
+                sourceRate
             );
-            
+
             if (index != -1) {
-                // Sample nalezen - načtení do bufferu
-                logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info, 
-                          "Sample found for MIDI " + std::to_string(midi) + 
-                          " velocity " + std::to_string(vel) + " at index " + std::to_string(index));
-                
-                // Načtení samplu do bufferu
-                if (loadSampleToBuffer(index, static_cast<uint8_t>(vel), static_cast<uint8_t>(midi), logger)) {
+                if (loadSampleToBuffer(index, static_cast<uint8_t>(vel), static_cast<uint8_t>(midi),
+                                       sourceRate, targetSampleRate, logger)) {
                     foundSamples++;
                     totalLoadedSamples_++;
                 }
-                
             } else {
-                // Sample nenalezen - nastavení null a warning log
                 instruments_[midi].sample_ptr_sampleInfo[vel] = nullptr;
                 instruments_[midi].sample_ptr_velocity[vel] = nullptr;
                 instruments_[midi].velocityExists[vel] = false;
                 instruments_[midi].frame_count_stereo[vel] = 0;
                 instruments_[midi].total_samples_stereo[vel] = 0;
                 instruments_[midi].was_originally_mono[vel] = false;
-                
-                logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Warning, 
-                          "Sample for MIDI " + std::to_string(midi) + 
-                          " velocity " + std::to_string(vel) + 
-                          " not found at frequency " + std::to_string(actual_samplerate_) + " Hz");
-                
+
+                logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Warning,
+                          "Sample for MIDI " + std::to_string(midi) +
+                          " velocity " + std::to_string(vel) +
+                          " not found at " + std::to_string(sourceRate) + " Hz");
+
                 missingSamples++;
             }
         }
@@ -348,7 +336,8 @@ void InstrumentLoader::clearWithoutLogging() {
  * @param logger Reference na Logger pro zaznamenávání
  * @return true při úspěchu, false při chybě (s error logem a exit)
  */
-bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uint8_t midi_note, Logger& logger) {
+bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uint8_t midi_note,
+                                          int sourceRate, int targetRate, Logger& logger) {
     // Validace parametrů
     validateVelocity(velocity, "loadSampleToBuffer", logger);
     validateMidiNote(midi_note, "loadSampleToBuffer", logger);
@@ -464,17 +453,48 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
                    std::string(filename) + " (" + std::to_string(channelCount) + " → 2 channels)");
     }
     
-    // Krok 6: Uvolnění temporary bufferu
+    // Krok 6: Uvolnění temporary bufferu (stereo data jsou v permanentBuffer)
     free(tempBuffer);
-    
-    // Krok 7: AKTUALIZACE - Přiřazení permanent bufferu, SampleInfo pointeru a NOVÝCH stereo metadat
-    instruments_[midi_note].sample_ptr_velocity[velocity] = permanentBuffer;
+
+    // Krok 6b: Resampling (pouze pokud sourceRate != targetRate)
+    int finalFrameCount = frameCount;
+    float* finalBuffer = permanentBuffer;
+
+    if (sourceRate != targetRate) {
+        logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Info,
+                   "Resampling MIDI " + std::to_string(midi_note) +
+                   "/vel" + std::to_string(velocity) +
+                   " from " + std::to_string(sourceRate) +
+                   " Hz to " + std::to_string(targetRate) + " Hz");
+
+        int resampledFrames = 0;
+        float* resampledBuffer = SampleRateConverter::resampleStereo(
+            permanentBuffer, frameCount, sourceRate, targetRate, resampledFrames, logger);
+
+        free(permanentBuffer);  // Release pre-resample stereo buffer
+
+        if (!resampledBuffer) {
+            logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Error,
+                       "Resampling failed for MIDI " + std::to_string(midi_note) +
+                       "/vel" + std::to_string(velocity) + " — skipping sample");
+            return false;
+        }
+
+        finalBuffer     = resampledBuffer;
+        finalFrameCount = resampledFrames;
+
+        logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Info,
+                   "Resampling complete: " + std::to_string(frameCount) +
+                   " -> " + std::to_string(finalFrameCount) + " frames");
+    }
+
+    // Krok 7: Přiřazení finálního bufferu a metadat
+    instruments_[midi_note].sample_ptr_velocity[velocity] = finalBuffer;
     instruments_[midi_note].velocityExists[velocity] = true;
-    
-    // NOVÉ: Uložení stereo metadat
-    instruments_[midi_note].frame_count_stereo[velocity] = frameCount;              // počet stereo frame párů
-    instruments_[midi_note].total_samples_stereo[velocity] = frameCount * 2;       // celkový počet float hodnot
-    instruments_[midi_note].was_originally_mono[velocity] = wasOriginallyMono;     // původní formát
+
+    instruments_[midi_note].frame_count_stereo[velocity]    = finalFrameCount;
+    instruments_[midi_note].total_samples_stereo[velocity]  = finalFrameCount * 2;
+    instruments_[midi_note].was_originally_mono[velocity]   = wasOriginallyMono;
     
     // Počítání mono/stereo statistik (podle původního formátu)
     if (wasOriginallyMono) {
@@ -498,19 +518,16 @@ bool InstrumentLoader::loadSampleToBuffer(int sampleIndex, uint8_t velocity, uin
         std::exit(1);
     }
     
-    // Úspěšné přiřazení - detailní log s novými stereo metadaty
-    logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Info, 
-               "Stereo buffer assigned for MIDI " + std::to_string(midi_note) + 
-               " velocity " + std::to_string(velocity) + ": " + 
-               std::to_string(frameCount) + " frames, " +
-               std::to_string(frameCount * 2) + " total samples, " +
-               std::to_string(stereoBufferSize) + " bytes, format: stereo interleaved [L,R,L,R...]");
-    
+    std::string resampleNote = (sourceRate != targetRate)
+        ? " [resampled " + std::to_string(sourceRate) + "->" + std::to_string(targetRate) + " Hz]"
+        : "";
     std::string originalFormat = wasOriginallyMono ? "originally mono" : "originally stereo";
-    logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Info, 
-               "Buffer for MIDI " + std::to_string(midi_note) + 
-               "/velocity " + std::to_string(velocity) + 
-               " allocated and loaded successfully (" + originalFormat + ")");
+    logger.log("InstrumentLoader/loadSampleToBuffer", LogSeverity::Info,
+               "Buffer assigned for MIDI " + std::to_string(midi_note) +
+               "/vel" + std::to_string(velocity) + ": " +
+               std::to_string(finalFrameCount) + " frames, " +
+               std::to_string(finalFrameCount * 2) + " floats, " +
+               originalFormat + resampleNote);
     
     return true;
 }
@@ -785,10 +802,10 @@ void InstrumentLoader::validateSamplerReference(SamplerIO& sampler, Logger& logg
  * @param logger Reference na Logger pro error log
  */
 void InstrumentLoader::validateTargetSampleRate(int targetSampleRate, Logger& logger) {
-    if (targetSampleRate != 44100 && targetSampleRate != 48000) {
-        logger.log("InstrumentLoader/validateTargetSampleRate", LogSeverity::Error,
+    if (targetSampleRate <= 0) {
+        logger.log("InstrumentLoader/validateTargetSampleRate", LogSeverity::Critical,
                   "Invalid targetSampleRate " + std::to_string(targetSampleRate) +
-                  " Hz - only 44100 Hz and 48000 Hz are supported");
+                  " Hz — must be a positive value");
         std::exit(1);
     }
 }
@@ -813,4 +830,76 @@ void InstrumentLoader::setVelocityLayerCount(int count) {
         logger_->log("InstrumentLoader/setVelocityLayerCount", LogSeverity::Info,
                     "Velocity layer count set to " + std::to_string(velocityLayerCount_));
     }
+}
+
+/**
+ * @brief Detect which sample rate is actually available in the sample bank.
+ *
+ * First checks if targetSampleRate has any files. If yes, returns it directly
+ * (no resampling). If not, collects all distinct rates present and picks the
+ * closest one, logging a Warning with full diagnostic info.
+ * If the sample bank is completely empty → Critical log + std::exit(1).
+ */
+int InstrumentLoader::detectAvailableSampleRate(SamplerIO& sampler, int targetSampleRate, Logger& logger) {
+    const auto& sampleList = sampler.getLoadedSampleList();
+
+    if (sampleList.empty()) {
+        logger.log("InstrumentLoader/detectAvailableSampleRate", LogSeverity::Critical,
+                   "Sample bank is empty — no files were scanned. Cannot load instrument.");
+        std::exit(1);
+    }
+
+    // Count files at the exact target rate
+    int exactCount = 0;
+    for (const auto& s : sampleList) {
+        if (s.frequency == targetSampleRate) exactCount++;
+    }
+
+    if (exactCount > 0) {
+        logger.log("InstrumentLoader/detectAvailableSampleRate", LogSeverity::Info,
+                   "Exact sample rate match: " + std::to_string(targetSampleRate) +
+                   " Hz (" + std::to_string(exactCount) + " files). No resampling needed.");
+        return targetSampleRate;
+    }
+
+    // Build set of all distinct rates present
+    std::set<int> availableRates;
+    for (const auto& s : sampleList) {
+        availableRates.insert(s.frequency);
+    }
+
+    // Log all available rates for diagnostics
+    std::string rateList;
+    for (int r : availableRates) {
+        if (!rateList.empty()) rateList += ", ";
+        rateList += std::to_string(r) + " Hz";
+    }
+    logger.log("InstrumentLoader/detectAvailableSampleRate", LogSeverity::Warning,
+               "Target rate " + std::to_string(targetSampleRate) +
+               " Hz not available. Available rates in bank: [" + rateList + "]");
+
+    // Pick rate closest to targetSampleRate
+    int bestRate = *availableRates.begin();
+    int bestDiff = std::abs(bestRate - targetSampleRate);
+    for (int rate : availableRates) {
+        int diff = std::abs(rate - targetSampleRate);
+        if (diff < bestDiff) {
+            bestDiff = diff;
+            bestRate = rate;
+        }
+    }
+
+    // Count files at chosen rate
+    int bestCount = 0;
+    for (const auto& s : sampleList) {
+        if (s.frequency == bestRate) bestCount++;
+    }
+
+    logger.log("InstrumentLoader/detectAvailableSampleRate", LogSeverity::Warning,
+               "Resampling fallback activated: " + std::to_string(bestRate) +
+               " Hz -> " + std::to_string(targetSampleRate) +
+               " Hz. Source files: " + std::to_string(bestCount) +
+               ". Ratio: " + std::to_string(static_cast<double>(targetSampleRate) / bestRate).substr(0, 6));
+
+    return bestRate;
 }

@@ -1,7 +1,3 @@
-/*
-THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
-*/
-
 #ifndef INSTRUMENT_LOADER_H  // Include guard pro prevenci duplikátního includu
 #define INSTRUMENT_LOADER_H
 
@@ -9,6 +5,7 @@ THIS FILE IS LOCKED, IT IS FUNCTIONAL AND WILL NOT BE CHANGED
 #include <sndfile.h>    // Pro SNDFILE*, SF_INFO, int
 #include "sampler.h"    // Pro SamplerIO, SampleInfo, Logger
 #include "core_logger.h" // Pro Logger (explicitní include pro jasnost)
+#include "sample_rate_converter.h" // Pro offline resampling fallback
 
 // Globální konstanty pro MIDI rozsah
 #define MIDI_NOTE_MIN 0
@@ -354,7 +351,22 @@ private:
      * Loguje všechny konverze (i když neproběhly) a úspěšné přiřazení.
      * Při chybě alokace/načtení: log error a std::exit(1).
      */
-    bool loadSampleToBuffer(int sampleIndex, uint8_t velocity, uint8_t midi_note, Logger& logger);
+    /**
+     * @brief Detect which sample rate is actually available in sample bank.
+     *
+     * Called before the main load loop. Returns targetSampleRate if files at that
+     * rate exist. Otherwise finds the closest available rate and logs a Warning.
+     * If the sample bank is completely empty → Critical log + std::exit(1).
+     *
+     * @param sampler         SamplerIO with scanned sample list
+     * @param targetSampleRate Plugin's audio device rate (44100 or 48000)
+     * @param logger           Logger reference
+     * @return                 Source rate to use for loading (may differ from target)
+     */
+    int detectAvailableSampleRate(SamplerIO& sampler, int targetSampleRate, Logger& logger);
+
+    bool loadSampleToBuffer(int sampleIndex, uint8_t velocity, uint8_t midi_note,
+                            int sourceRate, int targetRate, Logger& logger);
 
     /**
      * @brief Otevře sample soubor pro čtení

@@ -20,25 +20,41 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Debug)
 # Přidání externí knihovny libsndfile
 add_subdirectory(libsndfile)
 
+# speexdsp resampler (submodule) — compiled as C, floating-point mode
+add_library(speex_resampler STATIC
+    speexdsp/libspeexdsp/resample.c
+)
+target_include_directories(speex_resampler PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/speexdsp/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/speexdsp/include/speex
+    ${CMAKE_CURRENT_SOURCE_DIR}/speexdsp/libspeexdsp
+)
+target_compile_definitions(speex_resampler PUBLIC FLOATING_POINT=1 OUTSIDE_SPEEX=1 RANDOM_PREFIX=ithaca)
+set_target_properties(speex_resampler PROPERTIES LINKER_LANGUAGE C)
+
 # Hlavní executable
-add_executable(IthacaCore 
+add_executable(IthacaCore
     # Entry point
     main.cpp
-    
+
     # Core Logger module
     sampler/core_logger.cpp
     sampler/core_logger.h
-    
-    # SamplerIO module  
+
+    # SamplerIO module
     sampler/sampler_io.cpp
-    
+
     # Sampler coordinator module
     sampler/sampler.cpp
     sampler/sampler.h
-    
+
     # InstrumentLoader module
     sampler/instrument_loader.cpp
     sampler/instrument_loader.h
+
+    # Sample Rate Converter (offline resampling via speexdsp)
+    sampler/sample_rate_converter.h
+    sampler/sample_rate_converter.cpp
 
     # Wav exporter
     sampler/wav_file_exporter.cpp
@@ -86,15 +102,18 @@ add_executable(IthacaCore
 )
 
 # Include directories pro kompilaci a IntelliSense
-target_include_directories(IthacaCore PRIVATE 
-    ${CMAKE_CURRENT_SOURCE_DIR}          # Kořenový adresář projektu
-    ${CMAKE_CURRENT_SOURCE_DIR}/sampler  # Sampler moduly
-    ${CMAKE_CURRENT_SOURCE_DIR}/sampler/tests  # Nový test framework
+target_include_directories(IthacaCore PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/sampler
+    ${CMAKE_CURRENT_SOURCE_DIR}/sampler/tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/speexdsp/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/speexdsp/libspeexdsp
 )
 
 # Linkování externích knihoven
-target_link_libraries(IthacaCore PRIVATE 
-    sndfile  # libsndfile pro WAV operace
+target_link_libraries(IthacaCore PRIVATE
+    sndfile
+    speex_resampler
 )
 
 # Compiler-specific nastavení
