@@ -144,10 +144,13 @@ void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRa
                 instruments_[midi].total_samples_stereo[vel] = 0;
                 instruments_[midi].was_originally_mono[vel] = false;
 
-                logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Warning,
-                          "Sample for MIDI " + std::to_string(midi) +
-                          " velocity " + std::to_string(vel) +
-                          " not found at " + std::to_string(sourceRate) + " Hz");
+                std::string missingMsg = "Sample for MIDI " + std::to_string(midi) +
+                    " velocity " + std::to_string(vel) +
+                    " not found at " + std::to_string(targetSampleRate) + " Hz";
+                if (altRate != targetSampleRate) {
+                    missingMsg += " (also tried fallback " + std::to_string(altRate) + " Hz — not found or unreadable)";
+                }
+                logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Warning, missingMsg);
 
                 missingSamples++;
             }
