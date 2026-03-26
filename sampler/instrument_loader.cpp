@@ -49,6 +49,24 @@ void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRa
     int sourceRate = detectAvailableSampleRate(sampler, targetSampleRate, logger);
     bool needsResampling = (sourceRate != targetSampleRate);
 
+    // Find closest alternative rate for per-note fallback (handles incomplete cache).
+    // If some f44 files exist but not all, notes missing from cache fall back to this
+    // rate and are resampled on-the-fly rather than being silently skipped.
+    int altRate = targetSampleRate; // default: no alternative
+    {
+        const auto& list = sampler.getLoadedSampleList();
+        int bestDiff = INT_MAX;
+        for (const auto& s : list) {
+            if (s.frequency != targetSampleRate) {
+                int diff = std::abs(s.frequency - targetSampleRate);
+                if (diff < bestDiff) {
+                    bestDiff = diff;
+                    altRate = s.frequency;
+                }
+            }
+        }
+    }
+
     if (actual_samplerate_ != 0) {
         logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Info,
                   "Clearing previous data (previous sampleRate: " +
@@ -93,16 +111,28 @@ void InstrumentLoader::loadInstrumentData(SamplerIO& sampler, int targetSampleRa
         }
 
         for (int vel = 0; vel < velocityLayerCount_; vel++) {
-            // Search using sourceRate (the rate that actually exists in the bank)
+            // Phase 1: try target rate (cached f44, or exact match)
             int index = sampler.findSampleInSampleList(
-                static_cast<uint8_t>(midi),
-                static_cast<uint8_t>(vel),
-                sourceRate
-            );
+                static_cast<uint8_t>(midi), static_cast<uint8_t>(vel), targetSampleRate);
+            int effectiveSourceRate = targetSampleRate;
+
+            // Phase 2: cache miss — fall back to alt rate and resample
+            if (index == -1 && altRate != targetSampleRate) {
+                index = sampler.findSampleInSampleList(
+                    static_cast<uint8_t>(midi), static_cast<uint8_t>(vel), altRate);
+                if (index != -1) {
+                    effectiveSourceRate = altRate;
+                    logger.log("InstrumentLoader/loadInstrumentData", LogSeverity::Warning,
+                              "Cache miss MIDI " + std::to_string(midi) +
+                              "/vel" + std::to_string(vel) +
+                              " — falling back to " + std::to_string(altRate) +
+                              " Hz with resampling");
+                }
+            }
 
             if (index != -1) {
                 if (loadSampleToBuffer(index, static_cast<uint8_t>(vel), static_cast<uint8_t>(midi),
-                                       sourceRate, targetSampleRate, logger)) {
+                                       effectiveSourceRate, targetSampleRate, logger)) {
                     foundSamples++;
                     totalLoadedSamples_++;
                 }
