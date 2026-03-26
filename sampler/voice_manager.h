@@ -207,6 +207,29 @@ public:
     bool processBlockUninterleaved(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept;
 
     /**
+     * @brief Zpracuje jeden audio segment bez nulování bufferu, LFO a DSP.
+     *        Určeno pro sample-accurate MIDI processing — volá se opakovaně
+     *        pro každý segment mezi MIDI událostmi, výstup se akumuluje (+= ).
+     *        Po všech segmentech musí být zavolána finalizeBlock().
+     * @param outputLeft Výstupní buffer levého kanálu (pointer na začátek segmentu)
+     * @param outputRight Výstupní buffer pravého kanálu (pointer na začátek segmentu)
+     * @param samplesPerBlock Počet vzorků segmentu
+     * @return true pokud je nějaký hlas aktivní
+     * @note RT-safe, buffer NENÍ nulován
+     */
+    bool processBlockSegment(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept;
+
+    /**
+     * @brief Aplikuje LFO panning a DSP chain na celý buffer po dokončení
+     *        všech segmentů. Páruje se s processBlockSegment().
+     * @param outputLeft Výstupní buffer levého kanálu (celý blok od začátku)
+     * @param outputRight Výstupní buffer pravého kanálu (celý blok od začátku)
+     * @param samplesPerBlock Celkový počet vzorků bloku
+     * @note RT-safe
+     */
+    void finalizeBlock(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept;
+
+    /**
      * @brief Zpracuje audio blok v prokládaném formátu
      * @param outputBuffer Výstupní buffer (prokládaný stereo)
      * @param samplesPerBlock Počet vzorků v bloku

@@ -473,19 +473,13 @@ void VoiceManager::processDelayedNoteOffs() noexcept {
 
 // ===== AUDIO PROCESSING =====
 
-bool VoiceManager::processBlockUninterleaved(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept {
-    // Ověření vstupů
+bool VoiceManager::processBlockSegment(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept {
     if (!outputLeft || !outputRight || samplesPerBlock <= 0) return false;
-
-    // Vynulování výstupních bufferů
-    std::fill(outputLeft, outputLeft + samplesPerBlock, 0.0f);
-    std::fill(outputRight, outputRight + samplesPerBlock, 0.0f);
 
     if (activeVoices_.empty()) return false;
 
     bool anyActive = false;
 
-    // Zpracování všech aktivních hlasů bez LFO panningu
     for (Voice* voice : activeVoices_) {
         if (voice && voice->isActive()) {
             if (voice->processBlock(outputLeft, outputRight, samplesPerBlock)) {
@@ -498,21 +492,29 @@ bool VoiceManager::processBlockUninterleaved(float* outputLeft, float* outputRig
         }
     }
 
-    // Vyčištění neaktivních hlasů
     if (!voicesToRemove_.empty()) {
         cleanupInactiveVoices();
     }
 
-    // Aplikace LFO panningu na finální mix
-    // Always process LFO (runs continuously, even when speed/depth are 0)
-    // This simplifies logic and prevents discontinuities
+    return anyActive;
+}
+
+void VoiceManager::finalizeBlock(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept {
+    // LFO runs continuously even at zero speed/depth (prevents phase discontinuities)
     applyLfoPanningPerSample(samplesPerBlock);
     applyLfoPanToFinalMix(outputLeft, outputRight, samplesPerBlock);
 
-    // Aplikace DSP řetězce (limiter atd.), pokud máme audio
-    if (anyActive) {
-        dspChain_.process(outputLeft, outputRight, samplesPerBlock);
-    }
+    dspChain_.process(outputLeft, outputRight, samplesPerBlock);
+}
+
+bool VoiceManager::processBlockUninterleaved(float* outputLeft, float* outputRight, int samplesPerBlock) noexcept {
+    if (!outputLeft || !outputRight || samplesPerBlock <= 0) return false;
+
+    std::fill(outputLeft, outputLeft + samplesPerBlock, 0.0f);
+    std::fill(outputRight, outputRight + samplesPerBlock, 0.0f);
+
+    bool anyActive = processBlockSegment(outputLeft, outputRight, samplesPerBlock);
+    finalizeBlock(outputLeft, outputRight, samplesPerBlock);
 
     return anyActive;
 }
