@@ -4,7 +4,6 @@
  */
 
 #include "sine_wave_generator.h"
-#include <algorithm> // for std::min
 
 // ============================================================================
 // Public Methods
@@ -27,10 +26,6 @@ std::vector<float> SineWaveGenerator::generateStereoSine(
     int stereoFrames = static_cast<int>(sampleRate * durationSeconds);
     int totalSamples = stereoFrames * 2; // Interleaved L/R
 
-    // Calculate fade samples
-    int fadeInSamples = static_cast<int>(sampleRate * FADE_IN_DURATION);
-    int fadeOutSamples = static_cast<int>(sampleRate * FADE_OUT_DURATION);
-
     // Allocate buffer
     std::vector<float> buffer(totalSamples);
 
@@ -40,28 +35,9 @@ std::vector<float> SineWaveGenerator::generateStereoSine(
         float phase = 2.0f * static_cast<float>(M_PI) * frequency * time;
 
         // Left channel: standard sine
-        float leftSample = amplitude * std::sin(phase);
-
         // Right channel: sine with slight phase offset for stereo width
-        float rightSample = amplitude * std::sin(phase + STEREO_PHASE_OFFSET);
-
-        // Apply fade-in
-        if (frame < fadeInSamples) {
-            float fadeMult = applyFadeIn(frame, fadeInSamples);
-            leftSample *= fadeMult;
-            rightSample *= fadeMult;
-        }
-
-        // Apply fade-out
-        if (frame >= stereoFrames - fadeOutSamples) {
-            float fadeMult = applyFadeOut(frame, stereoFrames, fadeOutSamples);
-            leftSample *= fadeMult;
-            rightSample *= fadeMult;
-        }
-
-        // Store interleaved [L,R,L,R,...]
-        buffer[frame * 2 + 0] = leftSample;
-        buffer[frame * 2 + 1] = rightSample;
+        buffer[frame * 2 + 0] = amplitude * std::sin(phase);
+        buffer[frame * 2 + 1] = amplitude * std::sin(phase + STEREO_PHASE_OFFSET);
     }
 
     return buffer;
@@ -83,25 +59,3 @@ float SineWaveGenerator::velocityLayerToAmplitude(int layer, int totalLayers) {
     return static_cast<float>(layer) / static_cast<float>(totalLayers);
 }
 
-// ============================================================================
-// Private Methods
-// ============================================================================
-
-float SineWaveGenerator::applyFadeIn(int sampleIndex, int fadeInSamples) {
-    if (fadeInSamples <= 0) return 1.0f; // No fade
-    if (sampleIndex >= fadeInSamples) return 1.0f; // Past fade region
-
-    // Linear fade from 0.0 to 1.0
-    return static_cast<float>(sampleIndex) / static_cast<float>(fadeInSamples);
-}
-
-float SineWaveGenerator::applyFadeOut(int sampleIndex, int totalSamples, int fadeOutSamples) {
-    if (fadeOutSamples <= 0) return 1.0f; // No fade
-
-    int fadeStartSample = totalSamples - fadeOutSamples;
-    if (sampleIndex < fadeStartSample) return 1.0f; // Before fade region
-
-    // Linear fade from 1.0 to 0.0
-    int samplesIntoFade = sampleIndex - fadeStartSample;
-    return 1.0f - (static_cast<float>(samplesIntoFade) / static_cast<float>(fadeOutSamples));
-}

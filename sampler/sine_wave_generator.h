@@ -39,7 +39,7 @@ public:
      * - MIDI note → frequency conversion (A4 = 440 Hz)
      * - Linear velocity layer → amplitude mapping
      * - Stereo with slight phase offset (0.05 radians) for width
-     * - Fade-in (first 5ms) and fade-out (last 10ms) for smooth ADSR
+     * - No envelope applied — Voice ADSR handles attack/release
      */
     static std::vector<float> generateStereoSine(
         uint8_t midiNote,
@@ -72,29 +72,6 @@ public:
 private:
     // Stereo phase offset in radians (small offset for width effect)
     static constexpr float STEREO_PHASE_OFFSET = 0.05f;
-
-    // Fade-in duration in seconds
-    static constexpr float FADE_IN_DURATION = 0.005f;  // 5ms
-
-    // Fade-out duration in seconds
-    static constexpr float FADE_OUT_DURATION = 0.010f; // 10ms
-
-    /**
-     * @brief Apply fade-in envelope to sample
-     * @param sampleIndex Current sample index
-     * @param fadeInSamples Total fade-in samples
-     * @return Fade multiplier (0.0 to 1.0)
-     */
-    static float applyFadeIn(int sampleIndex, int fadeInSamples);
-
-    /**
-     * @brief Apply fade-out envelope to sample
-     * @param sampleIndex Current sample index
-     * @param totalSamples Total samples in buffer
-     * @param fadeOutSamples Total fade-out samples
-     * @return Fade multiplier (0.0 to 1.0)
-     */
-    static float applyFadeOut(int sampleIndex, int totalSamples, int fadeOutSamples);
 };
 
 #endif // SINE_WAVE_GENERATOR_H
